@@ -38,6 +38,8 @@ const Check = mkIcon(<polyline points="20 6 9 17 4 12"/>);
 const ChevronDown = mkIcon(<polyline points="6 9 12 15 18 9"/>);
 const Info = mkIcon(<g><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g>);
 const Pencil = mkIcon(<g><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></g>);
+const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
+const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
 
 function loadState() {
   try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw); return { ...DEFAULT, ...p, settings: { ...DEFAULT.settings, ...(p.settings || {}) } }; } } catch (e) {}
@@ -92,8 +94,216 @@ function buildModel(sets) {
     e = e == null ? obs : e + 0.35 * reliability(n) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
-  return { e1rm: e, points, count: sorted.length };
+  const out = { e1rm: e, points, count: sorted.length };
+  return out;
 }
+
+/* ----------------------------------------------------------------------------
+   INSIGHT ENGINE — reads the data the app already has and turns it into plain
+   reads. Pure local rules: strength trend, hidden gains from variations, RPE
+   calibration, weak points, readiness flags. No AI/backend.
+---------------------------------------------------------------------------- */
+function analyze(state, models, unit) {
+  const ex = state.exercises;
+  const U = unit || "lb";
+  const names = Object.keys(ex);
+  const mains = names.filter((n) => !ex[n].parent);
+  const now = Date.now(), DAY = 864e5;
+  const r1 = (x) => fmt(Math.round(x));
+  const valueAt = (pts, t) => { let v = null; for (const p of pts) { if (p.ts <= t) v = p.value; else break; } return v; };
+  const out = [];
+  const add = (sev, title, detail, scope) => out.push({ id: (scope || "g") + "|" + title, sev, title, detail });
+
+  // projected total + per-lift estimates
+  const find = (kw) => mains.find((n) => n.toLowerCase() === kw) || mains.find((n) => n.toLowerCase().includes(kw));
+  const S = find("squat"), B = find("bench"), D = find("deadlift");
+  const parts = mains.filter((n) => models[n] && models[n].e1rm != null).map((n) => {
+    const m = models[n]; const ago = valueAt(m.points, now - 30 * DAY);
+    return { name: n, e1rm: m.e1rm, delta: ago != null ? m.e1rm - ago : null };
+  });
+  let total = null, totalDelta = null;
+  if (S && B && D && models[S].e1rm != null && models[B].e1rm != null && models[D].e1rm != null) {
+    total = models[S].e1rm + models[B].e1rm + models[D].e1rm;
+    totalDelta = [S, B, D].reduce((acc, n) => { const a = valueAt(models[n].points, now - 30 * DAY); return acc + (a != null ? models[n].e1rm - a : 0); }, 0);
+  }
+
+  for (const M of mains) {
+    const m = models[M]; if (!m || m.e1rm == null) continue;
+    const pts = m.points, latest = m.e1rm, lastTs = pts.length ? pts[pts.length - 1].ts : null;
+    const priorMax = pts.length > 1 ? Math.max(...pts.slice(0, -1).map((p) => p.value)) : -Infinity;
+    let prFired = false;
+    if (pts.length >= 4 && latest > priorMax + 0.5 && lastTs && now - lastTs < 21 * DAY) {
+      add("win", "New " + M + " high", "Your estimated " + M + " 1RM just hit a new high of " + r1(latest) + " " + U + ".", M); prFired = true;
+    }
+    const ago30 = valueAt(pts, now - 30 * DAY);
+    if (ago30 != null && ago30 > 0) {
+      const d = latest - ago30, pct = (d / ago30) * 100, thr = Math.max(2, ago30 * 0.015);
+      if (!prFired && d > thr) add("win", M + " trending up", "Up " + r1(d) + " " + U + " (" + pct.toFixed(1) + "%) over the last 30 days.", M);
+      else if (d < -thr) add("watch", M + " slipping", "Down " + r1(-d) + " " + U + " over 30 days — could be fatigue or a rough stretch.", M);
+    }
+    const kids = names.filter((n) => ex[n].parent === M);
+    if (kids.length) {
+      const ownM = m.own && m.own.e1rm;
+      const recentKids = kids.filter((k) => ex[k].sets.some((s) => now - s.ts < 21 * DAY));
+      const kidLabel = (recentKids.length ? recentKids : kids).join(" & ");
+      if (ownM == null) add("win", M + " from variations", "You haven't done straight " + M + " lately — based on your " + kidLabel + ", your " + M + " 1RM is about " + r1(latest) + " " + U + ".", M);
+      else if (latest > ownM * 1.02) add("win", "Hidden " + M + " strength", "Your " + kidLabel + " suggests your " + M + " 1RM is ~" + r1(latest - ownM) + " " + U + " higher than your recent straight " + M + " shows (" + r1(latest) + " vs " + r1(ownM) + ").", M);
+    }
+    if (lastTs && now - lastTs > 14 * DAY && pts.length >= 4) add("note", M + " has gone quiet", Math.round((now - lastTs) / DAY) + " days since your last " + M + " work.", M);
+  }
+
+  for (const V of names) {
+    const x = ex[V]; if (!x.parent || !ex[x.parent] || typeof x.ratioManual === "number") continue;
+    const mv = models[V], own = mv && mv.own && mv.own.e1rm, ownP = models[x.parent] && models[x.parent].own && models[x.parent].own.e1rm;
+    if (!own || !ownP) continue;
+    const r = mv.ratio, base = typeof x.ratio === "number" ? x.ratio : defaultRatio(V), lc = V.toLowerCase();
+    const zone = /block|board|pin|lockout|rack/.test(lc) ? "lockout strength" : /pause|deficit|bottom|dead\s*stop|tempo/.test(lc) ? "bottom-end strength" : "that range";
+    if (r > base + 0.03) add("win", V + " catching up", "Your " + V + " is now " + Math.round(r * 100) + "% of " + x.parent + " (was ~" + Math.round(base * 100) + "%) — " + zone + " is improving.", V);
+    else if (r < base - 0.04) add("watch", V + " lagging", "Your " + V + " has dropped to " + Math.round(r * 100) + "% of " + x.parent + " — " + zone + " may be a weak point.", V);
+  }
+
+  const recSets = [];
+  for (const n of names) for (const s of ex[n].sets) if (s.fromRec && typeof s.tRpe === "number" && now - s.ts < 49 * DAY) recSets.push(s);
+  if (recSets.length >= 4) {
+    const errs = recSets.map((s) => s.rpe - s.tRpe);
+    const bias = errs.reduce((a, b) => a + b, 0) / errs.length;
+    const mae = errs.reduce((a, b) => a + Math.abs(b), 0) / errs.length;
+    if (mae <= 0.6 && recSets.length >= 6) add("note", "Your RPE is dialed in", "Across your last " + recSets.length + " prescribed sets you're within ±" + mae.toFixed(1) + " RPE of target — trust your top sets.", "rpe");
+    else if (bias >= 0.5) add("note", "Sets landing harder than asked", "On average ~" + bias.toFixed(1) + " RPE above target — the model is nudging your loads down to match.", "rpe");
+    else if (bias <= -0.5) add("note", "More in the tank than you think", "Sets land ~" + Math.abs(bias).toFixed(1) + " RPE easier than asked — the model is nudging loads up.", "rpe");
+    else if (mae >= 1.2) add("note", "RPE calls are swingy", "Your effort ratings vary ±" + mae.toFixed(1) + " RPE — an occasional set to true failure will recalibrate your gauge.", "rpe");
+  }
+
+  const rd = [...state.readiness].sort((a, b) => a.ts - b.ts);
+  if (rd.length >= 1) {
+    const last = rd[rd.length - 1], base = rd.reduce((a, b) => a + b.level, 0) / rd.length;
+    if (now - last.ts < 1.5 * DAY) {
+      if (last.level <= base - 2 || last.level <= 4) add("alert", "Low readiness today", "You rated " + last.level + "/10 (your norm ~" + base.toFixed(1) + ") — consider trimming top sets ~5–10% or capping at RPE 8.", "rdy");
+      else if (last.level >= base + 2 && last.level >= 8) add("win", "Primed today", "You rated " + last.level + "/10, well above your norm — a good day to push the top end.", "rdy");
+    }
+  }
+
+  for (const M of mains) {
+    const m = models[M]; if (!m || m.e1rm == null || m.points.length < 5) continue;
+    const pts = m.points, ago30 = valueAt(pts, now - 30 * DAY), spanDays = (pts[pts.length - 1].ts - pts[0].ts) / DAY;
+    if (!(ago30 != null && spanDays >= 21 && m.e1rm <= ago30 * 1.003)) continue;
+    if (rd.length >= 4) {
+      const recent = rd.slice(-3).reduce((a, b) => a + b.level, 0) / 3;
+      const earlier = rd.slice(0, -3).reduce((a, b) => a + b.level, 0) / (rd.length - 3);
+      if (recent <= earlier - 1 || recent <= 5) add("alert", M + " may need a deload", M + " has been flat ~" + Math.round(spanDays / 7) + " weeks and your readiness is trending down — a lighter week could unlock the next jump.", M + "|dl");
+    }
+  }
+
+  if (S && B && D && models[S].e1rm && models[B].e1rm && models[D].e1rm) {
+    const sq = models[S].e1rm, be = models[B].e1rm;
+    if (be / sq < 0.58) add("watch", "Bench is your lagging lift", "Your bench is " + Math.round((be / sq) * 100) + "% of your squat (typical is ~65–75%) — likely the biggest lever on your total.", "bal");
+  }
+
+  const rank = { alert: 0, win: 1, watch: 2, note: 3 };
+  out.sort((a, b) => rank[a.sev] - rank[b.sev]);
+  return { total, totalDelta, parts, insights: out.slice(0, 8) };
+}
+
+/* ----------------------------------------------------------------------------
+   SHARE CARDS — draw a clean, branded IRONSET image on a canvas (no deps,
+   offline) and hand it to the iOS share sheet, with a save/preview fallback.
+---------------------------------------------------------------------------- */
+function _round(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function _barbell(ctx, cx, cy, width) {
+  const half = width / 2;
+  ctx.fillStyle = "#E23B2E";
+  ctx.fillRect(cx - half, cy - 14, 11, 28);
+  ctx.fillRect(cx + half - 11, cy - 14, 11, 28);
+  ctx.fillStyle = "rgba(226,59,46,0.45)";
+  ctx.fillRect(cx - half + 13, cy - 2, width - 26, 5);
+}
+function _wrap(ctx, text, x, y, maxW, lh) {
+  const words = String(text).split(/\s+/);
+  let line = "", yy = y;
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (ctx.measureText(t).width > maxW && line) { ctx.fillText(line, x, yy); line = w; yy += lh; }
+    else line = t;
+  }
+  if (line) { ctx.fillText(line, x, yy); yy += lh; }
+  return yy;
+}
+function buildCard(p) {
+  const W = 1080, H = 1350;
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  const SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+  const MON = "'Menlo','Monaco',monospace";
+  ctx.fillStyle = "#14161A"; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(W - 150, 220, 0, W - 150, 220, 560);
+  g.addColorStop(0, "rgba(226,59,46,0.12)"); g.addColorStop(1, "rgba(226,59,46,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#2C313B"; ctx.lineWidth = 2;
+  _round(ctx, 40, 40, W - 80, H - 80, 30); ctx.stroke();
+
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+  ctx.font = "800 48px " + SANS;
+  ctx.fillStyle = "#ECEAE3"; ctx.fillText("IRON", 90, 158);
+  const iw = ctx.measureText("IRON").width;
+  ctx.fillStyle = "#E23B2E"; ctx.fillText("SET", 90 + iw, 158);
+
+  if (p.type === "stat") {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#929AA6"; ctx.font = "800 34px " + SANS;
+    try { ctx.letterSpacing = "6px"; } catch (e) {}
+    ctx.fillText(String(p.label).toUpperCase(), W / 2, 575);
+    try { ctx.letterSpacing = "0px"; } catch (e) {}
+    ctx.textAlign = "left";
+    ctx.font = "700 230px " + MON; const vw = ctx.measureText(String(p.value)).width;
+    ctx.font = "700 64px " + MON; const uw = p.unit ? ctx.measureText(p.unit).width : 0;
+    const gap = p.unit ? 20 : 0, sx = (W - (vw + gap + uw)) / 2, by = 790;
+    ctx.fillStyle = "#ECEAE3"; ctx.font = "700 230px " + MON; ctx.fillText(String(p.value), sx, by);
+    if (p.unit) { ctx.fillStyle = "#929AA6"; ctx.font = "700 64px " + MON; ctx.fillText(p.unit, sx + vw + gap, by); }
+    ctx.textAlign = "center";
+    if (p.delta != null && Math.abs(p.delta) >= 1) {
+      ctx.fillStyle = p.delta > 0 ? "#7FC68F" : "#E23B2E"; ctx.font = "700 42px " + SANS;
+      ctx.fillText((p.delta > 0 ? "+" : "") + p.delta + " " + (p.unit || "") + "   /   30 days", W / 2, 880);
+    }
+    _barbell(ctx, W / 2, 975, 380);
+    if (p.sub) { ctx.fillStyle = "#5C6470"; ctx.font = "700 36px " + MON; ctx.fillText(p.sub, W / 2, 1072); }
+  } else {
+    const accent = p.accent || "#E23B2E", mx = 100, top = 560, maxW = W - mx * 2 - 36;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ECEAE3"; ctx.font = "800 64px " + SANS;
+    const y1 = _wrap(ctx, p.title, mx + 36, top, maxW, 78);
+    ctx.fillStyle = "#9098A4"; ctx.font = "400 42px " + SANS;
+    const y2 = _wrap(ctx, p.detail, mx + 36, y1 + 36, maxW, 58);
+    ctx.fillStyle = accent; _round(ctx, mx, top - 52, 9, (y2 - 24) - (top - 52), 4); ctx.fill();
+    _barbell(ctx, W / 2, H - 250, 300);
+  }
+
+  ctx.font = "600 30px " + SANS; ctx.fillStyle = "#5C6470";
+  ctx.textAlign = "left"; ctx.fillText(p.date || "", 90, H - 92);
+  ctx.textAlign = "right"; ctx.fillText("ironset", W - 90, H - 92);
+  ctx.textAlign = "left";
+  return cv;
+}
+async function shareCard(cv, filename, onPreview) {
+  const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const file = new File([blob], filename, { type: "image/png" });
+  if (typeof navigator !== "undefined" && navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); URL.revokeObjectURL(url); return; }
+    catch (e) { if (e && e.name === "AbortError") { URL.revokeObjectURL(url); return; } }
+  }
+  onPreview({ url, file });
+}
+function doShare(onPreview, payload) { try { shareCard(buildCard(payload), "ironset-" + Date.now() + ".png", onPreview); } catch (e) {} }
 
 /* ---------------------------- small utilities ---------------------------- */
 const roundTo = (x, step) => Math.round(x / step) * step;
@@ -346,6 +556,9 @@ function App() {
     return view;
   }, [state.exercises]);
 
+  const analysis = useMemo(() => analyze(state, models, unit), [state, models, unit]);
+  const todayNudge = analysis.insights.find((i) => i.id.indexOf("rdy|") === 0) || null;
+
   /* mutations */
   const addExercise = (name, parent, ratio) => {
     const n = name.trim();
@@ -388,6 +601,7 @@ function App() {
 
   const tabs = [
     { id: "train", label: "Train", icon: Activity },
+    { id: "insights", label: "Insights", icon: Zap },
     { id: "history", label: "History", icon: TrendingUp },
     { id: "readiness", label: "Readiness", icon: Check },
   ];
@@ -416,8 +630,8 @@ function App() {
                 <button key={t.id} onClick={() => setTab(t.id)} style={{
                   flex: 1, padding: "9px 0", borderRadius: 10, border: `1px solid ${a ? C.red : C.line}`,
                   background: a ? C.redSoft : "transparent", color: a ? C.red : C.muted, cursor: "pointer",
-                  fontWeight: 800, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <I size={15} /> {t.label}
+                  fontWeight: 800, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                  <I size={14} /> {t.label}
                 </button>
               );
             })}
@@ -426,7 +640,10 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms }} />
+            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms, todayNudge }} />
+          )}
+          {tab === "insights" && (
+            <InsightsTab analysis={analysis} unit={unit} />
           )}
           {tab === "history" && (
             <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
@@ -443,7 +660,7 @@ function App() {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms }) {
+function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms, todayNudge }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
@@ -523,6 +740,14 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           <span style={{ color: C.red, fontSize: 14 }}>↔</span>
           {parentName ? `Feeds ${parentName} · ${ratioPct}%` : childNames.length ? `Includes ${childNames.join(", ")}` : "Link as a variation"}
         </button>
+      )}
+
+      {todayNudge && (
+        <div style={{ background: todayNudge.sev === "win" ? "rgba(127,198,143,0.12)" : C.redSoft,
+          border: `1px solid ${todayNudge.sev === "win" ? "rgba(127,198,143,0.4)" : C.redLine}`,
+          borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: C.text, lineHeight: 1.45 }}>
+          <b style={{ color: todayNudge.sev === "win" ? C.good : C.red }}>{todayNudge.title}.</b> {todayNudge.detail}
+        </div>
       )}
 
       {/* strength readout */}
@@ -883,6 +1108,103 @@ function ReadinessTab({ readiness, addReadiness, deleteReadiness }) {
         </Card>
       )}
     </div>
+  );
+}
+
+/* ============================== INSIGHTS ================================ */
+function InsightsTab({ analysis, unit }) {
+  const { total, totalDelta, parts, insights } = analysis;
+  const sevColor = { alert: C.red, watch: "#D9A441", win: C.good, note: "#7FA8C9" };
+  const [share, setShare] = useState(null);
+  const iconBtn = { background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, flexShrink: 0, display: "flex", alignItems: "center" };
+  const dateStr = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const shareStat = () => {
+    const sub = parts.slice(0, 3).map((p) => {
+      const n = p.name.toLowerCase();
+      const ab = n.includes("squat") ? "S" : n.includes("bench") ? "B" : n.includes("dead") ? "D" : p.name.slice(0, 2).toUpperCase();
+      return ab + " " + fmt(Math.round(p.e1rm));
+    }).join("    ");
+    doShare(setShare, { type: "stat", label: "Projected total", value: fmt(Math.round(total)), unit, delta: totalDelta != null ? Math.round(totalDelta) : null, sub, date: dateStr });
+  };
+  const shareInsight = (it) => doShare(setShare, { type: "insight", title: it.title, detail: it.detail, accent: sevColor[it.sev], date: dateStr });
+  if ((!insights || insights.length === 0) && (!parts || parts.length === 0))
+    return (
+      <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
+        Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points, and readiness flags. No two lifters get the same reads.
+      </Card>
+    );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {total != null ? (
+        <Card style={{ textAlign: "center", paddingTop: 20, paddingBottom: 18, position: "relative" }}>
+          <button onClick={shareStat} aria-label="Share" style={{ ...iconBtn, position: "absolute", top: 10, right: 10 }}><Share size={16} /></button>
+          <div style={label}>Projected total</div>
+          <div style={{ fontFamily: MONO, fontSize: 46, fontWeight: 700, lineHeight: 1, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+            {fmt(Math.round(total))}<span style={{ fontSize: 16, color: C.muted, marginLeft: 5 }}>{unit}</span>
+          </div>
+          {totalDelta != null && Math.abs(totalDelta) >= 1 && (
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 6, color: totalDelta > 0 ? C.good : C.red }}>
+              {totalDelta > 0 ? "+" : ""}{fmt(Math.round(totalDelta))} {unit} in 30 days
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "center", gap: 22, marginTop: 14 }}>
+            {parts.slice(0, 3).map((p) => (
+              <div key={p.name} style={{ textAlign: "center" }}>
+                <div style={{ ...label, fontSize: 9 }}>{p.name}</div>
+                <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, marginTop: 2 }}>{fmt(Math.round(p.e1rm))}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : parts && parts.length > 0 ? (
+        <Card>
+          <div style={{ ...label, marginBottom: 4 }}>Estimated 1RMs</div>
+          {parts.map((p) => (
+            <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
+              <span style={{ fontFamily: MONO, fontWeight: 700 }}>{fmt(Math.round(p.e1rm))} <span style={{ color: C.muted, fontSize: 12 }}>{unit}</span></span>
+            </div>
+          ))}
+        </Card>
+      ) : null}
+
+      {insights.map((it) => (
+        <div key={it.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: 12, padding: "13px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0 }} />
+              <span style={{ fontWeight: 800, fontSize: 13.5 }}>{it.title}</span>
+            </div>
+            <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{it.detail}</div>
+        </div>
+      ))}
+
+      <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
+        These read your own logged data and refresh every time you train.
+      </div>
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
+    </div>
+  );
+}
+
+function ShareSheet({ data, onClose }) {
+  if (!data) return null;
+  const canShare = typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [data.file] });
+  const save = () => { const a = document.createElement("a"); a.href = data.url; a.download = data.file.name; document.body.appendChild(a); a.click(); a.remove(); };
+  const reshare = async () => { try { await navigator.share({ files: [data.file] }); } catch (e) {} };
+  return (
+    <Sheet open onClose={onClose} title="Share">
+      <img src={data.url} alt="IRONSET card" style={{ width: "100%", borderRadius: 14, display: "block", border: `1px solid ${C.line}` }} />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        {canShare && <Btn kind="primary" onClick={reshare} style={{ flex: 1 }}>Share</Btn>}
+        <Btn kind="solid" onClick={save} style={{ flex: 1 }}>Save image</Btn>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 10, textAlign: "center", lineHeight: 1.5 }}>
+        On iPhone you can also press and hold the image to save it or send it straight to Instagram or Messages.
+      </div>
+    </Sheet>
   );
 }
 
