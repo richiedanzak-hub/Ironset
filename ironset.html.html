@@ -271,6 +271,17 @@ const DEFAULT = {
   readiness: [], // [{id, ts, level, note}]
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe" },
 };
+// Default strength ratio of a variation to its main lift, guessed from its name.
+const VAR_RATIOS = [
+  [/front\s*squat/, 0.82], [/pause|paused|tempo|\bpin\b|dead\s*stop|bottom|deficit/, 0.9],
+  [/spoto|larsen|close\s*grip|cgbp|2\s*ct|3\s*ct|count/, 0.93],
+  [/block|board|rack|pin\s*press|touch\s*and\s*go|tng/, 1.04],
+];
+function defaultRatio(name) {
+  const n = (name || "").toLowerCase();
+  for (const [re, r] of VAR_RATIOS) if (re.test(n)) return r;
+  return 0.9;
+}
 const PRESETS = ["Squat", "Bench Press", "Deadlift", "Overhead Press"];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -280,7 +291,7 @@ function App() {
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // save to this device — works in any browser, offline, no Claude runtime needed
+  // save to this device on every change (synchronous, offline, no Claude runtime needed)
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }, [state]);
   // default selection
   useEffect(() => { if (!sel) { const k = Object.keys(state.exercises); if (k.length) setSel(k[0]); } }, [state.exercises, sel]);
@@ -289,20 +300,69 @@ function App() {
   const denoms = unit === "kg" ? [25, 20, 15, 10, 5, 2.5, 1.25] : [45, 35, 25, 10, 5, 2.5];
 
   const models = useMemo(() => {
-    const m = {};
-    for (const [k, ex] of Object.entries(state.exercises)) m[k] = buildModel(ex.sets);
-    return m;
+    const ex = state.exercises;
+    const own = {};
+    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets);
+    // ratio of a variation's strength to its parent: learned from own numbers, else default
+    const ratioOf = (name) => {
+      const x = ex[name];
+      if (!x || !x.parent || !ex[x.parent]) return 1;
+      if (typeof x.ratioManual === "number") return x.ratioManual;
+      const a = own[name] && own[name].e1rm, b = own[x.parent] && own[x.parent].e1rm;
+      if (a && b) return Math.min(1.2, Math.max(0.5, a / b));
+      return typeof x.ratio === "number" ? x.ratio : 0.9;
+    };
+    // pooled main-equivalent estimate across a main lift + all its variations
+    const famCache = {};
+    const family = (root) => {
+      if (famCache[root]) return famCache[root];
+      const members = [root, ...Object.keys(ex).filter((k) => ex[k].parent === root)];
+      const all = [];
+      for (const m of members) {
+        const r = m === root ? 1 : ratioOf(m);
+        for (const s of ex[m].sets) all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, n: repsToFailure(s.reps, s.rpe) });
+      }
+      all.sort((a, b) => a.ts - b.ts);
+      let e = null; const points = [];
+      for (const x of all) { e = e == null ? x.obs : e + 0.35 * reliability(x.n) * (x.obs - e); points.push({ ts: x.ts, value: e }); }
+      const out = { e1rm: e, points, count: all.length };
+      famCache[root] = out; return out;
+    };
+    const view = {};
+    for (const k of Object.keys(ex)) {
+      const hasParent = ex[k].parent && ex[ex[k].parent];
+      const root = hasParent ? ex[k].parent : k;
+      const f = family(root);
+      const r = root === k ? 1 : ratioOf(k);
+      view[k] = {
+        e1rm: f.e1rm != null ? f.e1rm * r : null,
+        points: f.points.map((p) => ({ ts: p.ts, value: p.value * r })),
+        count: f.count,
+        own: own[k],
+        ratio: r,
+        parent: hasParent ? ex[k].parent : null,
+      };
+    }
+    return view;
   }, [state.exercises]);
 
   /* mutations */
-  const addExercise = (name) => {
+  const addExercise = (name, parent, ratio) => {
     const n = name.trim();
     if (!n) return;
     const exists = Object.keys(state.exercises).find((k) => k.toLowerCase() === n.toLowerCase());
     if (exists) { setSel(exists); return; }
-    setState((s) => ({ ...s, exercises: { ...s.exercises, [n]: { name: n, sets: [] } } }));
+    const exObj = { name: n, sets: [] };
+    if (parent) { exObj.parent = parent; exObj.ratio = typeof ratio === "number" ? ratio : defaultRatio(n); }
+    setState((s) => ({ ...s, exercises: { ...s.exercises, [n]: exObj } }));
     setSel(n);
   };
+  const updateExercise = (name, patch) => setState((s) => {
+    const e = s.exercises[name]; if (!e) return s;
+    const next = { ...e, ...patch };
+    Object.keys(next).forEach((key) => next[key] === undefined && delete next[key]);
+    return { ...s, exercises: { ...s.exercises, [name]: next } };
+  });
   const logSet = (name, set) => {
     setState((s) => {
       const ex = s.exercises[name]; if (!ex) return s;
@@ -324,7 +384,6 @@ function App() {
   const addReadiness = (level, note) => setState((s) => ({ ...s, readiness: [...s.readiness, { id: uid(), ts: Date.now(), level, note }] }));
   const deleteReadiness = (id) => setState((s) => ({ ...s, readiness: s.readiness.filter((x) => x.id !== id) }));
   const setSetting = (k, v) => setState((s) => ({ ...s, settings: { ...s.settings, [k]: v } }));
-
 
 
   const tabs = [
@@ -367,7 +426,7 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, logSet, settings: state.settings, denoms }} />
+            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms }} />
           )}
           {tab === "history" && (
             <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
@@ -384,11 +443,13 @@ function App() {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, logSet, settings, denoms }) {
+function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
+  const mains = names.filter((n) => !state.exercises[n].parent);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [linking, setLinking] = useState(false);
 
   // prescription
   const [tReps, setTReps] = useState(3);
@@ -406,6 +467,10 @@ function TrainTab({ state, sel, setSel, models, addExercise, logSet, settings, d
 
   const model = (sel && models[sel]) ? models[sel] : { e1rm: null, points: [], count: 0 };
   const e1rm = model.e1rm;
+  const selEx = sel ? state.exercises[sel] : null;
+  const childNames = sel ? names.filter((n) => state.exercises[n].parent === sel) : [];
+  const parentName = selEx && selEx.parent && state.exercises[selEx.parent] ? selEx.parent : null;
+  const ratioPct = Math.round((model.ratio || 1) * 100);
   const rec = e1rm != null ? weightForTarget(e1rm, tReps, tRpe) : null;
   const recR = rec != null ? roundTo(rec, round) : null;
   const strongDay = e1rm != null && tRpe < 10 ? roundTo(weightForTarget(e1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
@@ -440,7 +505,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, logSet, settings, d
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 14 }}>
           {PRESETS.map((p) => <Chip key={p} onClick={() => addExercise(p)}>{p}</Chip>)}
         </div>
-        <AddRow {...{ newName, setNewName, addExercise }} />
+        <AddRow {...{ newName, setNewName, addExercise, mains }} />
       </Card>
     );
 
@@ -451,7 +516,14 @@ function TrainTab({ state, sel, setSel, models, addExercise, logSet, settings, d
         {names.map((n) => <Chip key={n} active={n === sel} onClick={() => setSel(n)}>{n}</Chip>)}
         <Chip onClick={() => setAdding((v) => !v)}><Plus size={15} style={{ marginTop: -1 }} /></Chip>
       </div>
-      {adding && <Card style={{ padding: 12 }}><AddRow {...{ newName, setNewName, addExercise: (n) => { addExercise(n); setAdding(false); } }} /></Card>}
+      {adding && <Card style={{ padding: 12 }}><AddRow {...{ newName, setNewName, mains, addExercise: (n, p) => { addExercise(n, p); setAdding(false); } }} /></Card>}
+      {sel && (
+        <button onClick={() => setLinking(true)} style={{ alignSelf: "flex-start", background: "none", border: "none",
+          color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 6, marginTop: -4 }}>
+          <span style={{ color: C.red, fontSize: 14 }}>↔</span>
+          {parentName ? `Feeds ${parentName} · ${ratioPct}%` : childNames.length ? `Includes ${childNames.join(", ")}` : "Link as a variation"}
+        </button>
+      )}
 
       {/* strength readout */}
       <Card style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -589,19 +661,44 @@ function TrainTab({ state, sel, setSel, models, addExercise, logSet, settings, d
           for the reps and RPE you prescribe.
         </Card>
       )}
+
+      {linking && sel && (
+        <LinkSheet
+          name={sel} exercise={state.exercises[sel]} mains={mains} childNames={childNames}
+          effectiveRatio={model.ratio || 1}
+          onClose={() => setLinking(false)}
+          onSave={(patch) => { updateExercise(sel, patch); setLinking(false); }}
+        />
+      )}
     </div>
   );
 }
 
-function AddRow({ newName, setNewName, addExercise }) {
+function AddRow({ newName, setNewName, addExercise, mains }) {
+  const [parent, setParent] = useState("");
+  const submit = () => { if (!newName.trim()) return; addExercise(newName, parent || undefined); setNewName(""); setParent(""); };
   return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <input value={newName} onChange={(e) => setNewName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { addExercise(newName); setNewName(""); } }}
-        placeholder="e.g. Incline Bench"
-        style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "11px 12px",
-          color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
-      <Btn kind="primary" onClick={() => { addExercise(newName); setNewName(""); }}>Add lift</Btn>
+    <div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={newName} onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          placeholder="e.g. Pause Squat"
+          style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "11px 12px",
+            color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
+        <Btn kind="primary" onClick={submit}>Add lift</Btn>
+      </div>
+      {mains && mains.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Variation of (optional)</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <Chip active={parent === ""} onClick={() => setParent("")}>None</Chip>
+            {mains.map((m) => <Chip key={m} active={parent === m} onClick={() => setParent(m)}>{m}</Chip>)}
+          </div>
+          {parent && <div style={{ fontSize: 11, color: C.faint, marginTop: 7 }}>
+            Feeds your {parent} estimate (≈{Math.round(defaultRatio(newName || "") * 100)}% to start, then auto-tunes from your numbers).
+          </div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -789,6 +886,59 @@ function ReadinessTab({ readiness, addReadiness, deleteReadiness }) {
   );
 }
 
+/* ============================== LINK SHEET ============================== */
+function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose, onSave }) {
+  const isMainWithKids = childNames.length > 0;
+  const [parent, setParent] = useState(exercise.parent || "");
+  const [mode, setMode] = useState(typeof exercise.ratioManual === "number" ? "custom" : "auto");
+  const [pct, setPct] = useState(String(Math.round((exercise.ratioManual ?? exercise.ratio ?? effectiveRatio ?? 0.9) * 100)));
+  const fld = { fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 };
+  const options = mains.filter((m) => m !== name);
+  const save = () => {
+    if (!parent) { onSave({ parent: undefined, ratio: undefined, ratioManual: undefined }); return; }
+    const patch = { parent };
+    if (mode === "custom") patch.ratioManual = Math.min(1.5, Math.max(0.3, (parseFloat(pct) || 90) / 100));
+    else { patch.ratioManual = undefined; if (typeof exercise.ratio !== "number") patch.ratio = defaultRatio(name); }
+    onSave(patch);
+  };
+  return (
+    <Sheet open onClose={onClose} title="Link to a main lift">
+      {isMainWithKids ? (
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
+          <b style={{ color: C.text }}>{name}</b> is a main lift and already pools: {childNames.join(", ")}. Relink those variations elsewhere first if you want to make this one a variation.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <div style={fld}>Variation of</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <Chip active={parent === ""} onClick={() => setParent("")}>None — main lift</Chip>
+              {options.map((m) => <Chip key={m} active={parent === m} onClick={() => setParent(m)}>{m}</Chip>)}
+            </div>
+          </div>
+          {parent && (
+            <div>
+              <div style={fld}>Strength ratio to {parent}</div>
+              <Segmented value={mode} onChange={setMode} options={[{ value: "auto", label: "AUTO" }, { value: "custom", label: "CUSTOM" }]} />
+              {mode === "custom" ? (
+                <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 120 }}><NumField value={pct} onChange={setPct} suffix="%" /></div>
+                  <div style={{ fontSize: 12, color: C.faint }}>of your {parent}</div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8 }}>
+                  Currently ≈{Math.round((effectiveRatio || 0.9) * 100)}%. Auto-learns the real ratio once both lifts have a few logged sets.
+                </div>
+              )}
+            </div>
+          )}
+          <Btn kind="primary" onClick={save} style={{ width: "100%" }}>Save</Btn>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 /* ============================== EDIT SET ================================= */
 function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
   const [date, setDate] = useState(dateStrFromTs(set.ts));
@@ -847,6 +997,16 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState("");
   const [armReset, setArmReset] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
+  const testStorage = () => {
+    try {
+      const tk = "ironset-selftest", v = String(Date.now());
+      localStorage.setItem(tk, v);
+      const ok = localStorage.getItem(tk) === v;
+      localStorage.removeItem(tk);
+      setSaveStatus(ok ? { ok: true, msg: "Saving works on this device. ✓" } : { ok: false, msg: "Couldn't read data back — Private Browsing may be blocking storage." });
+    } catch (e) { setSaveStatus({ ok: false, msg: "Storage blocked: " + ((e && e.message) || String(e)) + " — turn off Private Browsing." }); }
+  };
   const exportData = () => setBackup(JSON.stringify(state));
   const importData = () => {
     setErr("");
@@ -881,6 +1041,15 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
       </div>
 
       <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 4 }}>
+        <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Saving</div>
+        <Btn kind="solid" onClick={testStorage} style={{ width: "100%" }}>Test saving on this device</Btn>
+        {saveStatus && <div style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: saveStatus.ok ? C.good : C.red }}>{saveStatus.msg}</div>}
+        <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6 }}>
+          If saving isn't available here, your logs won't survive a close — use the hosted web version, which saves on your phone.
+        </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 16 }}>
         <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Backup</div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn kind="solid" onClick={exportData} style={{ flex: 1 }}>Show backup</Btn>
