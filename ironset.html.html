@@ -23,8 +23,6 @@
 <div id="root"><div class="boot">Loading IRONSET…</div></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
-
-/* inline icons — no external icon library */
 const mkIcon = (paths) => ({ size = 16, style }) =>
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>{paths}</svg>;
@@ -40,7 +38,6 @@ const Info = mkIcon(<g><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2=
 const Pencil = mkIcon(<g><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></g>);
 const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
 const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
-
 function loadState() {
   try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw); return { ...DEFAULT, ...p, settings: { ...DEFAULT.settings, ...(p.settings || {}) } }; } } catch (e) {}
   return DEFAULT;
@@ -201,7 +198,12 @@ function analyze(state, models, unit) {
 
   const rank = { alert: 0, win: 1, watch: 2, note: 3 };
   out.sort((a, b) => rank[a.sev] - rank[b.sev]);
-  return { total, totalDelta, parts, insights: out.slice(0, 8) };
+  const big = {
+    squat: S ? { name: S, e1rm: models[S].e1rm } : null,
+    bench: B ? { name: B, e1rm: models[B].e1rm } : null,
+    deadlift: D ? { name: D, e1rm: models[D].e1rm } : null,
+  };
+  return { total, totalDelta, parts, insights: out.slice(0, 8), big };
 }
 
 /* ----------------------------------------------------------------------------
@@ -304,6 +306,52 @@ async function shareCard(cv, filename, onPreview) {
   onPreview({ url, file });
 }
 function doShare(onPreview, payload) { try { shareCard(buildCard(payload), "ironset-" + Date.now() + ".png", onPreview); } catch (e) {} }
+
+/* ----------------------------------------------------------------------------
+   STRENGTH SCORE + MEET MATH — kg conversion, DOTS & Wilks coefficients, plate
+   rounding, attempt defaults. Powerlifting runs in kilos on 2.5 kg jumps.
+---------------------------------------------------------------------------- */
+const LBKG = 2.2046226218;
+const toKg = (v, unit) => (unit === "kg" ? v : v / LBKG);
+const fromKg = (kg, unit) => (unit === "kg" ? kg : kg * LBKG);
+const round2_5 = (kg) => Math.round(kg / 2.5) * 2.5;
+
+function dotsCoeff(bwKg, sex) {
+  const bw = Math.max(40, Math.min(sex === "female" ? 150 : 210, bwKg));
+  const d = sex === "female"
+    ? (-0.0000010706 * bw ** 4 + 0.0005158568 * bw ** 3 - 0.1126655495 * bw ** 2 + 13.6175032 * bw - 57.96288)
+    : (-0.000001093 * bw ** 4 + 0.0007391293 * bw ** 3 - 0.1918759221 * bw ** 2 + 24.0900756 * bw - 307.75076);
+  return 500 / d;
+}
+function wilksCoeff(bwKg, sex) {
+  const x = Math.max(40, Math.min(sex === "female" ? 150 : 210, bwKg));
+  const c = sex === "female"
+    ? [594.31747775582, -27.23842536447, 0.82112226871, -0.00930733913, 0.00004731582, -0.00000009054]
+    : [-216.0475144, 16.2606339, -0.002388645, -0.00113732, 0.00000701863, -0.00000001291];
+  const denom = c[0] + c[1] * x + c[2] * x ** 2 + c[3] * x ** 3 + c[4] * x ** 4 + c[5] * x ** 5;
+  return 500 / denom;
+}
+function dotsTier(d) {
+  if (d == null) return null;
+  if (d < 200) return "Beginner";
+  if (d < 300) return "Novice";
+  if (d < 375) return "Intermediate";
+  if (d < 450) return "Advanced";
+  if (d < 500) return "Elite";
+  return "World-class";
+}
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const t = new Date(y, m - 1, d); t.setHours(0, 0, 0, 0);
+  const n = new Date(); n.setHours(0, 0, 0, 0);
+  return Math.round((t - n) / 864e5);
+}
+function fmtMeetDate(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
 
 /* ---------------------------- small utilities ---------------------------- */
 const roundTo = (x, step) => Math.round(x / step) * step;
@@ -479,7 +527,9 @@ const KEY = "lift-weight-suggester-v1";
 const DEFAULT = {
   exercises: {}, // name -> { name, sets: [{id, ts, weight, reps, rpe, fromRec, tReps, tRpe, rec, note}] }
   readiness: [], // [{id, ts, level, note}]
-  settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe" },
+  bodyweight: [], // [{id, ts, kg}]
+  meet: { date: null, name: "", attempts: {} }, // attempts: { liftName: { opener, second, third } in kg }
+  settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male" },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
 const VAR_RATIOS = [
@@ -501,9 +551,7 @@ function App() {
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // save to this device on every change (synchronous, offline, no Claude runtime needed)
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }, [state]);
-  // default selection
   useEffect(() => { if (!sel) { const k = Object.keys(state.exercises); if (k.length) setSel(k[0]); } }, [state.exercises, sel]);
 
   const { unit, round, bar, inputMode } = state.settings;
@@ -558,6 +606,8 @@ function App() {
 
   const analysis = useMemo(() => analyze(state, models, unit), [state, models, unit]);
   const todayNudge = analysis.insights.find((i) => i.id.indexOf("rdy|") === 0) || null;
+  const meetDays = state.meet && state.meet.date ? daysUntil(state.meet.date) : null;
+  const meetName = (state.meet && state.meet.name) || "";
 
   /* mutations */
   const addExercise = (name, parent, ratio) => {
@@ -610,7 +660,7 @@ function App() {
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 40px" }}>
         {/* header */}
-        <div style={{ position: "sticky", top: 0, zIndex: 20, background: C.bg, borderBottom: `1px solid ${C.line}`, padding: "14px 16px 12px" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 20, background: C.bg, borderBottom: `1px solid ${C.line}`, padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: "0.02em" }}>
@@ -640,10 +690,10 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms, todayNudge }} />
+            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms, todayNudge, meetDays, meetName }} />
           )}
           {tab === "insights" && (
-            <InsightsTab analysis={analysis} unit={unit} />
+            <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
           )}
           {tab === "history" && (
             <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
@@ -660,7 +710,7 @@ function App() {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms, todayNudge }) {
+function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms, todayNudge, meetDays, meetName }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
@@ -740,6 +790,14 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           <span style={{ color: C.red, fontSize: 14 }}>↔</span>
           {parentName ? `Feeds ${parentName} · ${ratioPct}%` : childNames.length ? `Includes ${childNames.join(", ")}` : "Link as a variation"}
         </button>
+      )}
+
+      {meetDays != null && meetDays >= 0 && (
+        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "9px 12px",
+          fontSize: 12.5, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <b style={{ color: C.red }}>{meetName || "Meet"}</b>
+          <span style={{ fontFamily: MONO, fontWeight: 700 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
+        </div>
       )}
 
       {todayNudge && (
@@ -1111,8 +1169,204 @@ function ReadinessTab({ readiness, addReadiness, deleteReadiness }) {
   );
 }
 
+/* ===================== STRENGTH SCORE + MEET PREP ====================== */
+function ScoreCard({ analysis, unit, state, setState }) {
+  const sex = (state.settings && state.settings.sex) || "male";
+  const bwArr = state.bodyweight || [];
+  const bwKg = bwArr.length ? bwArr[bwArr.length - 1].kg : null;
+  const [share, setShare] = useState(null);
+  const [editing, setEditing] = useState(bwKg == null);
+  const [inp, setInp] = useState(bwKg != null ? fmt(fromKg(bwKg, unit)) : "");
+  const totalUnit = analysis.total;
+  const totalKg = totalUnit != null ? toKg(totalUnit, unit) : null;
+  const dots = bwKg != null && totalKg != null ? dotsCoeff(bwKg, sex) * totalKg : null;
+  const wilks = bwKg != null && totalKg != null ? wilksCoeff(bwKg, sex) * totalKg : null;
+  const tier = dotsTier(dots);
+  const setSex = (v) => setState((s) => ({ ...s, settings: { ...s.settings, sex: v } }));
+  const saveBw = () => {
+    const v = parseFloat(inp);
+    if (!isFinite(v) || v <= 0) return;
+    const kg = toKg(v, unit);
+    setState((s) => {
+      const arr = [...(s.bodyweight || [])];
+      const today = dateStrFromTs(Date.now());
+      const i = arr.findIndex((e) => dateStrFromTs(e.ts) === today);
+      if (i >= 0) arr[i] = { ...arr[i], kg }; else arr.push({ id: Date.now() + Math.random(), ts: Date.now(), kg });
+      return { ...s, bodyweight: arr };
+    });
+    setEditing(false);
+  };
+  const doShareScore = () => doShare(setShare, { type: "stat", label: "DOTS score", value: fmt(Math.round(dots)), unit: "",
+    sub: "Total " + fmt(Math.round(totalKg)) + " kg  @  " + fmt(Math.round(fromKg(bwKg, unit))) + " " + unit,
+    date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) });
+
+  if (totalKg == null) return (
+    <Card>
+      <div style={label}>Strength score</div>
+      <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+        Log squat, bench, and deadlift to see your DOTS and Wilks score.
+      </div>
+    </Card>
+  );
+
+  return (
+    <Card style={{ position: "relative" }}>
+      {dots != null && <button onClick={doShareScore} aria-label="Share" style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, position: "absolute", top: 10, right: 10 }}><Share size={16} /></button>}
+      <div style={label}>Strength score</div>
+      {bwKg != null && !editing ? (
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: MONO, fontSize: 40, fontWeight: 700, lineHeight: 1 }}>{fmt(Math.round(dots))}</span>
+            <span style={{ ...label, fontSize: 10 }}>DOTS</span>
+            {tier && <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>≈ {tier}</span>}
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12.5, color: C.muted }}>
+            <span>Wilks <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(wilks))}</b></span>
+            <span>Total <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(totalKg))}</b> kg</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10 }}>
+            <span style={{ fontSize: 12.5, color: C.muted }}>BW {fmt(fromKg(bwKg, unit))} {unit}
+              <button onClick={() => { setInp(fmt(fromKg(bwKg, unit))); setEditing(true); }} style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>Edit</button>
+            </span>
+            <Segmented value={sex} onChange={setSex} options={[{ value: "male", label: "M" }, { value: "female", label: "F" }]} />
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 8 }}>Enter your bodyweight to see DOTS &amp; Wilks.</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ flex: 1 }}><NumField value={inp} onChange={setInp} suffix={unit} /></div>
+            <Btn kind="primary" onClick={saveBw}>Save</Btn>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+            <Segmented value={sex} onChange={setSex} options={[{ value: "male", label: "Male" }, { value: "female", label: "Female" }]} />
+          </div>
+        </div>
+      )}
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
+    </Card>
+  );
+}
+
+function MeetCard({ analysis, unit, state, setState }) {
+  const [open, setOpen] = useState(false);
+  const meet = state.meet || { date: null, name: "", attempts: {} };
+  const days = meet.date ? daysUntil(meet.date) : null;
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={label}>Meet prep</div>
+        {meet.date && days != null && days >= 0 && (
+          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 13, color: days <= 14 ? C.red : C.text }}>
+            {days === 0 ? "Meet day" : days + " day" + (days === 1 ? "" : "s") + " out"}
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+        {meet.date
+          ? (meet.name ? meet.name + " — plan" : "Plan") + " your openers, second and third attempts off your current maxes — in kilos, rounded to the plates."
+          : "Set a meet date and IRONSET builds your nine attempts off your current strength."}
+      </div>
+      <Btn kind={meet.date ? "solid" : "primary"} onClick={() => setOpen(true)} style={{ marginTop: 12, width: "100%" }}>
+        {meet.date ? "Open meet prep" : "Set up meet prep"}
+      </Btn>
+      <MeetSheet open={open} onClose={() => setOpen(false)} {...{ analysis, unit, state, setState }} />
+    </Card>
+  );
+}
+
+function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
+  const meet = state.meet || { date: null, name: "", attempts: {} };
+  const [share, setShare] = useState(null);
+  const sex = (state.settings && state.settings.sex) || "male";
+  const bwArr = state.bodyweight || [];
+  const bwKg = bwArr.length ? bwArr[bwArr.length - 1].kg : null;
+  const setMeet = (patch) => setState((s) => ({ ...s, meet: { ...(s.meet || { date: null, name: "", attempts: {} }), ...patch } }));
+  const lifts = [analysis.big.squat, analysis.big.bench, analysis.big.deadlift].filter(Boolean);
+
+  const attemptsFor = (lf) => {
+    const ov = (meet.attempts && meet.attempts[lf.name]) || {};
+    const kg = toKg(lf.e1rm, unit);
+    return {
+      opener: ov.opener != null ? ov.opener : round2_5(kg * 0.9),
+      second: ov.second != null ? ov.second : round2_5(kg * 0.95),
+      third: ov.third != null ? ov.third : round2_5(kg * 1.0),
+    };
+  };
+  const setAttempt = (name, key, val) => setMeet({ attempts: { ...(meet.attempts || {}), [name]: { ...((meet.attempts || {})[name] || {}), [key]: val } } });
+  const autoLift = (name) => setMeet({ attempts: { ...(meet.attempts || {}), [name]: {} } });
+
+  const thirdsTotal = lifts.reduce((a, lf) => a + attemptsFor(lf).third, 0);
+  const openersTotal = lifts.reduce((a, lf) => a + attemptsFor(lf).opener, 0);
+  const dots = bwKg != null && lifts.length === 3 ? dotsCoeff(bwKg, sex) * thirdsTotal : null;
+  const pct = { opener: "90%", second: "95%", third: "100%" };
+  const lblmap = { opener: "Opener", second: "Second", third: "Third" };
+
+  const shareMeet = () => {
+    const sub = lifts.map((lf) => { const n = lf.name.toLowerCase(); const ab = n.includes("squat") ? "S" : n.includes("bench") ? "B" : "D"; return ab + " " + fmt(attemptsFor(lf).third); }).join("    ");
+    doShare(setShare, { type: "stat", label: meet.name || "Projected meet total", value: fmt(thirdsTotal), unit: "kg", sub, date: meet.date ? fmtMeetDate(meet.date) : "" });
+  };
+
+  const inputStyle = { width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "0 12px", height: 44, color: C.text, fontSize: 15, fontWeight: 600, outline: "none" };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Meet prep">
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ ...label, fontSize: 10, marginBottom: 6 }}>Meet date</div>
+        <input type="date" value={meet.date || ""} onChange={(e) => setMeet({ date: e.target.value || null })}
+          style={{ ...inputStyle, fontFamily: MONO, colorScheme: "dark" }} />
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...label, fontSize: 10, marginBottom: 6 }}>Meet name (optional)</div>
+        <input value={meet.name || ""} onChange={(e) => setMeet({ name: e.target.value })} placeholder="e.g. State Championship"
+          style={{ ...inputStyle, fontFamily: SANS }} />
+      </div>
+
+      {lifts.length === 0 ? (
+        <div style={{ fontSize: 13, color: C.muted, padding: "10px 2px", lineHeight: 1.5 }}>
+          Log squat, bench, and deadlift first — your attempts build off their estimated maxes.
+        </div>
+      ) : (
+        <>
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
+            <button onClick={shareMeet} aria-label="Share" style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, position: "absolute", top: 8, right: 8 }}><Share size={16} /></button>
+            <div style={{ ...label, fontSize: 10 }}>If you hit your thirds</div>
+            <div style={{ fontFamily: MONO, fontSize: 38, fontWeight: 700, lineHeight: 1, marginTop: 6 }}>{fmt(thirdsTotal)}<span style={{ fontSize: 15, color: C.muted, marginLeft: 4 }}>kg</span></div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+              Openers in the bag <b style={{ color: C.text, fontFamily: MONO }}>{fmt(openersTotal)}</b> kg{dots != null && <> · DOTS <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(dots))}</b></>}
+            </div>
+          </div>
+
+          {lifts.map((lf) => {
+            const at = attemptsFor(lf);
+            return (
+              <Card key={lf.name} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <b style={{ fontSize: 15 }}>{lf.name}</b>
+                  <span style={{ fontSize: 11.5, color: C.muted }}>e1RM {fmt(lf.e1rm)} {unit} · <button onClick={() => autoLift(lf.name)} style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Auto</button></span>
+                </div>
+                {["opener", "second", "third"].map((k) => (
+                  <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>{lblmap[k]}</div>
+                      <div style={{ fontSize: 11, color: C.faint }}>{pct[k]} · {fmt(Math.round(at[k] * LBKG))} lb</div>
+                    </div>
+                    <Stepper value={at[k]} step={2.5} min={0} suffix="kg" onChange={(v) => setAttempt(lf.name, k, v)} />
+                  </div>
+                ))}
+              </Card>
+            );
+          })}
+          {meet.date && <Btn kind="danger" onClick={() => setMeet({ date: null, attempts: {} })} style={{ width: "100%", marginTop: 4 }}>Clear meet</Btn>}
+        </>
+      )}
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
+    </Sheet>
+  );
+}
+
 /* ============================== INSIGHTS ================================ */
-function InsightsTab({ analysis, unit }) {
+function InsightsTab({ analysis, unit, state, setState }) {
   const { total, totalDelta, parts, insights } = analysis;
   const sevColor = { alert: C.red, watch: "#D9A441", win: C.good, note: "#7FA8C9" };
   const [share, setShare] = useState(null);
@@ -1167,6 +1421,9 @@ function InsightsTab({ analysis, unit }) {
           ))}
         </Card>
       ) : null}
+
+      <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
+      <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
 
       {insights.map((it) => (
         <div key={it.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: 12, padding: "13px 14px" }}>
