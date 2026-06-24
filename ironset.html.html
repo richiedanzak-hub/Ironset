@@ -80,6 +80,19 @@ function weightForTarget(e1rm, reps, rpe) {
 function reliability(n) {
   return n <= 8 ? 1 : Math.max(0.4, 1 - (n - 8) * 0.06);
 }
+// Acute 1RM drop after a hard top set. The discount per back-off set scales with
+// how taxing the top set was (reps + how close to failure) and a personal dial,
+// and deepens with each successive set (fatigue on fatigue).
+function fatiguePerSet(topReps, topRpe, level) {
+  const base = 0.03 + 0.004 * Math.max(0, topReps - 1) + 0.006 * Math.max(0, topRpe - 7);
+  const mult = level === "low" ? 0.65 : level === "high" ? 1.4 : 1;
+  return base * mult;
+}
+// Effective-1RM multiplier for the k-th back-off set (k = 1 is the first back-off).
+function backoffMult(k, fps) {
+  const drop = fps * k * (1 + 0.15 * (k - 1));
+  return Math.max(0.55, 1 - drop);
+}
 // Fold the whole (time-ordered) history into a learned 1RM + a trajectory.
 function buildModel(sets) {
   const sorted = [...sets].sort((a, b) => a.ts - b.ts);
@@ -380,6 +393,13 @@ function platesPerSide(total, bar, denoms) {
   }
   return { below: false, items, leftover: Math.round(side * 100) / 100 };
 }
+// One-line plate summary for compact rows, e.g. "2×45 + 25 + 5 / side".
+function platesShort(total, bar, denoms) {
+  const r = platesPerSide(total, bar, denoms);
+  if (r.below) return "under bar";
+  if (!r.items.length) return "bar only";
+  return r.items.map((it) => (it.c > 1 ? it.c + "×" + fmt(it.p) : fmt(it.p))).join(" + ") + " / side";
+}
 
 /* -------------------------------- theme ---------------------------------- */
 // Direction: a strength-sport instrument. Cool powder-coated steel, chalk-white
@@ -529,7 +549,7 @@ const DEFAULT = {
   readiness: [], // [{id, ts, level, note}]
   bodyweight: [], // [{id, ts, kg}]
   meet: { date: null, name: "", attempts: {} }, // attempts: { liftName: { opener, second, third } in kg }
-  settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male" },
+  settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", backoff: { sets: 1, reps: 5, rpe: 8, level: "normal" } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
 const VAR_RATIOS = [
@@ -560,7 +580,7 @@ function App() {
   const models = useMemo(() => {
     const ex = state.exercises;
     const own = {};
-    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets);
+    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff));
     // ratio of a variation's strength to its parent: learned from own numbers, else default
     const ratioOf = (name) => {
       const x = ex[name];
@@ -578,7 +598,7 @@ function App() {
       const all = [];
       for (const m of members) {
         const r = m === root ? 1 : ratioOf(m);
-        for (const s of ex[m].sets) all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, n: repsToFailure(s.reps, s.rpe) });
+        for (const s of ex[m].sets) { if (s.backoff) continue; all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, n: repsToFailure(s.reps, s.rpe) }); }
       }
       all.sort((a, b) => a.ts - b.ts);
       let e = null; const points = [];
@@ -690,7 +710,7 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, denoms, todayNudge, meetDays, meetName }} />
+            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, todayNudge, meetDays, meetName }} />
           )}
           {tab === "insights" && (
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
@@ -710,7 +730,7 @@ function App() {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, denoms, todayNudge, meetDays, meetName }) {
+function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, todayNudge, meetDays, meetName }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
@@ -742,6 +762,24 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const recR = rec != null ? roundTo(rec, round) : null;
   const strongDay = e1rm != null && tRpe < 10 ? roundTo(weightForTarget(e1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
   const toughDay = e1rm != null ? roundTo(weightForTarget(e1rm, tReps, tRpe - 0.5), round) : null;
+
+  // back-off sets: prescribed off a fatigue-discounted 1RM, deepening each set
+  const bo = settings.backoff || { sets: 1, reps: 5, rpe: 8, level: "normal" };
+  const setBo = (patch) => setSetting && setSetting("backoff", { ...bo, ...patch });
+  const boRpe = inputMode === "rir" ? 10 - bo.rpe : bo.rpe;
+  const fps = fatiguePerSet(tReps, tRpe, bo.level);
+  const backoffs = [];
+  if (e1rm != null) for (let k = 1; k <= bo.sets; k++) {
+    backoffs.push({ k, load: roundTo(weightForTarget(e1rm * backoffMult(k, fps), bo.reps, bo.rpe), round) });
+  }
+  const [boDone, setBoDone] = useState(null);
+  const logBackoff = (b) => {
+    if (!sel) return;
+    logSet(sel, { weight: b.load, reps: bo.reps, rpe: bo.rpe, ts: tsFromDateStr(logDate),
+      backoff: true, fromRec: false, tReps: bo.reps, tRpe: bo.rpe, rec: b.load });
+    setBoDone(b.k);
+    setTimeout(() => setBoDone((c) => (c === b.k ? null : c)), 1400);
+  };
 
   const useRec = () => {
     if (recR == null) return;
@@ -823,9 +861,10 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         </div>
       </Card>
 
-      {/* prescription */}
+      {/* TOP SET widget — prescribe, see the load, log it, all in one */}
       <Card>
-        <div style={label}>Prescribed set</div>
+        <div style={label}>Top set</div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Set your target, see the load, then log what you actually hit.</div>
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
@@ -841,10 +880,10 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             <Chip key={v} active={tInt === v} onClick={() => setTInt(v)}>{inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}</Chip>
           ))}
         </div>
-      </Card>
+      <div style={{ height: 1, background: C.line, margin: "16px -16px" }} />
 
-      {/* recommendation — the hero */}
-      <Card style={{ background: C.surface, textAlign: "center", paddingTop: 22, paddingBottom: 18 }}>
+      {/* recommendation */}
+      <div style={{ textAlign: "center" }}>
         <div style={label}>Recommended load</div>
         {recR != null ? (
           <>
@@ -878,12 +917,13 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             Log a set below to calibrate <b style={{ color: C.text }}>{sel}</b>. Enter a known 1RM (1 rep @ RPE 10) or any working set.
           </div>
         )}
-      </Card>
+      </div>
 
-      {/* log + feedback */}
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={label}>Log the set you did</div>
+      <div style={{ height: 1, background: C.line, margin: "16px -16px" }} />
+
+      {/* log what you did */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={label}>Log your top set</div>
           {recR != null && <button onClick={useRec} style={{ background: C.redSoft, border: `1px solid ${C.redLine}`,
             color: C.red, borderRadius: 9, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Use recommendation</button>}
         </div>
@@ -932,6 +972,59 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         </div>
       </Card>
 
+      {/* back-off sets */}
+      {recR != null && (
+        <Card>
+          <div style={label}>Back-off sets</div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Done after your top set — each one trimmed for fatigue, and deeper than the last.</div>
+
+          <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Sets</div>
+              <Stepper value={bo.sets} onChange={(v) => setBo({ sets: Math.max(1, Math.min(6, v)) })} min={1} max={6} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+              <Stepper value={bo.reps} onChange={(v) => setBo({ reps: v })} min={1} max={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
+              <Stepper value={inputMode === "rir" ? 10 - bo.rpe : bo.rpe} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10}
+                onChange={(v) => setBo({ rpe: inputMode === "rir" ? 10 - v : v })} />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 7, fontWeight: 700 }}>Fatigue level</div>
+            <Segmented value={bo.level} onChange={(v) => setBo({ level: v })}
+              options={[{ value: "low", label: "Low" }, { value: "normal", label: "Medium" }, { value: "high", label: "High" }]} />
+          </div>
+
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            {backoffs.map((b) => (
+              <div key={b.k} style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>
+                      Back-off {b.k} · {bo.reps} @ {inputMode === "rir" ? `${10 - bo.rpe} RIR` : `RPE ${fmt(bo.rpe)}`}
+                    </div>
+                    <div style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+                      {fmt(b.load)}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => logBackoff(b)} style={{ background: boDone === b.k ? "transparent" : C.redSoft,
+                    border: `1px solid ${C.redLine}`, color: C.red, borderRadius: 10, padding: "8px 13px", fontSize: 12.5,
+                    fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {boDone === b.k ? <><Check size={15} /> Logged</> : "Log"}
+                  </button>
+                </div>
+                <PlateView total={b.load} bar={bar} denoms={denoms} unit={unit} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <button onClick={() => setShowHow((v) => !v)} style={{ background: "none", border: "none", color: C.faint,
         fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, alignSelf: "center" }}>
         <Info size={14} /> How the numbers work
@@ -941,7 +1034,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           Your RPE tells the calculator how close to failure a set was — RPE 8 means 2 reps left (2 RIR). That maps every set to a percent of your
           one-rep max using the standard RPE chart, so a triple at RPE 9 and a heavy single both inform the same estimate. New sets are blended in
           with recent ones weighted more, and low-rep top sets count more than long high-rep sets. Recommendations just run that estimate backward
-          for the reps and RPE you prescribe.
+          for the reps and RPE you prescribe. Back-off sets come off a fatigue-discounted max that deepens each set, and they're kept out of your
+          1RM estimate so a tired back-off never drags your numbers down.
         </Card>
       )}
 
@@ -1065,9 +1159,11 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600 }}>
                 {fmt(s.weight)}{unit} × {s.reps} <span style={{ color: C.muted }}>@ RPE {fmt(s.rpe)}</span>
+                {s.backoff && <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 800, color: C.muted,
+                  border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 6px", marginLeft: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>Back-off</span>}
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
-                {dshort(s.ts)} · e1RM {fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}{unit}
+                {dshort(s.ts)}{s.backoff ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
                 {s.fromRec && s.tRpe != null && (
                   <span style={{ color: Math.abs(s.rpe - s.tRpe) < 0.25 ? C.good : C.red }}>
                     {"  ·  asked RPE " + fmt(s.tRpe) + (Math.abs(s.rpe - s.tRpe) < 0.25 ? " ✓" : ` → felt ${fmt(s.rpe)}`)}
