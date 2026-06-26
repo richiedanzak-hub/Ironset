@@ -80,18 +80,45 @@ function weightForTarget(e1rm, reps, rpe) {
 function reliability(n) {
   return n <= 8 ? 1 : Math.max(0.4, 1 - (n - 8) * 0.06);
 }
-// Acute 1RM drop after a hard top set. The discount per back-off set scales with
-// how taxing the top set was (reps + how close to failure) and a personal dial,
-// and deepens with each successive set (fatigue on fatigue).
-function fatiguePerSet(topReps, topRpe, level) {
-  const base = 0.03 + 0.004 * Math.max(0, topReps - 1) + 0.006 * Math.max(0, topRpe - 7);
-  const mult = level === "low" ? 0.65 : level === "high" ? 1.4 : 1;
-  return base * mult;
+// Fatigue model. A set spends capacity in proportion to volume (reps) and how close
+// to failure it was — effort grows steeply toward RPE 10, so a grind costs far more
+// than an easy set. The per-lifter sensitivity K is learned from their own history.
+const DEFAULT_FATIGUE_K = 0.027;
+function fatigueEffort(rpe) {
+  const p = Math.max(0, (Math.min(10, rpe) - 4) / 6); // RPE6→.11, 8→.44, 9.5→.84, 10→1
+  return p * p;
 }
-// Effective-1RM multiplier for the k-th back-off set (k = 1 is the first back-off).
-function backoffMult(k, fps) {
-  const drop = fps * k * (1 + 0.15 * (k - 1));
-  return Math.max(0.55, 1 - drop);
+function fatigueDrop(reps, rpe, k) {
+  return Math.max(0, Math.min(0.32, k * Math.max(1, reps) * fatigueEffort(rpe)));
+}
+// Learn how fast THIS lifter's capacity falls across a session, from descending
+// (back-off) steps: each step's implied-1RM drop ÷ the prior set's fatigue stimulus.
+// Median is robust to noise; the result is shrunk toward the default so sparse data
+// stays sane and it only drifts to a personal value once there's real evidence.
+function learnFatigueK(sets, dflt) {
+  const byDay = {};
+  for (const s of sets) { const d = new Date(s.ts).toDateString(); (byDay[d] = byDay[d] || []).push(s); }
+  const ks = [];
+  for (const d in byDay) {
+    const day = byDay[d].slice().sort((a, b) => a.ts - b.ts);
+    for (let i = 0; i < day.length - 1; i++) {
+      const a = day[i], b = day[i + 1];
+      if (a.reps !== b.reps || b.weight > a.weight) continue; // equal reps → drop is pure fatigue
+      const ea = e1rmFromSet(a.weight, a.reps, a.rpe), eb = e1rmFromSet(b.weight, b.reps, b.rpe);
+      if (!(ea > 0)) continue;
+      const drop = 1 - eb / ea;
+      if (drop <= 0.0008 || drop > 0.35) continue;
+      const stim = Math.max(1, a.reps) * fatigueEffort(a.rpe);
+      if (stim <= 0.02) continue;
+      const k = drop / stim;
+      if (k >= 0.0015 && k <= 0.09) ks.push(k);
+    }
+  }
+  if (ks.length < 2) return dflt; // wait for a little evidence before personalizing
+  ks.sort((x, y) => x - y);
+  const med = ks[Math.floor(ks.length / 2)], n = ks.length, W0 = 6;
+  const blended = (n * med + W0 * dflt) / (n + W0);
+  return Math.max(0.4 * dflt, Math.min(2 * dflt, blended));
 }
 // Inverse of pctForN: max reps achievable at a given %1RM (lets % training show a
 // predicted RPE/RIR, so the two styles speak the same language).
@@ -819,26 +846,55 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const strongDay = (!percentMode && e1rm != null && tRpe < 10) ? roundTo(weightForTarget(e1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
   const toughDay = (!percentMode && e1rm != null) ? roundTo(weightForTarget(e1rm, tReps, tRpe - 0.5), round) : null;
 
-  // back-off sets — fatigue-discounted in RPE mode; a flat % in percentage mode
-  const bo = settings.backoff || { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75 };
+  // back-off sets — fatigue-aware in RPE mode; a flat % in percentage mode
+  const bo = settings.backoff || { sets: 1, reps: 5, rpe: 8, pct: 75 };
   const setBo = (patch) => setSetting && setSetting("backoff", { ...bo, ...patch });
   const boPct = bo.pct || 75;
-  const fps = fatiguePerSet(tReps, tRpe, bo.level);
-  const backoffs = [];
-  if (percentMode) {
-    if (ref != null) { const load = roundTo(ref * (boPct / 100), round); for (let k = 1; k <= bo.sets; k++) backoffs.push({ k, load }); }
-  } else if (e1rm != null) {
-    for (let k = 1; k <= bo.sets; k++) backoffs.push({ k, load: roundTo(weightForTarget(e1rm * backoffMult(k, fps), bo.reps, bo.rpe), round) });
-  }
-  const [boDone, setBoDone] = useState(null);
-  const logBackoff = (b) => {
+  // Each back-off targets bo.reps @ bo.rpe; the load is what hits that target given how
+  // much capacity the *actual* prior set spent. The first comes off your top set, each
+  // next off the back-off before it, so a grindy set pulls the next one down harder.
+  const [boDraft, setBoDraft] = useState(null);
+  const personalK = useMemo(() => learnFatigueK(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K), [selEx]);
+  const boDayStr = new Date(tsFromDateStr(logDate)).toDateString();
+  const todayBos = (selEx ? selEx.sets : []).filter((x) => x.backoff && new Date(x.ts).toDateString() === boDayStr);
+  const doneCount = todayBos.length;
+  const lastBo = doneCount ? todayBos[doneCount - 1] : null;
+  // the set that drives the next back-off: last back-off → today's top set → estimate
+  const prevForBo = (() => {
+    if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe), reps: lastBo.reps, rpe: lastBo.rpe };
+    const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
+    if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe };
+    if (e1rm != null) return { implied: e1rm, reps: tReps, rpe: tRpe };
+    return null;
+  })();
+  const boSug = (() => {
+    if (percentMode) {
+      if (doneCount === 0) return ref != null ? roundTo(ref * (boPct / 100), round) : null;
+      return lastBo ? roundTo(lastBo.weight, round) : null;
+    }
+    if (!prevForBo) return null;
+    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, personalK));
+    return roundTo(weightForTarget(effCap, bo.reps, bo.rpe), round);
+  })();
+  const boIntDefault = (() => {
+    if (percentMode) {
+      if (e1rm != null && boSug != null) {
+        const pr = Math.max(1, Math.min(10, 10 - (repsAtPct((boSug / e1rm) * 100) - bo.reps)));
+        return inputMode === "rir" ? Math.max(0, Math.round((10 - pr) * 2) / 2) : Math.round(pr * 2) / 2;
+      }
+      return inputMode === "rir" ? 1 : 9;
+    }
+    return inputMode === "rir" ? 10 - bo.rpe : bo.rpe;
+  })();
+  const curBo = boDraft || { weight: boSug != null ? String(boSug) : "", reps: bo.reps, int: boIntDefault };
+  const logCurBackoff = () => {
     if (!sel) return;
-    let rpe = bo.rpe;
-    if (percentMode) rpe = e1rm != null ? Math.max(1, Math.min(10, 10 - (repsAtPct((b.load / e1rm) * 100) - bo.reps))) : 8;
-    logSet(sel, { weight: b.load, reps: bo.reps, rpe, ts: tsFromDateStr(logDate),
-      backoff: true, fromRec: false, tReps: bo.reps, tRpe: rpe, rec: b.load });
-    setBoDone(b.k);
-    setTimeout(() => setBoDone((c) => (c === b.k ? null : c)), 1400);
+    const w = parseFloat(curBo.weight);
+    if (!isFinite(w) || w <= 0) return;
+    const rpe = inputMode === "rir" ? 10 - curBo.int : curBo.int;
+    logSet(sel, { weight: roundTo(w, round), reps: curBo.reps, rpe, ts: tsFromDateStr(logDate),
+      backoff: true, fromRec: false, tReps: curBo.reps, tRpe: rpe, rec: boSug != null ? boSug : roundTo(w, round) });
+    setBoDraft(null);
   };
 
   const useRec = () => {
@@ -1068,7 +1124,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       {recR != null && (
         <Card>
           <div style={label}>Back-off sets</div>
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode ? `Done after your top set — a flat ${fmt(boPct)}% of your max.` : "Done after your top set — each one trimmed for fatigue, and deeper than the last."}</div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode ? `A flat ${fmt(boPct)}% of your max — edit any set and the next follows it.` : "Each load adjusts to how hard your last set actually was — a grind drops the next more. Edit any set; it carries forward."}</div>
 
           <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div>
@@ -1088,35 +1144,53 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             </div>
           </div>
 
-          {!percentMode && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 11, color: C.muted, marginBottom: 7, fontWeight: 700 }}>Fatigue level</div>
-              <Segmented value={bo.level} onChange={(v) => setBo({ level: v })}
-                options={[{ value: "low", label: "Low" }, { value: "normal", label: "Medium" }, { value: "high", label: "High" }]} />
-            </div>
-          )}
-
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            {backoffs.map((b) => (
-              <div key={b.k} style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>
-                      Back-off {b.k} · {bo.reps} @ {percentMode ? `${fmt(boPct)}%` : (inputMode === "rir" ? `${10 - bo.rpe} RIR` : `RPE ${fmt(bo.rpe)}`)}
-                    </div>
-                    <div style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
-                      {fmt(b.load)}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
-                    </div>
-                  </div>
-                  <button onClick={() => logBackoff(b)} style={{ background: boDone === b.k ? "transparent" : C.redSoft,
-                    border: `1px solid ${C.redLine}`, color: C.red, borderRadius: 10, padding: "8px 13px", fontSize: 12.5,
-                    fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    {boDone === b.k ? <><Check size={15} /> Logged</> : "Log"}
-                  </button>
+            {todayBos.map((s, i) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 13px" }}>
+                <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
+                  Back-off {i + 1} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
                 </div>
-                <PlateView total={b.load} bar={bar} denoms={denoms} unit={unit} />
+                <Check size={15} style={{ color: C.good }} />
               </div>
             ))}
+
+            {doneCount < bo.sets && (
+              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
+                <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
+                  Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div style={{ flex: "1 1 96px" }}>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight</div>
+                    <NumField value={curBo.weight} onChange={(v) => setBoDraft({ ...curBo, weight: v })} suffix={unit} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+                    <Stepper value={curBo.reps} onChange={(v) => setBoDraft({ ...curBo, reps: v })} min={1} max={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
+                    <Stepper value={curBo.int} onChange={(v) => setBoDraft({ ...curBo, int: v })} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />
+                  </div>
+                </div>
+                {boDraft && boSug != null && (
+                  <button onClick={() => setBoDraft(null)} style={{ background: "none", border: "none", color: C.faint,
+                    fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginTop: 8, padding: 0 }}>
+                    ↺ suggested {fmt(boSug)}{unit} × {bo.reps}
+                  </button>
+                )}
+                {(parseFloat(curBo.weight) || boSug) ? <PlateView total={parseFloat(curBo.weight) || boSug} bar={bar} denoms={denoms} unit={unit} /> : null}
+                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log back-off {doneCount + 1}</Btn>
+              </div>
+            )}
+
+            {doneCount >= bo.sets && (
+              <div style={{ fontSize: 12, color: C.muted, textAlign: "center", padding: "8px 0 2px" }}>
+                All {bo.sets} back-off{bo.sets > 1 ? "s" : ""} logged.{" "}
+                <button onClick={() => setBo({ sets: bo.sets + 1 })} style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12, cursor: "pointer", padding: 0 }}>add another</button>
+              </div>
+            )}
           </div>
         </Card>
       )}
@@ -1130,8 +1204,9 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           Your RPE tells the calculator how close to failure a set was — RPE 8 means 2 reps left (2 RIR). That maps every set to a percent of your
           one-rep max using the standard RPE chart, so a triple at RPE 9 and a heavy single both inform the same estimate. New sets are blended in
           with recent ones weighted more, and low-rep top sets count more than long high-rep sets. Recommendations just run that estimate backward
-          for the reps and RPE you prescribe. Back-off sets come off a fatigue-discounted max that deepens each set, and they're kept out of your
-          1RM estimate so a tired back-off never drags your numbers down.
+          for the reps and RPE you prescribe. Back-offs read the fatigue from your last set's actual reps and how close to failure it was — a grindy RPE 9
+          set drops the next one further than an easy one — and each set, top or back-off, feeds the one after it. The app also learns how fast you personally
+          fade from past sessions. Back-offs stay out of your 1RM estimate so a tired one never drags your numbers down.
         </Card>
       )}
 
