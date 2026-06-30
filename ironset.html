@@ -75,10 +75,21 @@ function e1rmFromSet(weight, reps, rpe) {
 function weightForTarget(e1rm, reps, rpe) {
   return e1rm * (pctForN(repsToFailure(reps, rpe)) / 100);
 }
-// How much a set should move the estimate. Heavy/low-rep sets near a max are
-// reliable 1RM predictors; long high-rep sets are noisier, so they count less.
-function reliability(n) {
-  return n <= 8 ? 1 : Math.max(0.4, 1 - (n - 8) * 0.06);
+// Confidence that a set's RPE rating is accurate. Near failure you can clearly feel
+// "one, maybe two left"; on light sets the reps-in-reserve guess is fuzzy and can be off
+// by a full point or more, so those sets should barely move the 1RM estimate. This is
+// why a heavy RPE 9 set outweighs a light RPE 5 one even when the light set is newer.
+function rpeConfidence(rpe) {
+  return 0.2 + 0.8 * Math.max(0, Math.min(1, (rpe - 5) / 4)); // RPE5→.2, 7→.6, 8→.8, 9-10→1
+}
+// The rep→%1RM table is sharp at low reps and frays as reps climb (rep-endurance varies
+// a lot between lifters), so long sets are noisier predictors regardless of effort.
+function repsAccuracy(reps) {
+  return reps <= 5 ? 1 : Math.max(0.5, 1 - (reps - 5) * 0.05); // 5→1, 10→.75, 15→.5
+}
+// How much a logged set should move the estimate: heaviest weight on hard, low-rep sets.
+function reliability(reps, rpe) {
+  return repsAccuracy(reps) * rpeConfidence(rpe);
 }
 // Fatigue model. A set spends capacity in proportion to volume (reps) and how close
 // to failure it was — effort grows steeply toward RPE 10, so a grind costs far more
@@ -139,8 +150,7 @@ function buildModel(sets) {
   const points = [];
   for (const s of sorted) {
     const obs = e1rmFromSet(s.weight, s.reps, s.rpe);
-    const n = repsToFailure(s.reps, s.rpe);
-    e = e == null ? obs : e + 0.35 * reliability(n) * (obs - e);
+    e = e == null ? obs : e + 0.35 * reliability(s.reps, s.rpe) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
   const out = { e1rm: e, points, count: sorted.length };
@@ -641,11 +651,11 @@ function App() {
       const all = [];
       for (const m of members) {
         const r = m === root ? 1 : ratioOf(m);
-        for (const s of ex[m].sets) { if (s.backoff) continue; all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, n: repsToFailure(s.reps, s.rpe) }); }
+        for (const s of ex[m].sets) { if (s.backoff) continue; all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, reps: s.reps, rpe: s.rpe }); }
       }
       all.sort((a, b) => a.ts - b.ts);
       let e = null; const points = [];
-      for (const x of all) { e = e == null ? x.obs : e + 0.35 * reliability(x.n) * (x.obs - e); points.push({ ts: x.ts, value: e }); }
+      for (const x of all) { e = e == null ? x.obs : e + 0.35 * reliability(x.reps, x.rpe) * (x.obs - e); points.push({ ts: x.ts, value: e }); }
       const out = { e1rm: e, points, count: all.length };
       famCache[root] = out; return out;
     };
