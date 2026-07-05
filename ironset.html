@@ -771,13 +771,37 @@ function App() {
       </div>
 
       <SettingsSheet {...{ open: showSettings, onClose: () => setShowSettings(false), settings: state.settings, setSetting, state, setState }} />
-      {!state.settings.onboarded && <Onboarding onDone={(patch) => setState((s) => ({ ...s, settings: { ...s.settings, ...patch } }))} />}
+      {!state.settings.onboarded && <Onboarding unit={state.settings.unit} onDone={(patch, seeds) => setState((s) => {
+        const exercises = { ...s.exercises };
+        (seeds || []).forEach((sd) => {
+          const ex = exercises[sd.name] || { name: sd.name, sets: [] };
+          exercises[sd.name] = { ...ex, sets: [...ex.sets, { id: uid(), ts: sd.ts, weight: sd.weight, reps: sd.reps, rpe: sd.rpe, fromRec: false }] };
+        });
+        return { ...s, exercises, settings: { ...s.settings, ...patch } };
+      })} />}
+      {state.settings.onboarded && !state.settings.toured && <FeatureTour onDone={() => setSetting("toured", true)} />}
     </div>
   );
 }
 
-function Onboarding({ onDone }) {
+function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
+  const [chosen, setChosen] = useState({});
+  const LIFTS = ["Squat", "Bench", "Deadlift", "Overhead Press"];
+  const blankRow = () => ({ weight: "", reps: 3, int: null, date: todayStr() });
+  const [seeds, setSeeds] = useState({});
+  const toggleLift = (name) => setSeeds((s) => {
+    if (s[name]) { const n = { ...s }; delete n[name]; return n; }
+    return { ...s, [name]: [blankRow()] };
+  });
+  const setRow = (name, i, patch) => setSeeds((s) => ({ ...s, [name]: s[name].map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
+  const addRow = (name) => setSeeds((s) => ({ ...s, [name]: [...s[name], blankRow()] }));
+  const delRow = (name, i) => setSeeds((s) => {
+    const rows = s[name].filter((_, j) => j !== i);
+    const n = { ...s };
+    if (rows.length) n[name] = rows; else delete n[name];
+    return n;
+  });
   const opt = (title, desc, onClick) => (
     <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: C.surface, border: `1px solid ${C.line2}`,
       borderRadius: 14, padding: "16px", cursor: "pointer", color: C.text, marginBottom: 12 }}>
@@ -785,25 +809,105 @@ function Onboarding({ onDone }) {
       <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{desc}</div>
     </button>
   );
+  const goSeed = (patch) => { setChosen(patch); setStep("seed"); };
+  const finish = (withSeeds) => {
+    const rir = chosen.inputMode === "rir", def = rir ? 2 : 8;
+    const collected = [];
+    if (withSeeds) for (const name of Object.keys(seeds)) for (const r of seeds[name]) {
+      const w = parseFloat(r.weight);
+      if (!isFinite(w) || w <= 0) continue;
+      const iv = r.int == null ? def : r.int;
+      collected.push({ name, weight: w, reps: r.reps, rpe: rir ? 10 - iv : iv, ts: tsFromDateStr(r.date) });
+    }
+    onDone(chosen, collected);
+  };
+  const anySeed = Object.keys(seeds).some((n) => seeds[n].some((r) => isFinite(parseFloat(r.weight)) && parseFloat(r.weight) > 0));
+  const lbl = { fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 };
+  const rir = chosen.inputMode === "rir", effLabel = rir ? "RIR" : "RPE", effDef = rir ? 2 : 8, effMin = rir ? 0 : 5, effMax = rir ? 5 : 10;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: C.bg, display: "flex", flexDirection: "column",
-      justifyContent: "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
+      justifyContent: step === "seed" ? "flex-start" : "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
       <div style={{ maxWidth: 460, margin: "0 auto", width: "100%" }}>
         <div style={{ fontWeight: 900, fontSize: 26, letterSpacing: "0.02em", textAlign: "center" }}>IRON<span style={{ color: C.red }}>SET</span></div>
         {step === "style" ? (
           <>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>How do you train? You can switch anytime in settings.</div>
-            {opt("RPE-based", "Prescribe by reps and RPE — the app suggests your load and learns from how each set feels.", () => onDone({ trainingMode: "rpe", inputMode: "rpe", onboarded: true }))}
+            {opt("RPE-based", "Prescribe by reps and RPE — the app suggests your load and learns from how each set feels.", () => goSeed({ trainingMode: "rpe", inputMode: "rpe", onboarded: true }))}
             {opt("Percentage-based", "Prescribe by reps and a % of your max — old-school 1RM-percentage style.", () => setStep("max"))}
+          </>
+        ) : step === "max" ? (
+          <>
+            <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>Run your percentages off…</div>
+            {opt("Your estimated max", "Auto-updates as you log — your percentages always track your current strength.", () => goSeed({ trainingMode: "percent", maxMode: "dynamic", inputMode: "rir", onboarded: true }))}
+            {opt("A max you set", "Lock a training max for each lift and bump it yourself each cycle (5/3/1 style).", () => goSeed({ trainingMode: "percent", maxMode: "locked", inputMode: "rir", onboarded: true }))}
+            <button onClick={() => setStep("style")} style={{ display: "block", margin: "4px auto 0", background: "none", border: "none", color: C.faint, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back</button>
           </>
         ) : (
           <>
-            <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>Run your percentages off…</div>
-            {opt("Your estimated max", "Auto-updates as you log — your percentages always track your current strength.", () => onDone({ trainingMode: "percent", maxMode: "dynamic", inputMode: "rir", onboarded: true }))}
-            {opt("A max you set", "Lock a training max for each lift and bump it yourself each cycle (5/3/1 style).", () => onDone({ trainingMode: "percent", maxMode: "locked", inputMode: "rir", onboarded: true }))}
-            <button onClick={() => setStep("style")} style={{ display: "block", margin: "4px auto 0", background: "none", border: "none", color: C.faint, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back</button>
+            <div style={{ textAlign: "center", fontWeight: 800, fontSize: 15, marginTop: 14 }}>Head start <span style={{ color: C.faint, fontWeight: 600 }}>(entirely optional)</span></div>
+            <div style={{ textAlign: "center", color: C.muted, fontSize: 12.5, margin: "6px 0 14px", lineHeight: 1.5 }}>Logging a recent hard set or two gets your estimates and load suggestions working from minute one. Tap a lift to log against it — as many or as few sets as you want. Variations and any other lifts can be added later.</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", marginBottom: 14 }}>
+              {LIFTS.map((name) => <Chip key={name} active={!!seeds[name]} onClick={() => toggleLift(name)}>{name}</Chip>)}
+            </div>
+            {Object.keys(seeds).map((name) => (
+              <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "11px 12px", marginBottom: 10 }}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{name}</div>
+                {seeds[name].map((r, i) => (
+                  <div key={i} style={{ marginBottom: 10, paddingBottom: i < seeds[name].length - 1 ? 10 : 0, borderBottom: i < seeds[name].length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 84px" }}>
+                        <div style={lbl}>Weight</div>
+                        <NumField value={r.weight} onChange={(v) => setRow(name, i, { weight: v })} suffix={unit} />
+                      </div>
+                      <div>
+                        <div style={lbl}>Reps</div>
+                        <Stepper value={r.reps} onChange={(v) => setRow(name, i, { reps: v })} min={1} max={20} />
+                      </div>
+                      <div>
+                        <div style={lbl}>{effLabel}</div>
+                        <Stepper value={r.int == null ? effDef : r.int} onChange={(v) => setRow(name, i, { int: v })} step={0.5} min={effMin} max={effMax} />
+                      </div>
+                      <button onClick={() => delRow(name, i)} style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: "6px 2px" }}><X size={15} /></button>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div style={lbl}>Date</div>
+                      <DateField value={r.date} onChange={(v) => setRow(name, i, { date: v })} />
+                    </div>
+                  </div>
+                ))}
+                <button onClick={() => addRow(name)} style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12, cursor: "pointer", padding: 0 }}>+ Add another set</button>
+              </div>
+            ))}
+            <Btn kind="primary" onClick={() => finish(true)} style={{ width: "100%", marginTop: 4 }}>{anySeed ? "Calibrate & start" : "Continue"}</Btn>
+            <button onClick={() => finish(false)} style={{ display: "block", margin: "12px auto 0", background: "none", border: "none", color: C.faint, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Skip — I'll log as I go</button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FeatureTour({ onDone }) {
+  const row = (Icon, title, desc) => (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
+      <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 10, padding: 8, display: "flex", flexShrink: 0 }}><Icon size={16} style={{ color: C.red }} /></div>
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 13.5 }}>{title}</div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,11,13,0.72)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: "18px 18px 0 0", padding: "22px 20px calc(24px + env(safe-area-inset-bottom, 0px))", maxWidth: 520, width: "100%" }}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>Quick tour</div>
+        <div style={{ fontSize: 12, color: C.faint, margin: "3px 0 16px" }}>Thirty seconds, then it's all yours.</div>
+        {row(Activity, "Train", "Dial in your target set and it suggests the load. Log what you actually hit — every set teaches it your real strength.")}
+        {row(Check, "Back-offs", "Auto-adjust off how hard your last set actually was. Grind the top set and the next loads drop to match.")}
+        {row(Plus, "Variations", "Link variations to their main lift — paused bench under Bench, deficit pulls under Deadlift. They feed one strength model, so a PR on a variation sharpens the main lift's estimate too.")}
+        {row(Zap, "Insights", "Your estimated 1RMs, strength score, meet prep, and flags for PRs, stalls, and hidden gains.")}
+        {row(TrendingUp, "History", "Every set saved, editable, and charted — your strength trend builds as you train.")}
+        <Btn kind="primary" onClick={onDone} style={{ width: "100%", marginTop: 6 }}>Let's lift</Btn>
       </div>
     </div>
   );
