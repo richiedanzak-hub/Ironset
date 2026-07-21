@@ -6,15 +6,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="IRONSET"/>
-<meta name="theme-color" content="#14161A"/>
+<meta name="theme-color" content="#0C0D10"/>
 <title>IRONSET</title>
 <style>
-  html, body { margin: 0; background: #14161A; -webkit-text-size-adjust: 100%; }
+  html, body { margin: 0; background: #0C0D10; -webkit-text-size-adjust: 100%; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   #root { min-height: 100vh; }
-  .boot { color: #5C6470; font-family: system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  .boot { color: #5D646F; font-family: system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
   input, button, textarea { font-family: inherit; }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" crossorigin></script>
@@ -100,7 +103,14 @@ function fatigueEffort(rpe) {
   return p * p;
 }
 function fatigueDrop(reps, rpe, k) {
-  return Math.max(0, Math.min(0.32, k * Math.max(1, reps) * fatigueEffort(rpe)));
+  // Volume cost: reps × how close to failure the set was.
+  const volume = k * Math.max(1, reps) * fatigueEffort(rpe);
+  // Neural cost: a hard top set taxes the CNS beyond its rep count — biggest for heavy
+  // low-rep work, fading as reps climb (where volume already accounts for it). This is
+  // what keeps the first back-off off a heavy single/triple from landing too high.
+  const effort = Math.max(0, Math.min(1, (Math.min(10, rpe) - 4) / 6)); // RPE7→.5, 8→.67, 10→1
+  const neural = 0.15 * effort / (1 + 0.35 * (Math.max(1, reps) - 1));
+  return Math.max(0, Math.min(0.34, volume + neural));
 }
 // Learn how fast THIS lifter's capacity falls across a session, from descending
 // (back-off) steps: each step's implied-1RM drop ÷ the prior set's fatigue stimulus.
@@ -125,11 +135,14 @@ function learnFatigueK(sets, dflt) {
       if (k >= 0.0015 && k <= 0.09) ks.push(k);
     }
   }
-  if (ks.length < 2) return dflt; // wait for a little evidence before personalizing
+  // Cold start: before we've learned this lifter, lean toward MORE drop-off, not less.
+  // A too-light back-off is easy to bump; a too-heavy one wrecks the session.
+  if (ks.length < 2) return dflt * 1.35;
   ks.sort((x, y) => x - y);
   const med = ks[Math.floor(ks.length / 2)], n = ks.length, W0 = 6;
-  const blended = (n * med + W0 * dflt) / (n + W0);
-  return Math.max(0.4 * dflt, Math.min(2 * dflt, blended));
+  const prior = dflt * 1.2; // the prior it shrinks toward stays slightly cautious
+  const blended = (n * med + W0 * prior) / (n + W0);
+  return Math.max(0.4 * dflt, Math.min(2.2 * dflt, blended));
 }
 // Inverse of pctForN: max reps achievable at a given %1RM (lets % training show a
 // predicted RPE/RIR, so the two styles speak the same language).
@@ -162,6 +175,33 @@ function buildModel(sets) {
    reads. Pure local rules: strength trend, hidden gains from variations, RPE
    calibration, weak points. No AI/backend.
 ---------------------------------------------------------------------------- */
+// A snapshot of everything logged today: which lifts, the top set on each, whether the
+// session pushed any estimate to a new high, and total working/back-off set counts.
+function sessionToday(state, models) {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const t0 = start.getTime();
+  const lifts = []; let totalSets = 0, backoffs = 0;
+  for (const [name, ex] of Object.entries(state.exercises)) {
+    const today = ex.sets.filter((s) => s.ts >= t0);
+    if (!today.length) continue;
+    const work = today.filter((s) => !s.backoff);
+    const bo = today.filter((s) => s.backoff);
+    totalSets += today.length; backoffs += bo.length;
+    const pool = work.length ? work : today;
+    const top = pool.reduce((a, b) => (b.weight > a.weight ? b : a), pool[0]);
+    const m = models[name]; let e1rm = null, up = false;
+    if (m && m.e1rm != null) {
+      e1rm = m.e1rm; let before = null;
+      for (const p of m.points) { if (p.ts < t0) before = p.value; else break; }
+      up = before != null && e1rm - before > 0.5;
+    }
+    lifts.push({ name, top, e1rm, up, sets: today.length, bo: bo.length });
+  }
+  if (!lifts.length) return null;
+  lifts.sort((a, b) => b.top.weight - a.top.weight);
+  return { lifts, totalSets, backoffs, anyUp: lifts.some((l) => l.up) };
+}
+
 function analyze(state, models, unit) {
   const ex = state.exercises;
   const U = unit || "lb";
@@ -245,7 +285,7 @@ function analyze(state, models, unit) {
     bench: B ? { name: B, e1rm: models[B].e1rm } : null,
     deadlift: D ? { name: D, e1rm: models[D].e1rm } : null,
   };
-  return { total, totalDelta, parts, insights: out.slice(0, 8), big };
+  return { total, totalDelta, parts, insights: out.slice(0, 8), big, session: sessionToday(state, models) };
 }
 
 /* ----------------------------------------------------------------------------
@@ -287,7 +327,7 @@ function buildCard(p) {
   const ctx = cv.getContext("2d");
   const SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif";
   const MON = "'Menlo','Monaco',monospace";
-  ctx.fillStyle = "#14161A"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#0C0D10"; ctx.fillRect(0, 0, W, H);
   const g = ctx.createRadialGradient(W - 150, 220, 0, W - 150, 220, 560);
   g.addColorStop(0, "rgba(226,59,46,0.12)"); g.addColorStop(1, "rgba(226,59,46,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -435,25 +475,31 @@ function platesShort(total, bar, denoms) {
 // text, one iron-red accent (the 25kg-plate red). Tabular monospace numerals
 // read like a meet scoreboard; heavy tracked caps read athletic.
 const C = {
-  bg: "#14161A", bg2: "#1A1D23", surface: "#1F232B", surface2: "#262B34",
-  line: "#2C313B", line2: "#3A414D",
-  text: "#ECEAE3", muted: "#929AA6", faint: "#5C6470",
-  red: "#E23B2E", redSoft: "rgba(226,59,46,0.13)", redLine: "rgba(226,59,46,0.4)",
-  good: "#7FC68F",
+  bg: "#0C0D10", bg2: "#121419", surface: "#181B21", surface2: "#20242C",
+  line: "#282D35", line2: "#3A414D",
+  text: "#EDEBE4", chalk: "#EDEBE4", muted: "#98A0AC", faint: "#5C6470",
+  red: "#E23B2E", redHi: "#FF5A47", redSoft: "rgba(226,59,46,0.14)", redLine: "rgba(226,59,46,0.45)",
+  good: "#7FC68F", gold: "#D9A441",
 };
-const MONO = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
-const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-const label = { textTransform: "uppercase", letterSpacing: "0.13em", fontWeight: 800, fontSize: 11, color: C.muted };
+const ELEV = "0 1px 0 rgba(255,255,255,0.055) inset, 0 12px 28px -14px rgba(0,0,0,0.85)";
+const ELEV_HI = "0 1px 0 rgba(255,255,255,0.07) inset, 0 18px 40px -16px rgba(0,0,0,0.9)";
+const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+const SANS = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const DISPLAY = "'Oswald', 'Inter', system-ui, sans-serif";
+const SKETCH = MONO;
+const label = { textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 700, fontSize: 10.5, color: C.muted, fontFamily: SANS };
 
 /* ----------------------------- UI primitives ----------------------------- */
 function Btn({ children, onClick, kind = "ghost", style, disabled }) {
-  const base = { fontFamily: SANS, fontWeight: 700, fontSize: 14, borderRadius: 12, padding: "11px 16px",
-    border: "1px solid transparent", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1,
-    transition: "background .15s, border-color .15s", minHeight: 44, display: "inline-flex",
-    alignItems: "center", justifyContent: "center", gap: 8 };
+  const base = { fontFamily: SANS, fontWeight: 800, fontSize: 14, borderRadius: 12, padding: "11px 16px",
+    letterSpacing: "0.01em", border: "1px solid transparent", cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.4 : 1, transition: "filter .15s, transform .06s", minHeight: 44,
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 };
   const kinds = {
-    primary: { background: C.red, color: "#fff" },
-    solid: { background: C.surface2, color: C.text, borderColor: C.line2 },
+    primary: { background: "linear-gradient(180deg, #EC4A3A 0%, #C9291C 100%)", color: "#fff",
+      boxShadow: "0 1px 0 rgba(255,255,255,0.22) inset, 0 8px 18px -8px rgba(226,59,46,0.6)" },
+    solid: { background: "linear-gradient(180deg, #262C35, #1D222A)", color: C.text, borderColor: C.line2,
+      boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" },
     ghost: { background: "transparent", color: C.text, borderColor: C.line2 },
     danger: { background: "transparent", color: C.red, borderColor: C.redLine },
   };
@@ -462,23 +508,27 @@ function Btn({ children, onClick, kind = "ghost", style, disabled }) {
 function Chip({ active, children, onClick }) {
   return (
     <button onClick={onClick} style={{
-      fontFamily: SANS, fontWeight: 700, fontSize: 13, borderRadius: 999, padding: "8px 14px", minHeight: 38,
+      fontFamily: SANS, fontWeight: 700, fontSize: 13, borderRadius: 10, padding: "8px 14px", minHeight: 38,
       cursor: "pointer", whiteSpace: "nowrap", transition: "all .15s",
-      background: active ? C.red : C.surface2, color: active ? "#fff" : C.text,
-      border: `1px solid ${active ? C.red : C.line2}`,
+      background: active ? "linear-gradient(180deg, #EC4A3A, #C9291C)" : "linear-gradient(180deg, #232830, #1B1F26)",
+      color: active ? "#fff" : C.text,
+      border: `1px solid ${active ? "transparent" : C.line2}`,
+      boxShadow: active ? "0 1px 0 rgba(255,255,255,0.2) inset, 0 6px 14px -8px rgba(226,59,46,0.55)" : "0 1px 0 rgba(255,255,255,0.04) inset",
     }}>{children}</button>
   );
 }
 function Segmented({ value, onChange, options }) {
   return (
-    <div style={{ display: "inline-flex", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: 3 }}>
+    <div style={{ display: "inline-flex", background: "#0F1216", border: `1px solid ${C.line}`, borderRadius: 12, padding: 3,
+      boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }}>
       {options.map((o) => {
         const a = o.value === value;
         return (
           <button key={o.value} onClick={() => onChange(o.value)} style={{
             fontFamily: SANS, fontWeight: 800, fontSize: 12, letterSpacing: "0.04em", padding: "8px 14px",
-            borderRadius: 9, cursor: "pointer", border: "none", minHeight: 36,
-            background: a ? C.surface2 : "transparent", color: a ? C.text : C.muted,
+            borderRadius: 9, cursor: "pointer", border: "none", minHeight: 36, transition: "all .15s",
+            background: a ? "linear-gradient(180deg, #262C35, #1D222A)" : "transparent", color: a ? C.text : C.muted,
+            boxShadow: a ? "0 1px 0 rgba(255,255,255,0.06) inset, 0 4px 10px -6px rgba(0,0,0,0.7)" : "none",
           }}>{o.label}</button>
         );
       })}
@@ -487,8 +537,9 @@ function Segmented({ value, onChange, options }) {
 }
 function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, suffix }) {
   const set = (v) => onChange(Math.min(max, Math.max(min, Math.round(v / step) * step)));
-  const btn = { width: 40, height: 40, borderRadius: 10, border: `1px solid ${C.line2}`, background: C.surface2,
-    color: C.text, fontSize: 20, fontWeight: 700, cursor: "pointer", lineHeight: 1 };
+  const btn = { width: 40, height: 40, borderRadius: 11, border: `1px solid ${C.line2}`,
+    background: "linear-gradient(180deg, #262C35, #1C212A)", color: C.text, fontSize: 20, fontWeight: 700,
+    cursor: "pointer", lineHeight: 1, boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <button style={btn} onClick={() => set(value - step)}>–</button>
@@ -502,8 +553,8 @@ function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, s
 }
 function NumField({ value, onChange, suffix }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", background: C.bg2, border: `1px solid ${C.line2}`,
-      borderRadius: 10, padding: "0 12px", height: 44 }}>
+    <div style={{ display: "flex", alignItems: "center", background: "#0F1216", border: `1px solid ${C.line2}`,
+      borderRadius: 11, padding: "0 12px", height: 44, boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }}>
       <input value={value} onChange={(e) => onChange(e.target.value)} inputMode="decimal" type="number"
         style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: C.text,
           fontFamily: MONO, fontSize: 17, fontWeight: 600 }} />
@@ -514,22 +565,27 @@ function NumField({ value, onChange, suffix }) {
 function DateField({ value, onChange }) {
   return (
     <input type="date" value={value} max={todayStr()} onChange={(e) => onChange(e.target.value || todayStr())}
-      style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "0 12px",
-        height: 44, color: C.text, fontFamily: MONO, fontSize: 15, fontWeight: 600, outline: "none", colorScheme: "dark" }} />
+      style={{ width: "100%", background: "#0F1216", border: `1px solid ${C.line2}`, borderRadius: 11, padding: "0 12px",
+        height: 44, color: C.text, fontFamily: MONO, fontSize: 15, fontWeight: 600, outline: "none", colorScheme: "dark",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }} />
   );
 }
 function Card({ children, style }) {
-  return <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16, ...style }}>{children}</div>;
+  return <div style={{ background: "linear-gradient(180deg, #1B1F26 0%, #15181E 100%)", border: `1px solid ${C.line}`,
+    borderRadius: 16, padding: 16, boxShadow: ELEV, ...style }}>{children}</div>;
 }
 function Sheet({ open, onClose, title, children }) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 50,
-      display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, background: C.bg2,
-        borderTop: `1px solid ${C.line2}`, borderRadius: "20px 20px 0 0", padding: 18, maxHeight: "85vh", overflowY: "auto" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 50,
+      display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480,
+        background: "linear-gradient(180deg, #1A1E24, #131519)", borderTop: `1px solid ${C.line2}`,
+        borderRadius: "22px 22px 0 0", padding: 18, maxHeight: "85vh", overflowY: "auto",
+        boxShadow: "0 -20px 50px -20px rgba(0,0,0,0.8)" }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.line2, margin: "-4px auto 14px" }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ ...label, fontSize: 13 }}>{title}</span>
+          <span style={{ ...label, fontSize: 13, fontFamily: DISPLAY, letterSpacing: "0.08em", fontWeight: 800 }}>{title}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer" }}><X size={22} /></button>
         </div>
         {children}
@@ -726,31 +782,33 @@ function App() {
   ];
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
+    <div style={{ background: `radial-gradient(820px 320px at 50% -140px, rgba(226,59,46,0.10), transparent 68%), radial-gradient(600px 500px at 100% 0%, rgba(90,110,140,0.05), transparent 60%), ${C.bg}`, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 40px" }}>
         {/* header */}
-        <div style={{ position: "sticky", top: 0, zIndex: 20, background: C.bg, borderBottom: `1px solid ${C.line}`, padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 12px" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(12,13,16,0.86)", backdropFilter: "blur(14px) saturate(1.2)", WebkitBackdropFilter: "blur(14px) saturate(1.2)", borderBottom: `1px solid ${C.line}`, boxShadow: "0 8px 24px -18px rgba(0,0,0,0.9)", padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: "0.02em" }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 27, letterSpacing: "0.06em", lineHeight: 1 }}>
                 IRON<span style={{ color: C.red }}>SET</span>
               </div>
-              <div style={{ ...label, fontSize: 9.5, marginTop: 1 }}>{state.settings.trainingMode === "percent" ? "Percentage" : "RPE"}-based load calculator</div>
+              <div style={{ ...label, fontSize: 9.5, marginTop: 3 }}>{state.settings.trainingMode === "percent" ? "Percentage" : "RPE"}-based load calculator</div>
             </div>
-            <button onClick={() => setShowSettings(true)} style={{ background: C.surface2, border: `1px solid ${C.line2}`,
-              borderRadius: 10, width: 40, height: 40, color: C.muted, cursor: "pointer", display: "grid", placeItems: "center" }}>
+            <button onClick={() => setShowSettings(true)} style={{ background: "linear-gradient(180deg, #20242C, #171B21)", border: `1px solid ${C.line2}`,
+              borderRadius: 11, width: 40, height: 40, color: C.muted, cursor: "pointer", display: "grid", placeItems: "center", boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" }}>
               <Settings size={18} />
             </button>
           </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 2, marginTop: 8 }}>
             {tabs.map((t) => {
               const a = t.id === tab; const I = t.icon;
               return (
                 <button key={t.id} onClick={() => setTab(t.id)} style={{
-                  flex: 1, padding: "9px 0", borderRadius: 10, border: `1px solid ${a ? C.red : C.line}`,
-                  background: a ? C.redSoft : "transparent", color: a ? C.red : C.muted, cursor: "pointer",
-                  fontWeight: 800, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                  <I size={14} /> {t.label}
+                  flex: 1, padding: "11px 0 12px", border: "none", position: "relative",
+                  background: "transparent", color: a ? C.text : C.muted, cursor: "pointer",
+                  fontFamily: DISPLAY, fontWeight: 600, fontSize: 14.5, letterSpacing: "0.1em", textTransform: "uppercase",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <I size={15} style={{ color: a ? C.red : C.faint }} /> {t.label}
+                  {a && <span style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 4, width: 26, height: 3, borderRadius: 2, background: C.red, boxShadow: `0 0 10px ${C.red}` }} />}
                 </button>
               );
             })}
@@ -804,7 +862,7 @@ function Onboarding({ onDone, unit }) {
   });
   const opt = (title, desc, onClick) => (
     <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: C.surface, border: `1px solid ${C.line2}`,
-      borderRadius: 14, padding: "16px", cursor: "pointer", color: C.text, marginBottom: 12 }}>
+      borderRadius: 5, padding: "16px", cursor: "pointer", color: C.text, marginBottom: 12 }}>
       <div style={{ fontWeight: 800, fontSize: 15.5 }}>{title}</div>
       <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{desc}</div>
     </button>
@@ -828,7 +886,7 @@ function Onboarding({ onDone, unit }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: C.bg, display: "flex", flexDirection: "column",
       justifyContent: step === "seed" ? "flex-start" : "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
       <div style={{ maxWidth: 460, margin: "0 auto", width: "100%" }}>
-        <div style={{ fontWeight: 900, fontSize: 26, letterSpacing: "0.02em", textAlign: "center" }}>IRON<span style={{ color: C.red }}>SET</span></div>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 42, letterSpacing: "0.11em", textAlign: "center" }}>IRON<span style={{ color: C.red }}>SET</span></div>
         {step === "style" ? (
           <>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>How do you train? You can switch anytime in settings.</div>
@@ -850,7 +908,7 @@ function Onboarding({ onDone, unit }) {
               {LIFTS.map((name) => <Chip key={name} active={!!seeds[name]} onClick={() => toggleLift(name)}>{name}</Chip>)}
             </div>
             {Object.keys(seeds).map((name) => (
-              <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "11px 12px", marginBottom: 10 }}>
+              <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "11px 12px", marginBottom: 10 }}>
                 <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{name}</div>
                 {seeds[name].map((r, i) => (
                   <div key={i} style={{ marginBottom: 10, paddingBottom: i < seeds[name].length - 1 ? 10 : 0, borderBottom: i < seeds[name].length - 1 ? `1px solid ${C.line}` : "none" }}>
@@ -890,7 +948,7 @@ function Onboarding({ onDone, unit }) {
 function FeatureTour({ onDone }) {
   const row = (Icon, title, desc) => (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
-      <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 10, padding: 8, display: "flex", flexShrink: 0 }}><Icon size={16} style={{ color: C.red }} /></div>
+      <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: 8, display: "flex", flexShrink: 0 }}><Icon size={16} style={{ color: C.red }} /></div>
       <div>
         <div style={{ fontWeight: 800, fontSize: 13.5 }}>{title}</div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
@@ -899,8 +957,8 @@ function FeatureTour({ onDone }) {
   );
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,11,13,0.72)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: "18px 18px 0 0", padding: "22px 20px calc(24px + env(safe-area-inset-bottom, 0px))", maxWidth: 520, width: "100%" }}>
-        <div style={{ fontWeight: 900, fontSize: 18 }}>Quick tour</div>
+      <div style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: "12px 12px 0 0", padding: "22px 20px calc(24px + env(safe-area-inset-bottom, 0px))", maxWidth: 520, width: "100%" }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 25, letterSpacing: "0.1em", textTransform: "uppercase" }}>Quick tour</div>
         <div style={{ fontSize: 12, color: C.faint, margin: "3px 0 16px" }}>Thirty seconds, then it's all yours.</div>
         {row(Activity, "Train", "Dial in your target set and it suggests the load. Log what you actually hit — every set teaches it your real strength.")}
         {row(Check, "Back-offs", "Auto-adjust off how hard your last set actually was. Grind the top set and the next loads drop to match.")}
@@ -1068,7 +1126,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       )}
 
       {meetDays != null && meetDays >= 0 && (
-        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "9px 12px",
+        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: "9px 12px",
           fontSize: 12.5, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <b style={{ color: C.red }}>{meetName || "Meet"}</b>
           <span style={{ fontFamily: MONO, fontWeight: 700 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
@@ -1091,7 +1149,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               </div>
             ) : (
               <>
-                <div style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                <div style={{ fontFamily: SKETCH, fontSize: 30, fontWeight: 700, color: C.chalk, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
                   {ref != null ? fmt(ref) : "—"}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
                 </div>
                 <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2 }}>
@@ -1104,7 +1162,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={label}>Estimated 1RM</div>
-              <div style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ fontFamily: SKETCH, fontSize: 30, fontWeight: 700, color: C.chalk, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
                 {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
               </div>
             </div>
@@ -1138,22 +1196,26 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             ? [70, 75, 80, 85, 90].map((v) => <Chip key={v} active={topPct === v} onClick={() => setTopPct(v)}>{v}%</Chip>)
             : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10]).map((v) => <Chip key={v} active={tInt === v} onClick={() => setTInt(v)}>{inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}</Chip>)}
         </div>
-      <div style={{ height: 1, background: C.line, margin: "16px -16px" }} />
+      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
       {/* recommendation */}
       <div style={{ textAlign: "center" }}>
         <div style={label}>Recommended load</div>
         {recR != null ? (
           <>
-            <div style={{ fontFamily: MONO, fontSize: 60, fontWeight: 700, lineHeight: 1, marginTop: 8, letterSpacing: "-0.02em",
-              fontVariantNumeric: "tabular-nums", transition: "color .2s" }}>
+            <div style={{ fontFamily: MONO, fontSize: 60, fontWeight: 700, lineHeight: 1, marginTop: 8, color: C.text,
+              letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", textShadow: "0 2px 20px rgba(226,59,46,0.28)", transition: "color .2s" }}>
               {fmt(recR)}<span style={{ fontSize: 20, color: C.muted, marginLeft: 6, fontWeight: 600 }}>{unit}</span>
             </div>
-            {/* barbell motif */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, margin: "12px auto 4px", width: 120 }}>
-              <span style={{ width: 7, height: 16, background: C.red, borderRadius: 2 }} />
-              <span style={{ flex: 1, height: 3, background: C.redLine }} />
-              <span style={{ width: 7, height: 16, background: C.red, borderRadius: 2 }} />
+            {/* machined bar motif */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, margin: "13px auto 5px", width: 140 }}>
+              <span style={{ width: 9, height: 20, background: "linear-gradient(180deg, #3A414D, #262B33)", borderRadius: 2, boxShadow: "0 1px 0 rgba(255,255,255,0.12) inset" }} />
+              <span style={{ width: 5, height: 12, background: "#20242C", borderRadius: 1 }} />
+              <span style={{ flex: 1, height: 4, background: "linear-gradient(90deg, #2A2F37, #3A414D, #2A2F37)", borderRadius: 2 }} />
+              <span style={{ width: 22, height: 8, background: C.red, borderRadius: 2, boxShadow: `0 0 12px ${C.redLine}` }} />
+              <span style={{ flex: 1, height: 4, background: "linear-gradient(90deg, #2A2F37, #3A414D, #2A2F37)", borderRadius: 2 }} />
+              <span style={{ width: 5, height: 12, background: "#20242C", borderRadius: 1 }} />
+              <span style={{ width: 9, height: 20, background: "linear-gradient(180deg, #3A414D, #262B33)", borderRadius: 2, boxShadow: "0 1px 0 rgba(255,255,255,0.12) inset" }} />
             </div>
             <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
               {percentMode
@@ -1181,7 +1243,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         )}
       </div>
 
-      <div style={{ height: 1, background: C.line, margin: "16px -16px" }} />
+      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
       {/* log what you did */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1224,7 +1286,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           </div>
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 10,
+          style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4,
             padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <Btn kind="primary" onClick={doLog} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(log.weight)}>
           {justLogged ? <><Check size={17} /> Logged</> : "Log set"}
@@ -1261,7 +1323,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             {todayBos.map((s, i) => (
               <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 13px" }}>
+                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "9px 13px" }}>
                 <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
                   Back-off {i + 1} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
                 </div>
@@ -1270,7 +1332,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             ))}
 
             {doneCount < bo.sets && (
-              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
+              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: "12px 14px" }}>
                 <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
                   Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
                 </div>
@@ -1345,7 +1407,7 @@ function AddRow({ newName, setNewName, addExercise, mains }) {
         <input value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           placeholder="e.g. Pause Squat"
-          style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "11px 12px",
+          style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "11px 12px",
             color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <Btn kind="primary" onClick={submit}>Add lift</Btn>
       </div>
@@ -1535,7 +1597,7 @@ function ScoreCard({ analysis, unit, state, setState }) {
       {bwKg != null && !editing ? (
         <div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: MONO, fontSize: 40, fontWeight: 700, lineHeight: 1 }}>{fmt(Math.round(dots))}</span>
+            <span style={{ fontFamily: SKETCH, fontSize: 40, fontWeight: 700, color: C.chalk, lineHeight: 1 }}>{fmt(Math.round(dots))}</span>
             <span style={{ ...label, fontSize: 10 }}>DOTS</span>
             {tier && <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>≈ {tier}</span>}
           </div>
@@ -1626,7 +1688,7 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
     doShare(setShare, { type: "stat", label: meet.name || "Projected meet total", value: fmt(thirdsTotal), unit: "kg", sub, date: meet.date ? fmtMeetDate(meet.date) : "" });
   };
 
-  const inputStyle = { width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 10, padding: "0 12px", height: 44, color: C.text, fontSize: 15, fontWeight: 600, outline: "none" };
+  const inputStyle = { width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "0 12px", height: 44, color: C.text, fontSize: 15, fontWeight: 600, outline: "none" };
 
   return (
     <Sheet open={open} onClose={onClose} title="Meet prep">
@@ -1647,7 +1709,7 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
         </div>
       ) : (
         <>
-          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 5, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
             <button onClick={shareMeet} aria-label="Share" style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, position: "absolute", top: 8, right: 8 }}><Share size={16} /></button>
             <div style={{ ...label, fontSize: 10 }}>If you hit your thirds</div>
             <div style={{ fontFamily: MONO, fontSize: 38, fontWeight: 700, lineHeight: 1, marginTop: 6 }}>{fmt(thirdsTotal)}<span style={{ fontSize: 15, color: C.muted, marginLeft: 4 }}>kg</span></div>
@@ -1685,10 +1747,59 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
 }
 
 /* ============================== INSIGHTS ================================ */
+function SessionCard({ session, unit, inputMode }) {
+  if (!session) return null;
+  const { lifts, totalSets, backoffs, anyUp } = session;
+  const eff = (s) => inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`;
+  const dateStr = new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px 11px",
+        borderBottom: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(226,59,46,0.08), transparent)" }}>
+        <div>
+          <div style={{ ...label, fontSize: 9.5, color: C.red }}>Today's session</div>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 17, marginTop: 2 }}>{dateStr}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{lifts.length}<span style={{ fontSize: 11, color: C.muted }}> {lifts.length === 1 ? "lift" : "lifts"}</span></div>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{totalSets} set{totalSets !== 1 ? "s" : ""}{backoffs ? ` · ${backoffs} back-off` : ""}</div>
+        </div>
+      </div>
+      <div style={{ padding: "6px 16px 12px" }}>
+        {lifts.map((l) => (
+          <div key={l.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0",
+            borderBottom: l === lifts[lifts.length - 1] ? "none" : `1px solid ${C.line}` }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{l.name}</div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2, fontFamily: MONO }}>
+                {fmt(l.top.weight)}{unit} × {l.top.reps} <span style={{ color: C.faint }}>@ {eff(l.top)}</span>
+              </div>
+            </div>
+            {l.e1rm != null && (
+              <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 10 }}>
+                <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: l.up ? C.good : C.text }}>
+                  {l.up ? "▲ " : ""}{fmt(Math.round(l.e1rm))}
+                </div>
+                <div style={{ ...label, fontSize: 8, marginTop: 1 }}>est 1rm</div>
+              </div>
+            )}
+          </div>
+        ))}
+        <div style={{ fontSize: 11.5, color: anyUp ? C.good : C.muted, marginTop: 10, fontWeight: 600, textAlign: "center" }}>
+          {anyUp ? "New estimated high today — strength trending up." : "Logged and in the books. Keep stacking sessions."}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function InsightsTab({ analysis, unit, state, setState }) {
   const { total, totalDelta, parts, insights } = analysis;
-  const sevColor = { alert: C.red, watch: "#D9A441", win: C.good, note: "#7FA8C9" };
+  const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
   const [share, setShare] = useState(null);
+  const dismissed = state.dismissedInsights || {};
+  const dismiss = (it) => setState((s) => ({ ...s, dismissedInsights: { ...(s.dismissedInsights || {}), [it.id]: it.detail } }));
+  const shownInsights = insights.filter((it) => dismissed[it.id] !== it.detail);
   const iconBtn = { background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, flexShrink: 0, display: "flex", alignItems: "center" };
   const dateStr = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const shareStat = () => {
@@ -1702,17 +1813,21 @@ function InsightsTab({ analysis, unit, state, setState }) {
   const shareInsight = (it) => doShare(setShare, { type: "insight", title: it.title, detail: it.detail, accent: sevColor[it.sev], date: dateStr });
   if ((!insights || insights.length === 0) && (!parts || parts.length === 0))
     return (
-      <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
-        Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
-      </Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
+        <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
+          Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
+        </Card>
+      </div>
     );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
       {total != null ? (
         <Card style={{ textAlign: "center", paddingTop: 20, paddingBottom: 18, position: "relative" }}>
           <button onClick={shareStat} aria-label="Share" style={{ ...iconBtn, position: "absolute", top: 10, right: 10 }}><Share size={16} /></button>
           <div style={label}>Projected total</div>
-          <div style={{ fontFamily: MONO, fontSize: 46, fontWeight: 700, lineHeight: 1, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ fontFamily: SKETCH, fontSize: 46, fontWeight: 700, color: C.chalk, lineHeight: 1, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
             {fmt(Math.round(total))}<span style={{ fontSize: 16, color: C.muted, marginLeft: 5 }}>{unit}</span>
           </div>
           {totalDelta != null && Math.abs(totalDelta) >= 1 && (
@@ -1744,14 +1859,17 @@ function InsightsTab({ analysis, unit, state, setState }) {
       <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
       <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
 
-      {insights.map((it) => (
-        <div key={it.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: 12, padding: "13px 14px" }}>
+      {shownInsights.map((it) => (
+        <div key={it.id} style={{ background: "linear-gradient(180deg, #1B1F26, #15181E)", border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: 12, padding: "13px 14px", boxShadow: ELEV }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0 }} />
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0, boxShadow: `0 0 8px ${sevColor[it.sev]}` }} />
               <span style={{ fontWeight: 800, fontSize: 13.5 }}>{it.title}</span>
             </div>
-            <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
+            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
+              <button onClick={() => dismiss(it)} aria-label="Dismiss" style={iconBtn}><X size={15} /></button>
+            </div>
           </div>
           <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{it.detail}</div>
         </div>
@@ -1772,7 +1890,7 @@ function ShareSheet({ data, onClose }) {
   const reshare = async () => { try { await navigator.share({ files: [data.file] }); } catch (e) {} };
   return (
     <Sheet open onClose={onClose} title="Share">
-      <img src={data.url} alt="IRONSET card" style={{ width: "100%", borderRadius: 14, display: "block", border: `1px solid ${C.line}` }} />
+      <img src={data.url} alt="IRONSET card" style={{ width: "100%", borderRadius: 5, display: "block", border: `1px solid ${C.line}` }} />
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         {canShare && <Btn kind="primary" onClick={reshare} style={{ flex: 1 }}>Share</Btn>}
         <Btn kind="solid" onClick={save} style={{ flex: 1 }}>Save image</Btn>
@@ -1875,7 +1993,7 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
           </div>
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 12px",
+          style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "11px 12px",
             color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <div style={{ fontSize: 11.5, color: C.faint }}>
           New estimate from this set: {fmt(e1rmFromSet(parseFloat(weight) || 0, reps, inputMode === "rir" ? 10 - int : int))} {unit} e1RM
@@ -2016,7 +2134,7 @@ class Boundary extends React.Component {
   componentDidCatch(e, info) { console.error(e, info); }
   render() {
     if (this.state.err) return (
-      <div style={{ padding: 20, minHeight: "100vh", background: "#14161A", color: "#ECEAE3", fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ padding: 20, minHeight: "100vh", background: "#0C0D10", color: "#ECEAE3", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>IRONSET hit an error</div>
         <div style={{ fontSize: 12, color: "#9098A4", marginBottom: 10 }}>Reload the page. Your saved data on this device is untouched.</div>
         <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: "#E23B2E" }}>{String((this.state.err && this.state.err.message) || this.state.err)}</pre>
