@@ -116,12 +116,12 @@ function fatigueDrop(reps, rpe, k) {
 // (back-off) steps: each step's implied-1RM drop ÷ the prior set's fatigue stimulus.
 // Median is robust to noise; the result is shrunk toward the default so sparse data
 // stays sane and it only drifts to a personal value once there's real evidence.
-function learnDropScale(sets, k) {
-  // How much THIS lifter actually drops between sets, learned from their whole history.
-  // Every logged transition into a back-off (top set → BO1, BO → next BO) is compared
-  // against what the model would have predicted for that same set, giving a personal
-  // scale on the entire fatigue model. Median across transitions is robust to one odd
-  // day; shrunk toward slightly-cautious until evidence accrues; clamped both ways.
+function learnDropScale(sets, k, forTop) {
+  // How much THIS lifter actually drops on a given transition type, learned per lift.
+  // Top-set→first-back-off and back-off→back-off are learned SEPARATELY (forTop), since
+  // many lifters barely drop off their top set but descend through their chain. Every
+  // observation counts: holding or gaining strength into a back-off is the strongest
+  // possible evidence of minimal drop, not noise to discard.
   const byDay = {};
   for (const s of sets) { const d = new Date(s.ts).toDateString(); (byDay[d] = byDay[d] || []).push(s); }
   const scales = [];
@@ -129,22 +129,23 @@ function learnDropScale(sets, k) {
     const day = byDay[d].slice().sort((a, b) => a.ts - b.ts);
     for (let i = 0; i < day.length - 1; i++) {
       const a = day[i], b = day[i + 1];
-      if (!b.backoff) continue; // only transitions INTO a back-off
+      if (!b.backoff) continue;                 // only transitions INTO a back-off
+      if (!a.backoff !== forTop) continue;      // split: top→BO1 vs BO→BO
       const ea = e1rmFromSet(a.weight, a.reps, a.rpe), eb = e1rmFromSet(b.weight, b.reps, b.rpe);
       if (!(ea > 0) || !(eb > 0)) continue;
       const obs = 1 - eb / ea;
-      if (obs <= 0.001 || obs > 0.35) continue;
+      if (obs > 0.35) continue;
       const pred = fatigueDrop(a.reps, a.rpe, k);
       if (pred < 0.015) continue;
-      const sc = obs / pred;
-      if (sc > 0.2 && sc < 2.6) scales.push(sc);
+      const sc = obs <= 0.001 ? 0.2 : obs / pred; // held/gained → strongest low-drop evidence
+      if (sc < 2.6) scales.push(Math.max(0.2, sc));
     }
   }
-  if (!scales.length) return 1.15; // no history yet: stay a touch cautious
+  if (!scales.length) return forTop ? 1.15 : 1.05; // no history: stay a touch cautious
   scales.sort((x, y) => x - y);
-  const med = scales[Math.floor(scales.length / 2)], n = scales.length, W0 = 4;
-  const blended = (n * med + W0 * 1.05) / (n + W0);
-  return Math.max(0.45, Math.min(1.9, blended));
+  const med = scales[Math.floor(scales.length / 2)], n = scales.length, W0 = 3;
+  const blended = (n * med + W0 * 1.0) / (n + W0);
+  return Math.max(0.2, Math.min(1.9, blended));
 }
 // Inverse of pctForN: max reps achievable at a given %1RM (lets % training show a
 // predicted RPE/RIR, so the two styles speak the same language).
@@ -1028,7 +1029,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   // much capacity the *actual* prior set spent. The first comes off your top set, each
   // next off the back-off before it, so a grindy set pulls the next one down harder.
   const [boDraft, setBoDraft] = useState(null);
-  const personalScale = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K), [selEx]);
+  const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
+  const scaleChain = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, false), [selEx]);
   const boDayStr = new Date(tsFromDateStr(logDate)).toDateString();
   const todayBos = (selEx ? selEx.sets : []).filter((x) => x.backoff && new Date(x.ts).toDateString() === boDayStr);
   const doneCount = todayBos.length;
@@ -1047,7 +1049,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       return lastBo ? roundTo(lastBo.weight, round) : null;
     }
     if (!prevForBo) return null;
-    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K) * personalScale);
+    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K) * (lastBo ? scaleChain : scaleTop));
     return roundTo(weightForTarget(effCap, bo.reps, bo.rpe), round);
   })();
   const boIntDefault = (() => {
