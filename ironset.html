@@ -878,8 +878,8 @@ function residualFatigue(sets, refTs) {
     let S = 0, peak = 0, lastTs = 0;
     for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe); peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
     const days = Math.max(0.5, (refTs - lastTs) / 86400000);
-    if (days > 16 || S <= 0) continue;
-    const c = 0.25 * S * Math.exp(-days / 6);
+    if (days > 12 || S <= 0) continue;
+    const c = 0.25 * S * Math.exp(-days / 4);
     total += c;
     if (c > top.c) top = { c, days: Math.round(days), peak };
   }
@@ -911,13 +911,13 @@ function learnRecoveryScale(sets) {
     if (pred < 0.01) continue;
     const obs = 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe);
     if (obs < -0.1 || obs > 0.2) continue;
-    const sc = obs <= 0.001 ? 0.3 : obs / pred;
-    if (sc < 2.5) samples.push(Math.max(0.3, sc));
+    const sc = obs <= 0.001 ? 0.1 : obs / pred;
+    if (sc < 2.5) samples.push(Math.max(0.05, sc));
   }
   if (!samples.length) return 1;
   samples.sort((a, b) => a - b);
-  const med = samples[Math.floor(samples.length / 2)], n = samples.length, W0 = 3;
-  return Math.max(0.3, Math.min(2, (n * med + W0) / (n + W0)));
+  const med = samples[Math.floor(samples.length / 2)], n = samples.length, W0 = 2;
+  return Math.max(0.1, Math.min(2, (n * med + W0 * 0.8) / (n + W0)));
 }
 
 function Onboarding({ onDone, unit }) {
@@ -1337,7 +1337,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               ))}
             {recovery.drop >= 0.01 && (
               <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {recovery.from ? recovery.from + " " : ""}session {recovery.days}d ago
+                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
               </div>
             )}
             {/* plates */}
