@@ -845,6 +845,45 @@ function App() {
   );
 }
 
+
+/* ---- Inter-session (week-over-week) fatigue ---- */
+// Work above ~RPE 8 leaves a recovery debt into the NEXT session of that lift. The
+// debt scales with how far past 8 the sets went, decays over the days between
+// sessions, and its true size is learned per lift from this lifter's own history —
+// so a deadlift can learn a heavier carryover than a bench.
+function strainExcess(rpe) { return Math.max(0, fatigueEffort(rpe) - fatigueEffort(8)); }
+function residualFatigue(sets, refTs, scale) {
+  const dayKey = (ts) => new Date(ts).toDateString();
+  const refDay = dayKey(refTs);
+  const prior = sets.filter((s) => s.ts < refTs && dayKey(s.ts) !== refDay);
+  if (!prior.length) return { drop: 0, days: 0, peak: 0 };
+  const lastDay = dayKey(prior.reduce((a, b) => (b.ts > a.ts ? b : a)).ts);
+  const day = prior.filter((s) => dayKey(s.ts) === lastDay);
+  let S = 0, peak = 0, lastTs = 0;
+  for (const s of day) { S += Math.max(1, s.reps) * strainExcess(s.rpe); peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
+  const days = Math.max(0.5, (refTs - lastTs) / 86400000);
+  const drop = Math.min(0.12, 0.25 * S * Math.exp(-days / 6) * scale);
+  return { drop, days: Math.round(days), peak };
+}
+// Learn how strongly carryover hits THIS lift: every prescribed top set that came in
+// harder than its target, on a day residual fatigue was predicted, sizes the effect.
+function learnRecoveryScale(sets) {
+  const samples = [];
+  for (const s of sets) {
+    if (s.backoff || !s.fromRec || s.tRpe == null || s.rpe == null) continue;
+    const pred = residualFatigue(sets, s.ts, 1).drop;
+    if (pred < 0.01) continue;
+    const obs = 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe);
+    if (obs < -0.1 || obs > 0.2) continue;
+    const sc = obs <= 0.001 ? 0.3 : obs / pred;
+    if (sc < 2.5) samples.push(Math.max(0.3, sc));
+  }
+  if (!samples.length) return 1;
+  samples.sort((a, b) => a - b);
+  const med = samples[Math.floor(samples.length / 2)], n = samples.length, W0 = 3;
+  return Math.max(0.3, Math.min(2, (n * med + W0) / (n + W0)));
+}
+
 function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
   const [chosen, setChosen] = useState({});
@@ -1010,16 +1049,23 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const setTmax = (val) => { if (sel) updateExercise(sel, { tmax: val }); };
   const [editTmax, setEditTmax] = useState(false);
   const [tmaxInput, setTmaxInput] = useState("");
-  const ref = percentMode ? (locked ? (tmax != null ? tmax : (e1rm != null ? roundTo(e1rm, round) : null)) : (e1rm != null ? roundTo(e1rm, round) : null)) : e1rm;
+  // week-over-week carryover: a hard prior session of THIS lift trims today's targets
+  const recovery = useMemo(() => {
+    if (!selEx || e1rm == null) return { drop: 0, days: 0, peak: 0 };
+    return residualFatigue(selEx.sets, tsFromDateStr(logDate) + 1, learnRecoveryScale(selEx.sets));
+  }, [selEx, e1rm, logDate]);
+  const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) : null;
+
+  const ref = percentMode ? (locked ? (tmax != null ? tmax : (e1rm != null ? roundTo(e1rm, round) : null)) : (effE1rm != null ? roundTo(effE1rm, round) : null)) : effE1rm;
   const topPct = settings.topPct || 85;
   const setTopPct = (v) => setSetting && setSetting("topPct", Math.max(30, Math.min(105, v)));
 
-  const rec = percentMode ? (ref != null ? ref * (topPct / 100) : null) : (e1rm != null ? weightForTarget(e1rm, tReps, tRpe) : null);
+  const rec = percentMode ? (ref != null ? ref * (topPct / 100) : null) : (effE1rm != null ? weightForTarget(effE1rm, tReps, tRpe) : null);
   const recR = rec != null ? roundTo(rec, round) : null;
   // predicted effort for a % prescription, measured against the app's true estimate
-  const predRpe = (percentMode && e1rm != null && recR != null) ? Math.max(1, Math.min(10, 10 - (repsAtPct((recR / e1rm) * 100) - tReps))) : null;
-  const strongDay = (!percentMode && e1rm != null && tRpe < 10) ? roundTo(weightForTarget(e1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
-  const toughDay = (!percentMode && e1rm != null) ? roundTo(weightForTarget(e1rm, tReps, tRpe - 0.5), round) : null;
+  const predRpe = (percentMode && effE1rm != null && recR != null) ? Math.max(1, Math.min(10, 10 - (repsAtPct((recR / effE1rm) * 100) - tReps))) : null;
+  const strongDay = (!percentMode && effE1rm != null && tRpe < 10) ? roundTo(weightForTarget(effE1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
+  const toughDay = (!percentMode && effE1rm != null) ? roundTo(weightForTarget(effE1rm, tReps, tRpe - 0.5), round) : null;
 
   // back-off sets — fatigue-aware in RPE mode; a flat % in percentage mode
   const bo = settings.backoff || { sets: 1, reps: 5, rpe: 8, pct: 75 };
@@ -1040,7 +1086,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
     if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe), reps: lastBo.reps, rpe: lastBo.rpe };
     const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
     if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe };
-    if (e1rm != null) return { implied: e1rm, reps: tReps, rpe: tRpe };
+    if (effE1rm != null) return { implied: effE1rm, reps: tReps, rpe: tRpe };
     return null;
   })();
   const boSug = (() => {
@@ -1054,8 +1100,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   })();
   const boIntDefault = (() => {
     if (percentMode) {
-      if (e1rm != null && boSug != null) {
-        const pr = Math.max(1, Math.min(10, 10 - (repsAtPct((boSug / e1rm) * 100) - bo.reps)));
+      if (effE1rm != null && boSug != null) {
+        const pr = Math.max(1, Math.min(10, 10 - (repsAtPct((boSug / effE1rm) * 100) - bo.reps)));
         return inputMode === "rir" ? Math.max(0, Math.round((10 - pr) * 2) / 2) : Math.round(pr * 2) / 2;
       }
       return inputMode === "rir" ? 1 : 9;
@@ -1233,6 +1279,11 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
                   {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
                 </div>
               ))}
+            {recovery.drop >= 0.01 && (
+              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} session {recovery.days}d ago
+              </div>
+            )}
             {/* plates */}
             <button onClick={() => setShowPlates((v) => !v)} style={{ marginTop: 12, background: "none", border: "none",
               color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
