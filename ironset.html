@@ -160,12 +160,19 @@ function repsAtPct(pct) {
   return 24;
 }
 // Fold the whole (time-ordered) history into a learned 1RM + a trajectory.
-function buildModel(sets) {
+function buildModel(sets, allSets) {
   const sorted = [...sets].sort((a, b) => a.ts - b.ts);
+  const ctx = allSets || sets;
+  const rsc = learnRecoveryScale(ctx);
   let e = null;
   const points = [];
   for (const s of sorted) {
-    const obs = e1rmFromSet(s.weight, s.reps, s.rpe);
+    let obs = e1rmFromSet(s.weight, s.reps, s.rpe);
+    // Freshness correction: a set performed under predicted residual fatigue is a
+    // fatigued-day reading, not a fresh max — convert it to fresh terms before folding,
+    // so a brutal week can't masquerade as strength loss.
+    const rd = residualFatigue(ctx, s.ts, rsc).drop;
+    if (rd >= 0.01) obs = obs / (1 - Math.min(0.10, 0.85 * rd));
     e = e == null ? obs : e + 0.35 * reliability(s.reps, s.rpe) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
@@ -692,7 +699,7 @@ function App() {
   const models = useMemo(() => {
     const ex = state.exercises;
     const own = {};
-    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff));
+    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff), e.sets);
     // ratio of a variation's strength to its parent: learned from own numbers, else default
     const ratioOf = (name) => {
       const x = ex[name];
@@ -710,7 +717,14 @@ function App() {
       const all = [];
       for (const m of members) {
         const r = m === root ? 1 : ratioOf(m);
-        for (const s of ex[m].sets) { if (s.backoff) continue; all.push({ ts: s.ts, obs: e1rmFromSet(s.weight, s.reps, s.rpe) / r, reps: s.reps, rpe: s.rpe }); }
+        const rscM = learnRecoveryScale(ex[m].sets);
+        for (const s of ex[m].sets) {
+          if (s.backoff) continue;
+          let ob = e1rmFromSet(s.weight, s.reps, s.rpe);
+          const rd = residualFatigue(ex[m].sets, s.ts, rscM).drop;
+          if (rd >= 0.01) ob = ob / (1 - Math.min(0.10, 0.85 * rd));
+          all.push({ ts: s.ts, obs: ob / r, reps: s.reps, rpe: s.rpe });
+        }
       }
       all.sort((a, b) => a.ts - b.ts);
       let e = null; const points = [];
@@ -853,17 +867,26 @@ function App() {
 // so a deadlift can learn a heavier carryover than a bench.
 function strainExcess(rpe) { return Math.max(0, fatigueEffort(rpe) - fatigueEffort(8)); }
 function residualFatigue(sets, refTs, scale) {
+  // Sums decayed strain across ALL recent sessions (16-day window), so a light
+  // session can't mask the debt from a brutal one behind it. The note reports the
+  // dominant contributor.
   const dayKey = (ts) => new Date(ts).toDateString();
   const refDay = dayKey(refTs);
   const prior = sets.filter((s) => s.ts < refTs && dayKey(s.ts) !== refDay);
   if (!prior.length) return { drop: 0, days: 0, peak: 0 };
-  const lastDay = dayKey(prior.reduce((a, b) => (b.ts > a.ts ? b : a)).ts);
-  const day = prior.filter((s) => dayKey(s.ts) === lastDay);
-  let S = 0, peak = 0, lastTs = 0;
-  for (const s of day) { S += Math.max(1, s.reps) * strainExcess(s.rpe); peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
-  const days = Math.max(0.5, (refTs - lastTs) / 86400000);
-  const drop = Math.min(0.12, 0.25 * S * Math.exp(-days / 6) * scale);
-  return { drop, days: Math.round(days), peak };
+  const byDay = {};
+  for (const s of prior) { const d = dayKey(s.ts); (byDay[d] = byDay[d] || []).push(s); }
+  let total = 0, top = { c: 0, days: 0, peak: 0 };
+  for (const d in byDay) {
+    let S = 0, peak = 0, lastTs = 0;
+    for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe); peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
+    const days = Math.max(0.5, (refTs - lastTs) / 86400000);
+    if (days > 16 || S <= 0) continue;
+    const c = 0.25 * S * Math.exp(-days / 6);
+    total += c;
+    if (c > top.c) top = { c, days: Math.round(days), peak };
+  }
+  return { drop: Math.min(0.12, total * scale), days: top.days, peak: top.peak };
 }
 // Learn how strongly carryover hits THIS lift: every prescribed top set that came in
 // harder than its target, on a day residual fatigue was predicted, sizes the effect.
@@ -1852,6 +1875,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
   const { total, totalDelta, parts, insights } = analysis;
   const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
   const [share, setShare] = useState(null);
+  const [showEngine, setShowEngine] = useState(false);
   const dismissed = state.dismissedInsights || {};
   const dismiss = (it) => setState((s) => ({ ...s, dismissedInsights: { ...(s.dismissedInsights || {}), [it.id]: it.detail } }));
   const shownInsights = insights.filter((it) => dismissed[it.id] !== it.detail);
@@ -1933,6 +1957,24 @@ function InsightsTab({ analysis, unit, state, setState }) {
       <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
         These read your own logged data and refresh every time you train.
       </div>
+      <Btn kind="ghost" onClick={() => setShowEngine(true)} style={{ width: "100%" }}><Info size={15} /> How the engine thinks</Btn>
+      <Sheet open={showEngine} onClose={() => setShowEngine(false)} title="The engine">
+        <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>
+          Every number in IRONSET is computed from your own logged sets — nothing generic, nothing canned. Here's the thinking underneath.
+        </div>
+        {[
+          ["Estimated 1RM", "Every set implies a max through the RPE chart — a triple at 9 and a heavy single speak the same language. New sets blend in with recent work weighted most, and each set's pull is earned: hard, low-rep sets move the number; light or long sets barely nudge it, because their ratings are the least reliable."],
+          ["Freshness correction", "A set performed under predicted residual fatigue from a hard recent session is read as a fatigued-day performance and converted to fresh terms before it touches your estimate — a brutal week can't masquerade as strength loss."],
+          ["Variations", "Linked variations feed one family model through a learned ratio to their main lift, so a paused-squat PR sharpens your squat estimate too."],
+          ["Back-offs", "Suggestions come off your actual last set, discounted by your personal fatigue profile — learned separately per lift, and separately for the top-set drop versus the chain, from every transition you've ever logged."],
+          ["Week-over-week capacity", "Work above ~RPE 8 leaves a recovery debt that decays across the days between sessions. Its size is learned per lift from your own history, and when it applies your prescriptions are trimmed — visibly — while your max stays untouched."],
+        ].map(([t, d]) => (
+          <div key={t} style={{ marginBottom: 16 }}>
+            <div style={{ ...label, fontSize: 10, marginBottom: 5, color: C.red }}>{t}</div>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>{d}</div>
+          </div>
+        ))}
+      </Sheet>
       {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
   );
