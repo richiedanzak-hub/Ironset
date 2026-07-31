@@ -1085,19 +1085,24 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const setTmax = (val) => { if (sel) updateExercise(sel, { tmax: val }); };
   const [editTmax, setEditTmax] = useState(false);
   const [tmaxInput, setTmaxInput] = useState("");
-  // Week-over-week carryover trims today's targets: this lift's own recent strain in
-  // full, family-linked lifts at 60%, everything else (systemic) at 30% — a brutal
-  // deadlift day partially reaches your bench.
+  // Week-over-week carryover trims today's targets. Weights are movement-pattern
+  // aware: this lift's own strain in full, its variation family at 60%, same-pattern
+  // lifts (squat↔deadlift) at 35%, and unrelated patterns at a whisper (5%) — a
+  // brutal deadlift day reaches your squat, but barely touches your bench.
   const recovery = useMemo(() => {
     if (!selEx || e1rm == null) return { drop: 0, days: 0, peak: 0, from: null };
     const refTs = tsFromDateStr(logDate) + 1;
     const scale = learnRecoveryScale(selEx.sets);
+    const rootOf = (n) => { let r = n, hop = 0; while (state.exercises[r] && state.exercises[r].parent && hop++ < 4) r = state.exercises[r].parent; return r; };
+    const groupOf = (n) => { const r = rootOf(n).toLowerCase(); if (/squat|dead|pull|hinge|rdl/.test(r)) return "lower"; if (/bench|press|dip/.test(r)) return "press"; return "other"; };
     const own = residualFatigue(selEx.sets, refTs);
     let total = own.raw, top = { c: own.raw, days: own.days, peak: own.peak, name: null };
+    const gSel = groupOf(sel);
     for (const [name, other] of Object.entries(state.exercises)) {
       if (name === sel) continue;
-      const fam = other.parent === sel || selEx.parent === name || (selEx.parent != null && selEx.parent === other.parent);
-      const w = fam ? 0.6 : 0.3;
+      const fam = rootOf(name) === rootOf(sel);
+      const gOther = groupOf(name);
+      const w = fam ? 0.6 : (gSel !== "other" && gSel === gOther ? 0.35 : (gSel === "other" || gOther === "other" ? 0.15 : 0.05));
       const r = residualFatigue(other.sets, refTs);
       const c = w * r.raw;
       total += c;
