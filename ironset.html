@@ -167,12 +167,7 @@ function buildModel(sets, allSets) {
   let e = null;
   const points = [];
   for (const s of sorted) {
-    let obs = e1rmFromSet(s.weight, s.reps, s.rpe);
-    // Freshness correction: a set performed under predicted residual fatigue is a
-    // fatigued-day reading, not a fresh max — convert it to fresh terms before folding,
-    // so a brutal week can't masquerade as strength loss.
-    const rd = residualFatigue(ctx, s.ts, rsc).drop;
-    if (rd >= 0.01) obs = obs / (1 - Math.min(0.10, 0.85 * rd));
+    const obs = freshCorrect(e1rmFromSet(s.weight, s.reps, s.rpe), s, ctx, rsc);
     e = e == null ? obs : e + 0.35 * reliability(s.reps, s.rpe) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
@@ -720,9 +715,7 @@ function App() {
         const rscM = learnRecoveryScale(ex[m].sets);
         for (const s of ex[m].sets) {
           if (s.backoff) continue;
-          let ob = e1rmFromSet(s.weight, s.reps, s.rpe);
-          const rd = residualFatigue(ex[m].sets, s.ts, rscM).drop;
-          if (rd >= 0.01) ob = ob / (1 - Math.min(0.10, 0.85 * rd));
+          const ob = freshCorrect(e1rmFromSet(s.weight, s.reps, s.rpe), s, ex[m].sets, rscM);
           all.push({ ts: s.ts, obs: ob / r, reps: s.reps, rpe: s.rpe });
         }
       }
@@ -865,15 +858,19 @@ function App() {
 // debt scales with how far past 8 the sets went, decays over the days between
 // sessions, and its true size is learned per lift from this lifter's own history —
 // so a deadlift can learn a heavier carryover than a bench.
-function strainExcess(rpe) { return Math.max(0, fatigueEffort(rpe) - fatigueEffort(8)); }
-function residualFatigue(sets, refTs, scale) {
-  // Sums decayed strain across ALL recent sessions (16-day window), so a light
-  // session can't mask the debt from a brutal one behind it. The note reports the
-  // dominant contributor.
+function strainExcess(rpe) {
+  // Strain is dominated by true 9+ work: 8.5s count at half weight, 9 and up in full.
+  const base = Math.max(0, fatigueEffort(rpe) - fatigueEffort(8));
+  return base * Math.max(0.3, Math.min(1, rpe - 8));
+}
+function residualFatigue(sets, refTs) {
+  // Raw decayed strain summed across all recent sessions (16-day window), so a light
+  // session can't mask the debt from a brutal one behind it. Callers apply the
+  // learned per-lift scale and cap. Reports the dominant contributor for display.
   const dayKey = (ts) => new Date(ts).toDateString();
   const refDay = dayKey(refTs);
   const prior = sets.filter((s) => s.ts < refTs && dayKey(s.ts) !== refDay);
-  if (!prior.length) return { drop: 0, days: 0, peak: 0 };
+  if (!prior.length) return { raw: 0, days: 0, peak: 0 };
   const byDay = {};
   for (const s of prior) { const d = dayKey(s.ts); (byDay[d] = byDay[d] || []).push(s); }
   let total = 0, top = { c: 0, days: 0, peak: 0 };
@@ -886,7 +883,23 @@ function residualFatigue(sets, refTs, scale) {
     total += c;
     if (c > top.c) top = { c, days: Math.round(days), peak };
   }
-  return { drop: Math.min(0.12, total * scale), days: top.days, peak: top.peak };
+  return { raw: total, days: top.days, peak: top.peak };
+}
+
+// Freshness correction for the ESTIMATOR: a set performed under predicted residual
+// fatigue is converted toward fresh terms — but never beyond the impairment the
+// lifter's own rating actually showed. Hit your target effort? You weren't impaired,
+// so essentially no correction. This keeps a hard week from reading as strength loss
+// without ever manufacturing strength that wasn't demonstrated.
+function freshCorrect(obs, s, sets, rsc) {
+  const rd = Math.min(0.12, rsc * residualFatigue(sets, s.ts).raw);
+  if (rd < 0.01) return obs;
+  let corr = 0.85 * rd;
+  if (s.fromRec && s.tRpe != null) {
+    const obsDef = Math.max(0, 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe));
+    corr = Math.min(corr, obsDef);
+  } else corr = Math.min(corr, 0.06);
+  return obs / (1 - Math.min(0.10, corr));
 }
 // Learn how strongly carryover hits THIS lift: every prescribed top set that came in
 // harder than its target, on a day residual fatigue was predicted, sizes the effect.
@@ -894,7 +907,7 @@ function learnRecoveryScale(sets) {
   const samples = [];
   for (const s of sets) {
     if (s.backoff || !s.fromRec || s.tRpe == null || s.rpe == null) continue;
-    const pred = residualFatigue(sets, s.ts, 1).drop;
+    const pred = Math.min(0.12, residualFatigue(sets, s.ts).raw);
     if (pred < 0.01) continue;
     const obs = 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe);
     if (obs < -0.1 || obs > 0.2) continue;
@@ -1072,11 +1085,26 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const setTmax = (val) => { if (sel) updateExercise(sel, { tmax: val }); };
   const [editTmax, setEditTmax] = useState(false);
   const [tmaxInput, setTmaxInput] = useState("");
-  // week-over-week carryover: a hard prior session of THIS lift trims today's targets
+  // Week-over-week carryover trims today's targets: this lift's own recent strain in
+  // full, family-linked lifts at 60%, everything else (systemic) at 30% — a brutal
+  // deadlift day partially reaches your bench.
   const recovery = useMemo(() => {
-    if (!selEx || e1rm == null) return { drop: 0, days: 0, peak: 0 };
-    return residualFatigue(selEx.sets, tsFromDateStr(logDate) + 1, learnRecoveryScale(selEx.sets));
-  }, [selEx, e1rm, logDate]);
+    if (!selEx || e1rm == null) return { drop: 0, days: 0, peak: 0, from: null };
+    const refTs = tsFromDateStr(logDate) + 1;
+    const scale = learnRecoveryScale(selEx.sets);
+    const own = residualFatigue(selEx.sets, refTs);
+    let total = own.raw, top = { c: own.raw, days: own.days, peak: own.peak, name: null };
+    for (const [name, other] of Object.entries(state.exercises)) {
+      if (name === sel) continue;
+      const fam = other.parent === sel || selEx.parent === name || (selEx.parent != null && selEx.parent === other.parent);
+      const w = fam ? 0.6 : 0.3;
+      const r = residualFatigue(other.sets, refTs);
+      const c = w * r.raw;
+      total += c;
+      if (c > top.c) top = { c, days: r.days, peak: r.peak, name };
+    }
+    return { drop: Math.min(0.12, scale * total), days: top.days, peak: top.peak, from: top.name };
+  }, [selEx, sel, state.exercises, e1rm, logDate]);
   const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) : null;
 
   const ref = percentMode ? (locked ? (tmax != null ? tmax : (e1rm != null ? roundTo(e1rm, round) : null)) : (effE1rm != null ? roundTo(effE1rm, round) : null)) : effE1rm;
@@ -1304,7 +1332,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               ))}
             {recovery.drop >= 0.01 && (
               <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} session {recovery.days}d ago
+                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {recovery.from ? recovery.from + " " : ""}session {recovery.days}d ago
               </div>
             )}
             {/* plates */}
