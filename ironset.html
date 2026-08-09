@@ -364,6 +364,38 @@ function buildCard(p) {
     }
     _barbell(ctx, W / 2, 975, 380);
     if (p.sub) { ctx.fillStyle = "#5C6470"; ctx.font = "700 36px " + MON; ctx.fillText(p.sub, W / 2, 1072); }
+  } else if (p.type === "session") {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#929AA6"; ctx.font = "800 30px " + SANS;
+    try { ctx.letterSpacing = "6px"; } catch (e) {}
+    ctx.fillText("SESSION", W / 2, 300);
+    try { ctx.letterSpacing = "0px"; } catch (e) {}
+    ctx.fillStyle = "#ECEAE3"; ctx.font = "800 62px " + SANS;
+    ctx.fillText(p.headline || "", W / 2, 380);
+    ctx.fillStyle = "#5C6470"; ctx.font = "600 34px " + MON;
+    ctx.fillText(p.sub || "", W / 2, 436);
+    const rows = (p.lifts || []).slice(0, 5);
+    let y = 540;
+    for (const L of rows) {
+      ctx.fillStyle = "#15181E"; _round(ctx, 100, y, W - 200, 132, 18); ctx.fill();
+      ctx.strokeStyle = "#282D35"; ctx.lineWidth = 2; _round(ctx, 100, y, W - 200, 132, 18); ctx.stroke();
+      if (L.up) { ctx.fillStyle = "#7FC68F"; _round(ctx, 100, y + 22, 7, 88, 4); ctx.fill(); }
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#ECEAE3"; ctx.font = "800 40px " + SANS;
+      ctx.fillText(L.name, 148, y + 60);
+      ctx.fillStyle = "#9098A4"; ctx.font = "600 34px " + MON;
+      ctx.fillText(L.detail, 148, y + 108);
+      if (L.e1rm) {
+        ctx.textAlign = "right";
+        ctx.fillStyle = L.up ? "#7FC68F" : "#ECEAE3"; ctx.font = "700 48px " + MON;
+        ctx.fillText((L.up ? "\u25B2 " : "") + L.e1rm, W - 148, y + 74);
+        ctx.fillStyle = "#5C6470"; ctx.font = "700 22px " + SANS;
+        ctx.fillText("EST 1RM", W - 148, y + 110);
+      }
+      ctx.textAlign = "center";
+      y += 152;
+    }
+    _barbell(ctx, W / 2, Math.min(y + 60, H - 210), 320);
   } else {
     const accent = p.accent || "#E23B2E", mx = 100, top = 560, maxW = W - mx * 2 - 36;
     ctx.textAlign = "left";
@@ -662,6 +694,7 @@ function App() {
   const [tab, setTab] = useState("train");
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPlan, setShowPlan] = useState(false);
 
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }, [state]);
   useEffect(() => { if (!sel) { const k = Object.keys(state.exercises); if (k.length) setSel(k[0]); } }, [state.exercises, sel]);
@@ -827,7 +860,7 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName }} />
+            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
           )}
           {tab === "insights" && (
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
@@ -839,6 +872,9 @@ function App() {
       </div>
 
       <SettingsSheet {...{ open: showSettings, onClose: () => setShowSettings(false), settings: state.settings, setSetting, state, setState }} />
+      <BlockSheet open={showPlan} onClose={() => setShowPlan(false)} plan={state.plan || {}}
+        setPlan={(p) => setState((s) => ({ ...s, plan: p }))} exNames={Object.keys(state.exercises)}
+        inputMode={state.settings.inputMode} />
       {!state.settings.onboarded && <Onboarding unit={state.settings.unit} onDone={(patch, seeds) => setState((s) => {
         const exercises = { ...s.exercises };
         (seeds || []).forEach((sd) => {
@@ -1050,7 +1086,7 @@ function FeatureTour({ onDone }) {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName }) {
+function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
@@ -1075,6 +1111,13 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const model = (sel && models[sel]) ? models[sel] : { e1rm: null, points: [], count: 0 };
   const e1rm = model.e1rm;
   const selEx = sel ? state.exercises[sel] : null;
+  const DAYK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const todayPlan = (plan || {})[DAYK[(new Date(tsFromDateStr(logDate)).getDay() + 6) % 7]] || [];
+  const loadPlanned = (it) => {
+    if (state.exercises[it.name]) setSel(it.name);
+    setTReps(it.reps);
+    setTInt(inputMode === "rir" ? 10 - it.rpe : it.rpe);
+  };
   const childNames = sel ? names.filter((n) => state.exercises[n].parent === sel) : [];
   const parentName = selEx && selEx.parent && state.exercises[selEx.parent] ? selEx.parent : null;
   const ratioPct = Math.round((model.ratio || 1) * 100);
@@ -1282,6 +1325,30 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       </Card>
 
       {/* TOP SET widget — prescribe, see the load, log it, all in one */}
+      <Card style={{ padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ ...label, fontSize: 9.5 }}>Today's plan</div>
+          <button onClick={onEditPlan} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{todayPlan.length ? "Edit" : "Set up"}</button>
+        </div>
+        {todayPlan.length ? (
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
+            {todayPlan.map((it, i) => {
+              const on = it.name === sel && it.reps === tReps && (inputMode === "rir" ? 10 - it.rpe : it.rpe) === tInt;
+              return (
+                <Chip key={i} active={on} onClick={() => loadPlanned(it)}>
+                  {it.name} · {it.reps}@{inputMode === "rir" ? `${fmt(10 - it.rpe)}R` : fmt(it.rpe)}
+                </Chip>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
+            No lifts planned for today. Set a weekly plan and Train opens ready to go.
+          </div>
+        )}
+      </Card>
+
       <Card>
         <div style={label}>Top set</div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Set your target, see the load, then log what you actually hit.</div>
@@ -1858,11 +1925,111 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
 }
 
 /* ============================== INSIGHTS ================================ */
+function BlockSheet({ open, onClose, plan, setPlan, exNames, inputMode }) {
+  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const [day, setDay] = useState(DAYS[Math.max(0, (new Date().getDay() + 6) % 7)]);
+  const items = plan[day] || [];
+  const upd = (next) => setPlan({ ...plan, [day]: next });
+  const rir = inputMode === "rir";
+  return (
+    <Sheet open={open} onClose={onClose} title="Weekly plan">
+      <div style={{ fontSize: 12, color: C.faint, marginBottom: 12, lineHeight: 1.5 }}>
+        Set each day's lifts and targets once. On that day, Train opens pre-loaded — the engine still computes every load live.
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {DAYS.map((d) => (
+          <Chip key={d} active={d === day} onClick={() => setDay(d)}>
+            {d}{(plan[d] || []).length ? ` ·${(plan[d] || []).length}` : ""}
+          </Chip>
+        ))}
+      </div>
+      {items.map((it, i) => (
+        <Card key={i} style={{ marginBottom: 10, padding: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <select value={it.name} onChange={(e) => upd(items.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+              style={{ background: "#0F1216", border: `1px solid ${C.line2}`, borderRadius: 9, color: C.text,
+                fontFamily: SANS, fontWeight: 700, fontSize: 13.5, padding: "8px 10px", outline: "none", maxWidth: "72%" }}>
+              {exNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button onClick={() => upd(items.filter((_, j) => j !== i))}
+              style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4 }}><X size={16} /></button>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+              <Stepper value={it.reps} min={1} max={20} onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, reps: v } : x))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{rir ? "RIR" : "RPE"}</div>
+              <Stepper value={rir ? 10 - it.rpe : it.rpe} step={0.5} min={rir ? 0 : 5} max={rir ? 5 : 10}
+                onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, rpe: rir ? 10 - v : v } : x))} />
+            </div>
+          </div>
+        </Card>
+      ))}
+      {exNames.length > 0 && (
+        <Btn kind="solid" style={{ width: "100%", marginTop: 4 }}
+          onClick={() => upd([...items, { name: exNames[0], reps: 3, rpe: 8 }])}>+ Add lift to {day}</Btn>
+      )}
+      {items.length > 0 && (
+        <button onClick={() => upd([])} style={{ display: "block", margin: "12px auto 0", background: "none",
+          border: "none", color: C.faint, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Clear {day}</button>
+      )}
+    </Sheet>
+  );
+}
+
+function FreshnessCard({ state }) {
+  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
+  if (!mains.length) return null;
+  const now = Date.now(), DAY = 86400000;
+  const rows = mains.map(([name, ex]) => {
+    const scale = learnRecoveryScale(ex.sets);
+    const at = (d) => Math.min(0.12, scale * residualFatigue(ex.sets, now + d * DAY).raw);
+    const today = at(0);
+    let full = 0;
+    for (let d = 0; d <= 12; d++) { full = d; if (at(d) < 0.01) break; }
+    return { name, pct: Math.round((1 - today) * 100), full, ready: today < 0.01 };
+  }).sort((a, b) => a.pct - b.pct);
+  return (
+    <Card>
+      <div style={{ ...label, fontSize: 10, marginBottom: 3 }}>Freshness forecast</div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 13, lineHeight: 1.5 }}>
+        Estimated capacity right now, per lift — and when recent hard work has fully cleared.
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+            <span style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</span>
+            <span style={{ fontSize: 11.5, color: r.ready ? C.good : C.gold, fontWeight: 700 }}>
+              <span style={{ fontFamily: MONO, fontSize: 14 }}>{r.pct}%</span>
+              {r.ready ? " · ready" : ` · full in ${r.full}d`}
+            </span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: "#0F1216", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.4) inset" }}>
+            <div style={{ width: `${Math.max(4, Math.min(100, (r.pct - 84) / 0.16))}%`, height: "100%", borderRadius: 3,
+              background: r.ready ? `linear-gradient(90deg, #5E9E6C, ${C.good})` : `linear-gradient(90deg, #A8813A, ${C.gold})` }} />
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 function SessionCard({ session, unit, inputMode }) {
+  const [share, setShare] = useState(null);
   if (!session) return null;
   const { lifts, totalSets, backoffs, anyUp } = session;
   const eff = (s) => inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`;
   const dateStr = new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const shareSession = () => doShare(setShare, {
+    type: "session", date: dateStr,
+    headline: lifts.length === 1 ? lifts[0].name : `${lifts.length} lifts \u00b7 ${totalSets} sets`,
+    sub: anyUp ? "new estimated high" : `${totalSets} sets${backoffs ? ` \u00b7 ${backoffs} back-off` : ""}`,
+    lifts: lifts.map((l) => ({ name: l.name, up: l.up,
+      detail: `${fmt(l.top.weight)}${unit} \u00d7 ${l.top.reps} @ ${eff(l.top)}`,
+      e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null })),
+  });
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px 11px",
@@ -1871,6 +2038,8 @@ function SessionCard({ session, unit, inputMode }) {
           <div style={{ ...label, fontSize: 9.5, color: C.red }}>Today's session</div>
           <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 17, marginTop: 2 }}>{dateStr}</div>
         </div>
+        <button onClick={shareSession} aria-label="Share session" style={{ background: "none", border: "none",
+          color: C.faint, cursor: "pointer", padding: 6, marginLeft: "auto", marginRight: 10, display: "flex" }}><Share size={16} /></button>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{lifts.length}<span style={{ fontSize: 11, color: C.muted }}> {lifts.length === 1 ? "lift" : "lifts"}</span></div>
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{totalSets} set{totalSets !== 1 ? "s" : ""}{backoffs ? ` · ${backoffs} back-off` : ""}</div>
@@ -1900,6 +2069,7 @@ function SessionCard({ session, unit, inputMode }) {
           {anyUp ? "New estimated high today — strength trending up." : "Logged and in the books. Keep stacking sessions."}
         </div>
       </div>
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </Card>
   );
 }
@@ -1927,6 +2097,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
+        <FreshnessCard state={state} />
         <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
           Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
         </Card>
@@ -1935,6 +2106,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
+      <FreshnessCard state={state} />
       {total != null ? (
         <Card style={{ textAlign: "center", paddingTop: 20, paddingBottom: 18, position: "relative" }}>
           <button onClick={shareStat} aria-label="Share" style={{ ...iconBtn, position: "absolute", top: 10, right: 10 }}><Share size={16} /></button>
