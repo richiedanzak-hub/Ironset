@@ -659,40 +659,101 @@ function Sheet({ open, onClose, title, children }) {
 }
 
 /* ------------------------------ line chart ------------------------------- */
-function LineChart({ data, color = C.text, height = 150, unit = "" }) {
+// Round a raw axis step to a human number (1, 2, 2.5, 5, 10 x a power of ten), so the
+// y-axis reads 575/600/625 instead of 586/616/647.
+function niceStep(range, target) {
+  const raw = (range || 1) / Math.max(1, target);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+}
+// Catmull-Rom to cubic bezier, with control points clamped inside each segment so the
+// curve stays smooth without ever overshooting a real logged value.
+function smoothPath(pts) {
+  if (pts.length < 2) return "";
+  let d = "M" + pts[0][0].toFixed(1) + " " + pts[0][1].toFixed(1);
+  const T = 0.2;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const lo = Math.min(p1[1], p2[1]), hi = Math.max(p1[1], p2[1]);
+    const c1x = p1[0] + (p2[0] - p0[0]) * T, c2x = p2[0] - (p3[0] - p1[0]) * T;
+    const c1y = Math.max(lo, Math.min(hi, p1[1] + (p2[1] - p0[1]) * T));
+    const c2y = Math.max(lo, Math.min(hi, p2[1] - (p3[1] - p1[1]) * T));
+    d += " C" + c1x.toFixed(1) + " " + c1y.toFixed(1) + ", " + c2x.toFixed(1) + " " + c2y.toFixed(1) +
+         ", " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function LineChart({ data, color = C.red, height = 176, unit = "" }) {
+  const uid = useMemo(() => "c" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0)
-    return <div style={{ color: C.faint, fontSize: 13, padding: "28px 4px", textAlign: "center" }}>No data yet.</div>;
-  const W = 320, H = height, gutter = 34, padR = 12, padT = 16, padB = 20;
+    return <div style={{ color: C.faint, fontSize: 13, padding: "36px 4px", textAlign: "center" }}>No data yet — log a set to start your trend.</div>;
+  const W = 320, H = height, gutter = 38, padR = 14, padT = 28, padB = 26;
   const xs = data.map((d) => d.ts), ys = data.map((d) => d.value);
   const lo = Math.min(...ys), hi = Math.max(...ys), mid = (lo + hi) / 2;
-  // Widen the window so a few lb of change doesn't look like a cliff: show at
-  // least ~10% of the working weight, and always leave a little headroom.
-  const half = Math.max(((hi - lo) / 2) * 1.2, mid * 0.05, 5);
-  const minY = mid - half, maxY = mid + half;
+  // Keep small changes from looking like a cliff, then snap the window to round numbers.
+  const half = Math.max(((hi - lo) / 2) * 1.3, mid * 0.045, 5);
+  const step = niceStep(half * 2, 4);
+  const minY = Math.floor((mid - half) / step) * step;
+  const maxY = Math.ceil((mid + half) / step) * step;
+  const ticks = [];
+  for (let v = minY; v <= maxY + 0.001; v += step) ticks.push(v);
   const minX = Math.min(...xs), maxX = Math.max(...xs), spanX = maxX - minX || 1;
   const px = (t) => gutter + ((t - minX) / spanX) * (W - gutter - padR);
   const py = (v) => padT + (1 - (v - minY) / (maxY - minY)) * (H - padT - padB);
   const pts = data.map((d) => [px(d.ts), py(d.value)]);
-  const path = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-  const last = pts[pts.length - 1];
+  const line = smoothPath(pts);
+  const base = (H - padB).toFixed(1);
+  const area = pts.length > 1
+    ? line + " L" + pts[pts.length - 1][0].toFixed(1) + " " + base + " L" + pts[0][0].toFixed(1) + " " + base + " Z" : "";
+  const last = pts[pts.length - 1], lastVal = data[data.length - 1].value;
+  const showBest = ys.indexOf(hi) !== data.length - 1 && data.length > 3 && hi - lastVal > (maxY - minY) * 0.04;
+  const labW = 56, labX = Math.max(gutter, Math.min(last[0] - labW / 2, W - padR - labW));
+  const labY = Math.max(15, last[1] - 24);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {[maxY, mid, minY].map((v, i) => (
+    <svg viewBox={"0 0 " + W + " " + H} style={{ width: "100%", height: "auto", display: "block" }}>
+      <defs>
+        <linearGradient id={uid + "a"} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.32" />
+          <stop offset="55%" stopColor={color} stopOpacity="0.10" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id={uid + "l"} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#6D7885" />
+          <stop offset="60%" stopColor="#B4553F" />
+          <stop offset="100%" stopColor={color} />
+        </linearGradient>
+      </defs>
+      {ticks.map((v, i) => (
         <g key={i}>
-          <line x1={gutter} x2={W - padR} y1={py(v)} y2={py(v)} stroke={C.line} strokeWidth="1" />
-          <text x={gutter - 6} y={py(v) + 3} fill={C.faint} fontSize="9" fontFamily={MONO} textAnchor="end">{fmt(Math.round(v))}</text>
+          <line x1={gutter} x2={W - padR} y1={py(v)} y2={py(v)} stroke={C.line}
+            strokeWidth="1" strokeDasharray="2 4" opacity="0.7" />
+          <text x={gutter - 8} y={py(v) + 3} fill={C.faint} fontSize="8.5" fontFamily={MONO} textAnchor="end">{fmt(v)}</text>
         </g>
       ))}
-      {data.length > 1 && <path d={path} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />}
-      {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 3.5 : 2} fill={i === pts.length - 1 ? C.red : color} />)}
-      <text x={Math.min(last[0], W - padR - 30)} y={Math.max(last[1] - 7, 10)} fill={C.text} fontSize="11" fontWeight="700" fontFamily={MONO}>
-        {fmt(data[data.length - 1].value)}{unit}
+      {showBest && (
+        <g>
+          <line x1={gutter} x2={W - padR} y1={py(hi)} y2={py(hi)} stroke={C.good} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+          <text x={W - padR} y={py(hi) - 5} fill={C.good} fontSize="8" fontFamily={SANS} fontWeight="700" textAnchor="end" opacity="0.75">PEAK {fmt(Math.round(hi))}</text>
+        </g>
+      )}
+      {pts.length > 1 && <path d={area} fill={"url(#" + uid + "a)"} />}
+      {pts.length > 1 && <path d={line} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" opacity="0.12" />}
+      {pts.length > 1 && <path d={line} fill="none" stroke={"url(#" + uid + "l)"} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
+      <line x1={last[0]} x2={last[0]} y1={last[1]} y2={H - padB} stroke={color} strokeWidth="1" strokeDasharray="2 3" opacity="0.35" />
+      <circle cx={last[0]} cy={last[1]} r="7" fill={color} opacity="0.2" />
+      <circle cx={last[0]} cy={last[1]} r="3.6" fill={color} stroke="#0C0D10" strokeWidth="1.6" />
+      <rect x={labX} y={labY - 12} width={labW} height="17" rx="5" fill="#20242C" stroke={C.line2} strokeWidth="1" />
+      <text x={labX + labW / 2} y={labY} fill={C.text} fontSize="10" fontWeight="700" fontFamily={MONO} textAnchor="middle">
+        {fmt(Math.round(lastVal))}{unit}
       </text>
-      <text x={gutter} y={H - 5} fill={C.faint} fontSize="9" fontFamily={MONO}>{dshort(minX)}</text>
-      <text x={W - padR} y={H - 5} fill={C.faint} fontSize="9" fontFamily={MONO} textAnchor="end">{dshort(maxX)}</text>
+      <line x1={gutter} x2={W - padR} y1={H - padB} y2={H - padB} stroke={C.line2} strokeWidth="1" />
+      <text x={gutter} y={H - 8} fill={C.faint} fontSize="8.5" fontFamily={MONO}>{dshort(minX)}</text>
+      <text x={W - padR} y={H - 8} fill={C.faint} fontSize="8.5" fontFamily={MONO} textAnchor="end">{dshort(maxX)}</text>
     </svg>
   );
 }
+
 
 /* -------------------------------- state ---------------------------------- */
 const KEY = "lift-weight-suggester-v1";
@@ -1697,7 +1758,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           ))}
         </div>
         <div style={{ ...label, fontSize: 9.5, marginBottom: 4 }}>Strength trend ({unit})</div>
-        <LineChart data={model.points} color="#A9B4C2" height={150} unit={unit} />
+        <LineChart data={model.points} height={176} unit={unit} />
       </Card>
 
       <Card style={{ padding: 0, overflow: "hidden" }}>
