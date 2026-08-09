@@ -1117,6 +1117,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
     if (state.exercises[it.name]) setSel(it.name);
     setTReps(it.reps);
     setTInt(inputMode === "rir" ? 10 - it.rpe : it.rpe);
+    if (it.bo && setSetting) setSetting("backoff", { ...(settings.backoff || {}), sets: it.bo.sets, reps: it.bo.reps, rpe: it.bo.rpe });
   };
   const childNames = sel ? names.filter((n) => state.exercises[n].parent === sel) : [];
   const parentName = selEx && selEx.parent && state.exercises[selEx.parent] ? selEx.parent : null;
@@ -1337,7 +1338,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               const on = it.name === sel && it.reps === tReps && (inputMode === "rir" ? 10 - it.rpe : it.rpe) === tInt;
               return (
                 <Chip key={i} active={on} onClick={() => loadPlanned(it)}>
-                  {it.name} · {it.reps}@{inputMode === "rir" ? `${fmt(10 - it.rpe)}R` : fmt(it.rpe)}
+                  {it.name} · {it.reps}@{inputMode === "rir" ? `${fmt(10 - it.rpe)}R` : fmt(it.rpe)}{it.bo ? ` +${it.bo.sets}×${it.bo.reps}` : ""}
                 </Chip>
               );
             })}
@@ -1965,6 +1966,33 @@ function BlockSheet({ open, onClose, plan, setPlan, exNames, inputMode }) {
                 onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, rpe: rir ? 10 - v : v } : x))} />
             </div>
           </div>
+          <div style={{ height: 1, background: C.line, margin: "13px -13px" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Back-offs</div>
+            <button onClick={() => upd(items.map((x, j) => j === i ? (x.bo ? { ...x, bo: null } : { ...x, bo: { sets: 2, reps: 5, rpe: 7 } }) : x))}
+              style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+              {it.bo ? "Remove" : "+ Add"}
+            </button>
+          </div>
+          {it.bo && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 9 }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
+                <Stepper value={it.bo.sets} min={1} max={8}
+                  onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, bo: { ...x.bo, sets: v } } : x))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+                <Stepper value={it.bo.reps} min={1} max={20}
+                  onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, bo: { ...x.bo, reps: v } } : x))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{rir ? "RIR" : "RPE"}</div>
+                <Stepper value={rir ? 10 - it.bo.rpe : it.bo.rpe} step={0.5} min={rir ? 0 : 5} max={rir ? 5 : 10}
+                  onChange={(v) => upd(items.map((x, j) => j === i ? { ...x, bo: { ...x.bo, rpe: rir ? 10 - v : v } } : x))} />
+              </div>
+            </div>
+          )}
         </Card>
       ))}
       {exNames.length > 0 && (
@@ -2007,7 +2035,7 @@ function FreshnessCard({ state }) {
             </span>
           </div>
           <div style={{ height: 6, borderRadius: 3, background: "#0F1216", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.4) inset" }}>
-            <div style={{ width: `${Math.max(4, Math.min(100, (r.pct - 84) / 0.16))}%`, height: "100%", borderRadius: 3,
+            <div style={{ width: `${Math.max(6, Math.min(100, (r.pct - 70) / 0.30))}%`, height: "100%", borderRadius: 3,
               background: r.ready ? `linear-gradient(90deg, #5E9E6C, ${C.good})` : `linear-gradient(90deg, #A8813A, ${C.gold})` }} />
           </div>
         </div>
