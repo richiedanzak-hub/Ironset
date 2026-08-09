@@ -899,13 +899,13 @@ function strainExcess(rpe) {
   const base = Math.max(0, fatigueEffort(rpe) - fatigueEffort(8));
   return base * Math.max(0.3, Math.min(1, rpe - 8));
 }
-function residualFatigue(sets, refTs) {
+function residualFatigue(sets, refTs, includeToday) {
   // Raw decayed strain summed across all recent sessions (16-day window), so a light
   // session can't mask the debt from a brutal one behind it. Callers apply the
   // learned per-lift scale and cap. Reports the dominant contributor for display.
   const dayKey = (ts) => new Date(ts).toDateString();
   const refDay = dayKey(refTs);
-  const prior = sets.filter((s) => s.ts < refTs && dayKey(s.ts) !== refDay);
+  const prior = sets.filter((s) => s.ts < refTs && (includeToday || dayKey(s.ts) !== refDay));
   if (!prior.length) return { raw: 0, days: 0, peak: 0 };
   const byDay = {};
   for (const s of prior) { const d = dayKey(s.ts); (byDay[d] = byDay[d] || []).push(s); }
@@ -913,7 +913,7 @@ function residualFatigue(sets, refTs) {
   for (const d in byDay) {
     let S = 0, peak = 0, lastTs = 0;
     for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe) * (s.backoff ? 0.4 : 1); if (!s.backoff) peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
-    const days = Math.max(0.5, (refTs - lastTs) / 86400000);
+    const days = Math.max(0.17, (refTs - lastTs) / 86400000);
     if (days > 12 || S <= 0) continue;
     const c = 0.25 * S * Math.exp(-days / 4);
     total += c;
@@ -928,7 +928,7 @@ function residualFatigue(sets, refTs) {
 // so essentially no correction. This keeps a hard week from reading as strength loss
 // without ever manufacturing strength that wasn't demonstrated.
 function freshCorrect(obs, s, sets, rsc) {
-  const rd = Math.min(0.12, rsc * residualFatigue(sets, s.ts).raw);
+  const rd = Math.min(0.18, rsc * residualFatigue(sets, s.ts).raw);
   if (rd < 0.01) return obs;
   let corr = 0.85 * rd;
   if (s.fromRec && s.tRpe != null) {
@@ -943,7 +943,7 @@ function learnRecoveryScale(sets) {
   const samples = [];
   for (const s of sets) {
     if (s.backoff || !s.fromRec || s.tRpe == null || s.rpe == null) continue;
-    const pred = Math.min(0.12, residualFatigue(sets, s.ts).raw);
+    const pred = Math.min(0.18, residualFatigue(sets, s.ts).raw);
     if (pred < 0.01) continue;
     const obs = 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe);
     if (obs < -0.1 || obs > 0.2) continue;
@@ -1151,7 +1151,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       total += c;
       if (c > top.c) top = { c, days: r.days, peak: r.peak, name };
     }
-    return { drop: Math.min(0.12, scale * total), days: top.days, peak: top.peak, from: top.name };
+    return { drop: Math.min(0.18, scale * total), days: top.days, peak: top.peak, from: top.name };
   }, [selEx, sel, state.exercises, e1rm, logDate]);
   const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) : null;
 
@@ -1985,7 +1985,7 @@ function FreshnessCard({ state }) {
   const now = Date.now(), DAY = 86400000;
   const rows = mains.map(([name, ex]) => {
     const scale = learnRecoveryScale(ex.sets);
-    const at = (d) => Math.min(0.12, scale * residualFatigue(ex.sets, now + d * DAY).raw);
+    const at = (d) => Math.min(0.18, scale * residualFatigue(ex.sets, now + d * DAY, true).raw);
     const today = at(0);
     let full = 0;
     for (let d = 0; d <= 12; d++) { full = d; if (at(d) < 0.01) break; }
