@@ -876,7 +876,7 @@ function residualFatigue(sets, refTs) {
   let total = 0, top = { c: 0, days: 0, peak: 0 };
   for (const d in byDay) {
     let S = 0, peak = 0, lastTs = 0;
-    for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe); peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
+    for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe) * (s.backoff ? 0.4 : 1); if (!s.backoff) peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
     const days = Math.max(0.5, (refTs - lastTs) / 86400000);
     if (days > 12 || S <= 0) continue;
     const c = 0.25 * S * Math.exp(-days / 4);
