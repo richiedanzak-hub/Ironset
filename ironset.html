@@ -6,10 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="IRONSET"/>
-<meta name="theme-color" content="#0C0D10"/>
+<meta name="theme-color" content="#06070B"/>
 <title>IRONSET</title>
 <style>
-  html, body { margin: 0; background: #0C0D10; -webkit-text-size-adjust: 100%; }
+  html, body { margin: 0; background: #06070B; -webkit-text-size-adjust: 100%; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   #root { min-height: 100vh; }
   .boot { color: #5D646F; font-family: system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
@@ -29,6 +29,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 const mkIcon = (paths) => ({ size = 16, style }) =>
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>{paths}</svg>;
+const Gauge = mkIcon(<g><path d="M12 21a9 9 0 1 0-9-9"/><path d="M3 12a9 9 0 0 1 9-9"/><path d="M12 12l4.5-3"/></g>);
 const Plus = mkIcon(<g><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></g>);
 const X = mkIcon(<g><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></g>);
 const Trash2 = mkIcon(<g><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></g>);
@@ -332,7 +333,7 @@ function buildCard(p) {
   const ctx = cv.getContext("2d");
   const SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif";
   const MON = "'Menlo','Monaco',monospace";
-  ctx.fillStyle = "#0C0D10"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#06070B"; ctx.fillRect(0, 0, W, H);
   const g = ctx.createRadialGradient(W - 150, 220, 0, W - 150, 220, 560);
   g.addColorStop(0, "rgba(226,59,46,0.12)"); g.addColorStop(1, "rgba(226,59,46,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -539,14 +540,23 @@ function platesShort(total, bar, denoms) {
 // text, one iron-red accent (the 25kg-plate red). Tabular monospace numerals
 // read like a meet scoreboard; heavy tracked caps read athletic.
 const C = {
-  bg: "#0C0D10", bg2: "#121419", surface: "#181B21", surface2: "#20242C",
-  line: "#282D35", line2: "#3A414D",
-  text: "#EDEBE4", chalk: "#EDEBE4", muted: "#98A0AC", faint: "#5C6470",
-  red: "#E23B2E", redHi: "#FF5A47", redSoft: "rgba(226,59,46,0.14)", redLine: "rgba(226,59,46,0.45)",
-  good: "#7FC68F", gold: "#D9A441",
+  bg: "#06070B", bg2: "#0C0E15", surface: "#12151E", surface2: "#1A1F2B",
+  line: "#212637", line2: "#2E3547",
+  text: "#F3F2ED", chalk: "#F3F2ED", muted: "#99A1B2", faint: "#5D6578",
+  red: "#FF4A3D", redHi: "#FF7A6B", redSoft: "rgba(255,74,61,0.12)", redLine: "rgba(255,74,61,0.42)",
+  blue: "#5B7CFF", amber: "#F7A93B", good: "#3ED88A", goodHi: "#3ED88A", gold: "#F7A93B",
 };
-const ELEV = "0 1px 0 rgba(255,255,255,0.055) inset, 0 12px 28px -14px rgba(0,0,0,0.85)";
-const ELEV_HI = "0 1px 0 rgba(255,255,255,0.07) inset, 0 18px 40px -16px rgba(0,0,0,0.9)";
+// gradient system — colour carries meaning, dark ground keeps it serious
+const G = {
+  red:   "linear-gradient(135deg, #FF6B54 0%, #D62B1C 100%)",
+  blue:  "linear-gradient(135deg, #7C97FF 0%, #3A4FD8 100%)",
+  amber: "linear-gradient(135deg, #FFC978 0%, #E08A0B 100%)",
+  green: "linear-gradient(135deg, #6BEBAA 0%, #17A362 100%)",
+  card:  "linear-gradient(168deg, #161A25 0%, #0F121A 100%)",
+};
+const R = { ctrl: 12, input: 12, surface: 20, sheet: 26, pill: 999 };
+const ELEV = "0 10px 26px -14px rgba(0,0,0,0.85)";
+const ELEV_HI = "0 18px 42px -16px rgba(0,0,0,0.9)";
 const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const DISPLAY = "'Oswald', 'Inter', system-ui, sans-serif";
@@ -555,44 +565,48 @@ const label = { textTransform: "uppercase", letterSpacing: "0.15em", fontWeight:
 
 /* ----------------------------- UI primitives ----------------------------- */
 function Btn({ children, onClick, kind = "ghost", style, disabled }) {
-  const base = { fontFamily: SANS, fontWeight: 800, fontSize: 14, borderRadius: 12, padding: "11px 16px",
-    letterSpacing: "0.01em", border: "1px solid transparent", cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.4 : 1, transition: "filter .15s, transform .06s", minHeight: 44,
-    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 };
+  const [down, setDown] = useState(false);
+  const base = { fontFamily: SANS, fontWeight: 700, fontSize: 15, borderRadius: R.pill, padding: "14px 20px",
+    border: "1px solid transparent", cursor: disabled ? "default" : "pointer",
+    minHeight: 50, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+    WebkitTapHighlightColor: "transparent", transform: down ? "scale(0.985)" : "scale(1)",
+    filter: down ? "brightness(0.92)" : "none", transition: "transform .09s ease, filter .09s ease" };
   const kinds = {
-    primary: { background: "linear-gradient(180deg, #EC4A3A 0%, #C9291C 100%)", color: "#fff",
-      boxShadow: "0 1px 0 rgba(255,255,255,0.22) inset, 0 8px 18px -8px rgba(226,59,46,0.6)" },
-    solid: { background: "linear-gradient(180deg, #262C35, #1D222A)", color: C.text, borderColor: C.line2,
-      boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" },
-    ghost: { background: "transparent", color: C.text, borderColor: C.line2 },
-    danger: { background: "transparent", color: C.red, borderColor: C.redLine },
+    primary: disabled
+      ? { background: "rgba(255,255,255,0.04)", color: C.faint, borderColor: C.line }
+      : { background: G.red, color: "#fff", boxShadow: "0 8px 22px -10px rgba(255,74,61,0.7)" },
+    solid: { background: C.surface2, color: C.text, borderColor: C.line2, opacity: disabled ? 0.45 : 1 },
+    ghost: { background: "transparent", color: disabled ? C.faint : C.text, borderColor: C.line2 },
+    danger: { background: "transparent", color: C.red, borderColor: C.redLine, opacity: disabled ? 0.45 : 1 },
   };
-  return <button onClick={disabled ? undefined : onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
+  const press = disabled ? {} : { onPointerDown: () => setDown(true), onPointerUp: () => setDown(false),
+    onPointerLeave: () => setDown(false), onPointerCancel: () => setDown(false) };
+  return <button onClick={disabled ? undefined : onClick} {...press} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 }
 function Chip({ active, children, onClick }) {
   return (
     <button onClick={onClick} style={{
-      fontFamily: SANS, fontWeight: 700, fontSize: 13, borderRadius: 10, padding: "8px 14px", minHeight: 38,
-      cursor: "pointer", whiteSpace: "nowrap", transition: "all .15s",
-      background: active ? "linear-gradient(180deg, #EC4A3A, #C9291C)" : "linear-gradient(180deg, #232830, #1B1F26)",
-      color: active ? "#fff" : C.text,
-      border: `1px solid ${active ? "transparent" : C.line2}`,
-      boxShadow: active ? "0 1px 0 rgba(255,255,255,0.2) inset, 0 6px 14px -8px rgba(226,59,46,0.55)" : "0 1px 0 rgba(255,255,255,0.04) inset",
+      fontFamily: SANS, fontWeight: 600, fontSize: 13.5, borderRadius: R.pill, padding: "9px 16px", minHeight: 38,
+      cursor: "pointer", whiteSpace: "nowrap", WebkitTapHighlightColor: "transparent",
+      transition: "background .15s ease, color .15s ease, border-color .15s ease",
+      background: active ? G.red : "rgba(255,255,255,0.03)", color: active ? "#fff" : C.muted,
+      border: `1px solid ${active ? "transparent" : C.line}`,
+      boxShadow: active ? "0 6px 16px -8px rgba(255,74,61,0.75)" : "none",
     }}>{children}</button>
   );
 }
 function Segmented({ value, onChange, options }) {
   return (
-    <div style={{ display: "inline-flex", background: "#0F1216", border: `1px solid ${C.line}`, borderRadius: 12, padding: 3,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }}>
+    <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
+      borderRadius: R.pill, padding: 3 }}>
       {options.map((o) => {
         const a = o.value === value;
         return (
           <button key={o.value} onClick={() => onChange(o.value)} style={{
-            fontFamily: SANS, fontWeight: 800, fontSize: 12, letterSpacing: "0.04em", padding: "8px 14px",
-            borderRadius: 9, cursor: "pointer", border: "none", minHeight: 36, transition: "all .15s",
-            background: a ? "linear-gradient(180deg, #262C35, #1D222A)" : "transparent", color: a ? C.text : C.muted,
-            boxShadow: a ? "0 1px 0 rgba(255,255,255,0.06) inset, 0 4px 10px -6px rgba(0,0,0,0.7)" : "none",
+            fontFamily: SANS, fontWeight: 600, fontSize: 13, padding: "8px 16px", borderRadius: R.pill,
+            cursor: "pointer", border: "none", minHeight: 36, WebkitTapHighlightColor: "transparent",
+            transition: "background .15s ease, color .15s ease",
+            background: a ? C.surface2 : "transparent", color: a ? C.text : C.muted,
           }}>{o.label}</button>
         );
       })}
@@ -601,15 +615,16 @@ function Segmented({ value, onChange, options }) {
 }
 function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, suffix }) {
   const set = (v) => onChange(Math.min(max, Math.max(min, Math.round(v / step) * step)));
-  const btn = { width: 40, height: 40, borderRadius: 11, border: `1px solid ${C.line2}`,
-    background: "linear-gradient(180deg, #262C35, #1C212A)", color: C.text, fontSize: 20, fontWeight: 700,
-    cursor: "pointer", lineHeight: 1, boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" };
+  const btn = { width: 36, height: 40, borderRadius: R.pill, border: `1px solid ${C.line}`,
+    background: "rgba(255,255,255,0.03)", color: C.muted, fontSize: 19, fontWeight: 500,
+    cursor: "pointer", lineHeight: 1, WebkitTapHighlightColor: "transparent" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <button style={btn} onClick={() => set(value - step)}>–</button>
-      <div style={{ fontFamily: MONO, fontSize: 19, fontWeight: 600, minWidth: 58, textAlign: "center",
-        color: C.text, fontVariantNumeric: "tabular-nums" }}>
-        {fmt(value)}{suffix ? <span style={{ fontSize: 12, color: C.muted, marginLeft: 3 }}>{suffix}</span> : null}
+    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      <button style={btn} onClick={() => set(value - step)}>−</button>
+      <div style={{ fontFamily: MONO, fontSize: 27, fontWeight: 700, minWidth: 58, textAlign: "center",
+        color: C.text, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.035em",
+        textShadow: "0 0 26px rgba(255,255,255,0.14)" }}>
+        {fmt(value)}{suffix ? <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 1, fontWeight: 600 }}>{suffix}</span> : null}
       </div>
       <button style={btn} onClick={() => set(value + step)}>+</button>
     </div>
@@ -617,26 +632,86 @@ function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, s
 }
 function NumField({ value, onChange, suffix }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", background: "#0F1216", border: `1px solid ${C.line2}`,
-      borderRadius: 11, padding: "0 12px", height: 44, boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }}>
+    <div style={{ display: "flex", alignItems: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+      borderRadius: R.input, padding: "0 13px", height: 48,
+      backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), transparent 60%)" }}>
       <input value={value} onChange={(e) => onChange(e.target.value)} inputMode="decimal" type="number"
         style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: C.text,
-          fontFamily: MONO, fontSize: 17, fontWeight: 600 }} />
-      {suffix ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 700, marginLeft: 6 }}>{suffix}</span> : null}
+          fontFamily: MONO, fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} />
+      {suffix ? <span style={{ color: C.faint, fontSize: 12.5, fontWeight: 600, marginLeft: 6, fontFamily: SANS }}>{suffix}</span> : null}
     </div>
   );
 }
 function DateField({ value, onChange }) {
   return (
     <input type="date" value={value} max={todayStr()} onChange={(e) => onChange(e.target.value || todayStr())}
-      style={{ width: "100%", background: "#0F1216", border: `1px solid ${C.line2}`, borderRadius: 11, padding: "0 12px",
-        height: 44, color: C.text, fontFamily: MONO, fontSize: 15, fontWeight: 600, outline: "none", colorScheme: "dark",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.4) inset" }} />
+      style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`, borderRadius: R.input,
+        padding: "0 13px", height: 48, color: C.text, fontFamily: MONO, fontSize: 15.5, fontWeight: 700,
+        backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), transparent 60%)",
+        outline: "none", colorScheme: "dark" }} />
   );
 }
-function Card({ children, style }) {
-  return <div style={{ background: "linear-gradient(180deg, #1B1F26 0%, #15181E 100%)", border: `1px solid ${C.line}`,
-    borderRadius: 16, padding: 16, boxShadow: ELEV, ...style }}>{children}</div>;
+function Card({ children, style, glow, accent }) {
+  const A = accent || null;
+  return <div style={{ background: G.card, border: `1px solid ${C.line}`, borderRadius: R.surface,
+    padding: 17, boxShadow: ELEV, position: "relative", overflow: "hidden", ...style }}>
+    {A && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, pointerEvents: "none",
+      background: `linear-gradient(90deg, transparent 4%, ${A}, transparent 96%)`, opacity: 0.8 }} />}
+    {(glow || A) && <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+      background: glow || `radial-gradient(135% 95% at 10% -14%, ${A}22, transparent 68%)` }} />}
+    <div style={{ position: "relative" }}>{children}</div>
+  </div>;
+}
+// section marker — a tinted bar instead of another bare label
+function SectionHead({ children, accent, right, sub }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+          <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || C.red,
+            boxShadow: `0 0 10px ${accent || C.red}88` }} />
+          <span style={label}>{children}</span>
+        </span>
+        {right}
+      </div>
+      {sub && <div style={{ fontSize: 12, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>{sub}</div>}
+    </div>
+  );
+}
+function Grid2({ children, style }) {
+  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11, ...style }}>{children}</div>;
+}
+// tiny trend line for stat tiles
+function Spark({ points, color, w = 96, h = 34 }) {
+  const ys = (points || []).map((p) => (p && p.value != null ? p.value : p)).slice(-24);
+  if (ys.length < 2) return <div style={{ height: h }} />;
+  const lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys), sp = (hi - lo) || 1;
+  const X = (i) => (i / (ys.length - 1)) * w;
+  const Y = (v) => h - 4 - ((v - lo) / sp) * (h - 9);
+  const d = ys.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+  const uid = "sp" + Math.abs(ys.length * 31 + Math.round(ys[0] || 0)).toString(36);
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <defs><linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+        <stop offset="100%" stopColor={color} stopOpacity="0" />
+      </linearGradient></defs>
+      <path d={`${d} L${w} ${h} L0 ${h} Z`} fill={`url(#${uid})`} />
+      <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+// legend / filter pill
+function Tag({ color, children, onClick, active }) {
+  return (
+    <span onClick={onClick} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+      background: active ? C.surface2 : "rgba(255,255,255,0.03)", border: `1px solid ${active ? C.line2 : C.line}`,
+      borderRadius: R.pill, padding: "6px 12px", fontSize: 12, fontWeight: 600, fontFamily: SANS,
+      color: active ? C.text : C.muted, cursor: onClick ? "pointer" : "default", whiteSpace: "nowrap" }}>
+      {color && <span style={{ width: 7, height: 7, borderRadius: 99, background: color }} />}
+      {children}
+    </span>
+  );
 }
 function Sheet({ open, onClose, title, children }) {
   if (!open) return null;
@@ -644,8 +719,8 @@ function Sheet({ open, onClose, title, children }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 50,
       display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480,
-        background: "linear-gradient(180deg, #1A1E24, #131519)", borderTop: `1px solid ${C.line2}`,
-        borderRadius: "22px 22px 0 0", padding: 18, maxHeight: "85vh", overflowY: "auto",
+        background: C.bg2, borderTop: `1px solid ${C.line2}`,
+        borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, padding: 18, maxHeight: "85vh", overflowY: "auto",
         boxShadow: "0 -20px 50px -20px rgba(0,0,0,0.8)" }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.line2, margin: "-4px auto 14px" }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -779,7 +854,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 
 function App() {
   const [state, setState] = useState(loadState);
-  const [tab, setTab] = useState("train");
+  const [tab, setTab] = useState("dash");
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
@@ -907,46 +982,37 @@ function App() {
 
 
   const tabs = [
+    { id: "dash", label: "Dashboard", icon: Gauge },
     { id: "train", label: "Train", icon: Activity },
     { id: "insights", label: "Insights", icon: Zap },
     { id: "history", label: "History", icon: TrendingUp },
   ];
 
   return (
-    <div style={{ background: `radial-gradient(820px 320px at 50% -140px, rgba(226,59,46,0.10), transparent 68%), radial-gradient(600px 500px at 100% 0%, rgba(90,110,140,0.05), transparent 60%), ${C.bg}`, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 40px" }}>
+    <div style={{ background: `radial-gradient(680px 440px at 4% -6%, rgba(91,124,255,0.20), transparent 62%), radial-gradient(560px 380px at 106% 3%, rgba(255,74,61,0.15), transparent 60%), ${C.bg}`, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 120px" }}>
         {/* header */}
-        <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(12,13,16,0.86)", backdropFilter: "blur(14px) saturate(1.2)", WebkitBackdropFilter: "blur(14px) saturate(1.2)", borderBottom: `1px solid ${C.line}`, boxShadow: "0 8px 24px -18px rgba(0,0,0,0.9)", padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 0" }}>
+        <div style={{ padding: "calc(16px + env(safe-area-inset-top, 0px)) 18px 4px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 27, letterSpacing: "0.06em", lineHeight: 1 }}>
-                IRON<span style={{ color: C.red }}>SET</span>
-              </div>
-              <div style={{ ...label, fontSize: 9.5, marginTop: 3 }}>{state.settings.trainingMode === "percent" ? "Percentage" : "RPE"}-based load calculator</div>
-            </div>
-            <button onClick={() => setShowSettings(true)} style={{ background: "linear-gradient(180deg, #20242C, #171B21)", border: `1px solid ${C.line2}`,
-              borderRadius: 11, width: 40, height: 40, color: C.muted, cursor: "pointer", display: "grid", placeItems: "center", boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset" }}>
-              <Settings size={18} />
+            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 21, letterSpacing: "0.07em", lineHeight: 1 }}>
+              IRON<span style={{ color: C.red }}>SET</span>
+            </span>
+            <button onClick={() => setShowSettings(true)} style={{ background: C.surface2, border: `1px solid ${C.line2}`,
+              width: 38, height: 38, borderRadius: R.pill, color: C.muted, cursor: "pointer", display: "grid",
+              placeItems: "center", WebkitTapHighlightColor: "transparent" }}>
+              <Settings size={17} />
             </button>
           </div>
-          <div style={{ display: "flex", gap: 2, marginTop: 8 }}>
-            {tabs.map((t) => {
-              const a = t.id === tab; const I = t.icon;
-              return (
-                <button key={t.id} onClick={() => setTab(t.id)} style={{
-                  flex: 1, padding: "11px 0 12px", border: "none", position: "relative",
-                  background: "transparent", color: a ? C.text : C.muted, cursor: "pointer",
-                  fontFamily: DISPLAY, fontWeight: 600, fontSize: 14.5, letterSpacing: "0.1em", textTransform: "uppercase",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <I size={15} style={{ color: a ? C.red : C.faint }} /> {t.label}
-                  {a && <span style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 4, width: 26, height: 3, borderRadius: 2, background: C.red, boxShadow: `0 0 10px ${C.red}` }} />}
-                </button>
-              );
-            })}
+          <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 33, letterSpacing: "-0.035em",
+            marginTop: 15, lineHeight: 1, color: C.text }}>
+            {(tabs.find((x) => x.id === tab) || {}).label}
           </div>
         </div>
 
         <div style={{ padding: 16 }}>
+          {tab === "dash" && (
+            <DashboardTab {...{ state, models, analysis, unit, setTab, setState }} />
+          )}
           {tab === "train" && (
             <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
           )}
@@ -956,6 +1022,28 @@ function App() {
           {tab === "history" && (
             <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
           )}
+        </div>
+      </div>
+
+      {/* floating tab bar */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 30, display: "flex",
+        justifyContent: "center", padding: "0 12px calc(12px + env(safe-area-inset-bottom, 0px))", pointerEvents: "none" }}>
+        <div style={{ display: "flex", gap: 2, background: "rgba(14,17,25,0.92)", backdropFilter: "blur(22px)",
+          WebkitBackdropFilter: "blur(22px)", border: `1px solid ${C.line2}`, borderRadius: R.pill, padding: 6,
+          pointerEvents: "auto", boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
+          {tabs.map((t) => {
+            const a = t.id === tab; const I = t.icon;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{ display: "flex", flexDirection: "column",
+                alignItems: "center", gap: 3, padding: "8px 15px", borderRadius: R.pill, border: "none",
+                background: a ? C.surface2 : "transparent", cursor: "pointer",
+                WebkitTapHighlightColor: "transparent", transition: "background .16s ease" }}>
+                <I size={18} style={{ color: a ? C.red : C.faint }} />
+                <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 700, letterSpacing: "0.01em",
+                  color: a ? C.text : C.faint }}>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1062,11 +1150,17 @@ function Onboarding({ onDone, unit }) {
     if (rows.length) n[name] = rows; else delete n[name];
     return n;
   });
-  const opt = (title, desc, onClick) => (
-    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: C.surface, border: `1px solid ${C.line2}`,
-      borderRadius: 5, padding: "16px", cursor: "pointer", color: C.text, marginBottom: 12 }}>
-      <div style={{ fontWeight: 800, fontSize: 15.5 }}>{title}</div>
-      <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{desc}</div>
+  const opt = (title, desc, onClick, accent) => (
+    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: G.card,
+      border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "17px 18px", cursor: "pointer",
+      color: C.text, marginBottom: 12, position: "relative", overflow: "hidden", boxShadow: ELEV,
+      WebkitTapHighlightColor: "transparent" }}>
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+        background: `radial-gradient(120% 100% at 0% 0%, ${accent || C.red}22, transparent 66%)` }} />
+      <div style={{ position: "relative" }}>
+        <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em" }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.55 }}>{desc}</div>
+      </div>
     </button>
   );
   const goSeed = (patch) => { setChosen(patch); setStep("seed"); };
@@ -1086,20 +1180,22 @@ function Onboarding({ onDone, unit }) {
   const rir = chosen.inputMode === "rir", effLabel = rir ? "RIR" : "RPE", effDef = rir ? 2 : 8, effMin = rir ? 0 : 5, effMax = rir ? 5 : 10;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: C.bg, display: "flex", flexDirection: "column",
-      justifyContent: step === "seed" ? "flex-start" : "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
+      justifyContent: step === "seed" ? "flex-start" : "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto",
+      backgroundImage: `radial-gradient(680px 420px at 6% -4%, rgba(91,124,255,0.22), transparent 62%), radial-gradient(560px 380px at 104% 2%, rgba(255,74,61,0.18), transparent 60%)` }}>
       <div style={{ maxWidth: 460, margin: "0 auto", width: "100%" }}>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 42, letterSpacing: "0.11em", textAlign: "center" }}>IRON<span style={{ color: C.red }}>SET</span></div>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 40, letterSpacing: "0.1em", textAlign: "center",
+          textShadow: `0 0 44px ${C.red}55` }}>IRON<span style={{ color: C.red }}>SET</span></div>
         {step === "style" ? (
           <>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>How do you train? You can switch anytime in settings.</div>
-            {opt("RPE-based", "Prescribe by reps and RPE — the app suggests your load and learns from how each set feels.", () => goSeed({ trainingMode: "rpe", inputMode: "rpe", onboarded: true }))}
-            {opt("Percentage-based", "Prescribe by reps and a % of your max — old-school 1RM-percentage style.", () => setStep("max"))}
+            {opt("RPE-based", "Prescribe by reps and RPE — the app suggests your load and learns from how each set feels.", () => goSeed({ trainingMode: "rpe", inputMode: "rpe", onboarded: true }), C.red)}
+            {opt("Percentage-based", "Prescribe by reps and a % of your max — old-school 1RM-percentage style.", () => setStep("max"), C.blue)}
           </>
         ) : step === "max" ? (
           <>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>Run your percentages off…</div>
             {opt("Your estimated max", "Auto-updates as you log — your percentages always track your current strength.", () => goSeed({ trainingMode: "percent", maxMode: "dynamic", inputMode: "rir", onboarded: true }))}
-            {opt("A max you set", "Lock a training max for each lift and bump it yourself each cycle (5/3/1 style).", () => goSeed({ trainingMode: "percent", maxMode: "locked", inputMode: "rir", onboarded: true }))}
+            {opt("A max you set", "Lock a training max for each lift and bump it yourself each cycle (5/3/1 style).", () => goSeed({ trainingMode: "percent", maxMode: "locked", inputMode: "rir", onboarded: true }), C.amber)}
             <button onClick={() => setStep("style")} style={{ display: "block", margin: "4px auto 0", background: "none", border: "none", color: C.faint, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back</button>
           </>
         ) : (
@@ -1110,7 +1206,7 @@ function Onboarding({ onDone, unit }) {
               {LIFTS.map((name) => <Chip key={name} active={!!seeds[name]} onClick={() => toggleLift(name)}>{name}</Chip>)}
             </div>
             {Object.keys(seeds).map((name) => (
-              <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "11px 12px", marginBottom: 10 }}>
+              <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "11px 12px", marginBottom: 10 }}>
                 <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{name}</div>
                 {seeds[name].map((r, i) => (
                   <div key={i} style={{ marginBottom: 10, paddingBottom: i < seeds[name].length - 1 ? 10 : 0, borderBottom: i < seeds[name].length - 1 ? `1px solid ${C.line}` : "none" }}>
@@ -1150,7 +1246,8 @@ function Onboarding({ onDone, unit }) {
 function FeatureTour({ onDone }) {
   const row = (Icon, title, desc) => (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
-      <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: 8, display: "flex", flexShrink: 0 }}><Icon size={16} style={{ color: C.red }} /></div>
+      <div style={{ background: G.red, borderRadius: 13, padding: 9, display: "flex", flexShrink: 0,
+        boxShadow: `0 6px 16px -8px ${C.redLine}` }}><Icon size={16} style={{ color: "#fff" }} /></div>
       <div>
         <div style={{ fontWeight: 800, fontSize: 13.5 }}>{title}</div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
@@ -1169,6 +1266,132 @@ function FeatureTour({ onDone }) {
         {row(TrendingUp, "History", "Every set saved, editable, and charted — your strength trend builds as you train.")}
         <Btn kind="primary" onClick={onDone} style={{ width: "100%", marginTop: 6 }}>Let's lift</Btn>
       </div>
+    </div>
+  );
+}
+
+/* =============================== DASHBOARD =============================== */
+function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
+  const [share, setShare] = useState(null);
+  const now = Date.now();
+  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
+  const fresh = mains.map(([name, ex]) => {
+    const drop = Math.min(0.18, learnRecoveryScale(ex.sets) * residualFatigue(ex.sets, now, true).raw);
+    return { name, pct: Math.round((1 - drop) * 100) };
+  }).sort((a, b) => a.pct - b.pct);
+  const score = fresh.length ? Math.round(fresh.reduce((s, r) => s + r.pct, 0) / fresh.length) : 100;
+  const sc = freshColor(score);
+  const status = score >= 96 ? "Primed to train" : score >= 90 ? "Ready to work"
+    : score >= 83 ? "Carrying some fatigue" : "Focus on recovery";
+  const note = score >= 96 ? "Everything has cleared. Go take a swing at something heavy."
+    : score >= 90 ? "Fresh enough to push your top sets today."
+    : score >= 83 ? "Recent hard work is still settling — expect your loads to be trimmed."
+    : "Recent sessions were taxing. Warm up thoroughly and respect the trims.";
+  const liftCards = Object.entries(state.exercises)
+    .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null)
+    .map(([n]) => ({ name: n, e1rm: models[n].e1rm, points: models[n].points }))
+    .sort((a2, b2) => b2.e1rm - a2.e1rm);
+  const bwKg = state.bodyweight && state.bodyweight.length ? state.bodyweight[state.bodyweight.length - 1].kg : null;
+  const dots = (bwKg && analysis.total != null)
+    ? Math.round(toKg(analysis.total, unit) * dotsCoeff(bwKg, (state.settings && state.settings.sex) || "male")) : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <Card glow={`radial-gradient(130% 95% at 10% -10%, ${sc}26, transparent 68%)`} style={{ padding: 19 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <span style={{ ...label, fontSize: 9.5 }}>Readiness · Today</span>
+          {fresh.length > 0 && <Tag color={freshColor(fresh[0].pct)}>{fresh[0].name} {fresh[0].pct}%</Tag>}
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 9, marginTop: 13 }}>
+          <span style={{ fontFamily: MONO, fontSize: 70, fontWeight: 700, lineHeight: 0.88, letterSpacing: "-0.045em",
+            color: C.text, textShadow: `0 0 52px ${sc}70` }}>{score}</span>
+          <span style={{ fontFamily: MONO, fontSize: 25, color: C.faint, fontWeight: 600, marginBottom: 6 }}>/100</span>
+        </div>
+        <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 21, color: sc, marginTop: 15, letterSpacing: "-0.01em" }}>{status}</div>
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 5, lineHeight: 1.55 }}>{note}</div>
+        {fresh.length > 0 && (
+          <div style={{ marginTop: 17, display: "flex", flexDirection: "column", gap: 10 }}>
+            {fresh.map((r) => (
+              <div key={r.name}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.11em" }}>{r.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: freshColor(r.pct), fontWeight: 700 }}>{r.pct}%</span>
+                </div>
+                <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(5, Math.min(100, (r.pct - 70) / 0.30))}%`, height: "100%",
+                    borderRadius: 3, background: freshColor(r.pct), transition: "width .3s ease" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Grid2>
+        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.blue}22, transparent 70%)`}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <span style={{ ...label, fontSize: 9 }}>Projected total</span>
+            {analysis.total != null && (
+              <button aria-label="Share total" onClick={() => doShare(setShare, { type: "stat", label: "Projected total",
+                value: fmt(Math.round(analysis.total)), unit,
+                delta: analysis.totalDelta != null ? Math.round(analysis.totalDelta) : null,
+                sub: (analysis.parts || []).slice(0, 3).map((p) => `${p.name} ${fmt(Math.round(p.e1rm))}`).join("    "),
+                date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
+                style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 0, marginTop: -2 }}>
+                <Share size={14} />
+              </button>
+            )}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
+            {analysis.total != null ? fmt(Math.round(analysis.total)) : "—"}
+            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
+          </div>
+          {analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 && (
+            <div style={{ fontSize: 11.5, marginTop: 5, fontWeight: 700, color: analysis.totalDelta > 0 ? C.good : C.red }}>
+              {analysis.totalDelta > 0 ? "▲" : "▼"} {fmt(Math.abs(Math.round(analysis.totalDelta)))} in 30 days
+            </div>
+          )}
+        </Card>
+        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`}>
+          <span style={{ ...label, fontSize: 9 }}>{dots != null ? "Strength score" : "Lifts tracked"}</span>
+          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
+            {dots != null ? dots : Object.keys(state.exercises).length}
+            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{dots != null ? "DOTS" : "lifts"}</span>
+          </div>
+          <div style={{ fontSize: 11.5, marginTop: 5, color: C.faint, fontWeight: 600 }}>
+            {dots != null ? dotsTier(dots) : "across your log"}
+          </div>
+        </Card>
+      </Grid2>
+
+      {liftCards.length > 0 && (
+        <div>
+          <SectionHead accent={C.blue}>Estimated maxes</SectionHead>
+          <div style={{ display: "flex", gap: 9, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", padding: "0 2px 4px" }}>
+            {liftCards.map((L) => (
+              <Card key={L.name} accent={C.blue} style={{ padding: 13, flex: "0 0 auto", minWidth: 118 }}>
+                <div style={{ fontFamily: MONO, fontSize: 23, fontWeight: 700, letterSpacing: "-0.04em",
+                  textShadow: `0 0 30px ${C.blue}55` }}>
+                  {fmt(Math.round(L.e1rm))}
+                  <span style={{ fontFamily: SANS, fontSize: 11, color: C.faint, marginLeft: 3, fontWeight: 600 }}>{unit}</span>
+                </div>
+                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase",
+                  letterSpacing: "0.1em", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden",
+                  textOverflow: "ellipsis", maxWidth: 108 }}>{L.name}</div>
+                <div style={{ marginTop: 9, marginLeft: -13, marginRight: -13, marginBottom: -13 }}>
+                  <Spark points={L.points} color={C.blue} h={30} />
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
+      <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
+
+      <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%" }}>Start training →</Btn>
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
   );
 }
@@ -1364,7 +1587,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       )}
 
       {meetDays != null && meetDays >= 0 && (
-        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: "9px 12px",
+        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "9px 12px",
           fontSize: 12.5, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <b style={{ color: C.red }}>{meetName || "Meet"}</b>
           <span style={{ fontFamily: MONO, fontWeight: 700 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
@@ -1372,7 +1595,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       )}
 
       {/* strength readout */}
-      <Card>
+      <Card accent={C.blue}>
         {locked ? (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1399,9 +1622,11 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={label}>Estimated 1RM</div>
-              <div style={{ fontFamily: SKETCH, fontSize: 30, fontWeight: 700, color: C.chalk, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
-                {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
+              <div style={{ ...label, fontSize: 9.5 }}>Estimated 1RM</div>
+              <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, color: C.text, lineHeight: 1.05,
+                marginTop: 5, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums",
+                textShadow: `0 0 34px ${C.blue}55` }}>
+                {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontFamily: SANS, fontSize: 13, color: C.faint, marginLeft: 5, fontWeight: 600 }}>{unit}</span>
               </div>
             </div>
             <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
@@ -1414,9 +1639,12 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       </Card>
 
       {/* TOP SET widget — prescribe, see the load, log it, all in one */}
-      <Card style={{ padding: "12px 14px" }}>
+      <Card accent={C.amber} style={{ padding: "14px 15px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ ...label, fontSize: 9.5 }}>Today's plan</div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
+            <span style={{ ...label, fontSize: 9.5 }}>Today's plan</span>
+          </span>
           <button onClick={onEditPlan} style={{ background: "none", border: "none", color: C.red,
             fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{todayPlan.length ? "Edit" : "Set up"}</button>
         </div>
@@ -1438,9 +1666,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         )}
       </Card>
 
-      <Card>
-        <div style={label}>Top set</div>
-        <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Set your target, see the load, then log what you actually hit.</div>
+      <Card accent={C.red}>
+        <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
@@ -1461,24 +1688,17 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
       {/* recommendation */}
-      <div style={{ textAlign: "center" }}>
-        <div style={label}>Recommended load</div>
+      <div style={{ textAlign: "center", margin: "0 -17px", padding: "20px 17px 6px",
+        background: "radial-gradient(120% 100% at 50% 0%, rgba(255,74,61,0.20), transparent 68%)" }}>
+        <div style={{ ...label, fontSize: 9.5 }}>Recommended load</div>
         {recR != null ? (
           <>
-            <div style={{ fontFamily: MONO, fontSize: 60, fontWeight: 700, lineHeight: 1, marginTop: 8, color: C.text,
-              letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", textShadow: "0 2px 20px rgba(226,59,46,0.28)", transition: "color .2s" }}>
-              {fmt(recR)}<span style={{ fontSize: 20, color: C.muted, marginLeft: 6, fontWeight: 600 }}>{unit}</span>
+            <div style={{ fontFamily: MONO, fontSize: 68, fontWeight: 700, lineHeight: 0.94, marginTop: 10, color: C.text,
+              letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums", textShadow: `0 0 52px ${C.red}80`, transition: "color .2s" }}>
+              {fmt(recR)}<span style={{ fontFamily: SANS, fontSize: 18, color: C.faint, marginLeft: 7, fontWeight: 600 }}>{unit}</span>
             </div>
-            {/* machined bar motif */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, margin: "13px auto 5px", width: 140 }}>
-              <span style={{ width: 9, height: 20, background: "linear-gradient(180deg, #3A414D, #262B33)", borderRadius: 2, boxShadow: "0 1px 0 rgba(255,255,255,0.12) inset" }} />
-              <span style={{ width: 5, height: 12, background: "#20242C", borderRadius: 1 }} />
-              <span style={{ flex: 1, height: 4, background: "linear-gradient(90deg, #2A2F37, #3A414D, #2A2F37)", borderRadius: 2 }} />
-              <span style={{ width: 22, height: 8, background: C.red, borderRadius: 2, boxShadow: `0 0 12px ${C.redLine}` }} />
-              <span style={{ flex: 1, height: 4, background: "linear-gradient(90deg, #2A2F37, #3A414D, #2A2F37)", borderRadius: 2 }} />
-              <span style={{ width: 5, height: 12, background: "#20242C", borderRadius: 1 }} />
-              <span style={{ width: 9, height: 20, background: "linear-gradient(180deg, #3A414D, #262B33)", borderRadius: 2, boxShadow: "0 1px 0 rgba(255,255,255,0.12) inset" }} />
-            </div>
+            <div style={{ height: 3, borderRadius: 2, margin: "16px auto 12px", width: 132, background: G.red,
+              boxShadow: `0 0 18px ${C.redLine}` }} />
             <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
               {percentMode
                 ? `${tReps} rep${tReps > 1 ? "s" : ""} @ ${fmt(topPct)}%`
@@ -1514,7 +1734,10 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
 
       {/* log what you did */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={label}>Log your top set</div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
+            <span style={label}>Log your top set</span>
+          </span>
           {recR != null && <button onClick={useRec} style={{ background: C.redSoft, border: `1px solid ${C.redLine}`,
             color: C.red, borderRadius: 9, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Use recommendation</button>}
         </div>
@@ -1553,7 +1776,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           </div>
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4,
+          style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
             padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <Btn kind="primary" onClick={doLog} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(log.weight)}>
           {justLogged ? <><Check size={17} /> Logged</> : "Log set"}
@@ -1565,8 +1788,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
 
       {/* back-off sets */}
       {recR != null && (
-        <Card>
-          <div style={label}>Back-off sets</div>
+        <Card accent={C.good}>
+          <SectionHead accent={C.good}>Back-off sets</SectionHead>
           <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode ? `A flat ${fmt(boPct)}% of your max — edit any set and the next follows it.` : "Each load adjusts to how hard your last set actually was — a grind drops the next more. Edit any set; it carries forward."}</div>
 
           <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -1590,7 +1813,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             {todayBos.map((s, i) => (
               <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "9px 13px" }}>
+                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px" }}>
                 <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
                   Back-off {i + 1} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
                 </div>
@@ -1599,7 +1822,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             ))}
 
             {doneCount < bo.sets && (
-              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 4, padding: "12px 14px" }}>
+              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
                 <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
                   Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
                 </div>
@@ -1674,7 +1897,7 @@ function AddRow({ newName, setNewName, addExercise, mains }) {
         <input value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           placeholder="e.g. Pause Squat"
-          style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "11px 12px",
+          style={{ flex: 1, background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "11px 12px",
             color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <Btn kind="primary" onClick={submit}>Add lift</Btn>
       </div>
@@ -1706,7 +1929,7 @@ function PlateView({ total, bar, denoms, unit }) {
       <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
         {r.items.flatMap(({ p, c }) =>
           Array.from({ length: c }).map((_, i) => (
-            <div key={p + "-" + i} style={{ width: 26, height: sizeFor(p), borderRadius: 4, background: C.surface2,
+            <div key={p + "-" + i} style={{ width: 26, height: sizeFor(p), borderRadius: 12, background: C.surface2,
               border: `1px solid ${C.line2}`, display: "grid", placeItems: "center", fontFamily: MONO, fontSize: 10.5,
               fontWeight: 700, color: C.text }}>{fmt(p)}</div>
           ))
@@ -1745,25 +1968,33 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
         {names.map((n) => <Chip key={n} active={n === cur} onClick={() => setSel(n)}>{n}</Chip>)}
       </div>
 
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-          {[["Current 1RM", model.e1rm], ["Best", best], ["30-day", delta]].map(([l, v], i) => (
-            <div key={l} style={{ textAlign: i === 0 ? "left" : "center" }}>
-              <div style={{ ...label, fontSize: 9.5 }}>{l}</div>
-              <div style={{ fontFamily: MONO, fontSize: 21, fontWeight: 700, marginTop: 3,
-                color: l === "30-day" ? (v > 0 ? C.good : v < 0 ? C.red : C.text) : C.text }}>
+      <Card glow={`radial-gradient(120% 90% at 50% -10%, ${C.blue}1F, transparent 70%)`}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+          {[["Current 1RM", model.e1rm, C.text], ["Best", best, C.text],
+            ["30-day", delta, delta > 0 ? C.good : delta < 0 ? C.red : C.text]].map(([l, v, col]) => (
+            <div key={l} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
+              borderRadius: 14, padding: "11px 12px" }}>
+              <div style={{ ...label, fontSize: 8.5 }}>{l}</div>
+              <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, marginTop: 4, color: col,
+                letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
                 {l === "30-day" && v != null && v > 0 ? "+" : ""}{v != null ? fmt(v) : "—"}
               </div>
             </div>
           ))}
         </div>
-        <div style={{ ...label, fontSize: 9.5, marginBottom: 4 }}>Strength trend ({unit})</div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
+          <span style={{ width: 3, height: 13, borderRadius: 2, background: C.blue, boxShadow: `0 0 10px ${C.blue}88` }} />
+          <span style={{ ...label, fontSize: 9.5 }}>Strength trend ({unit})</span>
+        </span>
         <LineChart data={model.points} height={176} unit={unit} />
       </Card>
 
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={label}>Set log</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+            <span style={{ width: 3, height: 13, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
+            <span style={label}>Set log</span>
+          </span>
           <span style={{ fontSize: 11.5, color: C.faint }}>{sets.length} total</span>
         </div>
         {sets.length === 0 && <div style={{ padding: "8px 16px 18px", color: C.faint, fontSize: 13 }}>No sets logged.</div>}
@@ -1849,7 +2080,7 @@ function ScoreCard({ analysis, unit, state, setState }) {
     date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) });
 
   if (totalKg == null) return (
-    <Card>
+    <Card accent={C.amber}>
       <div style={label}>Strength score</div>
       <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
         Log squat, bench, and deadlift to see your DOTS and Wilks score.
@@ -1901,7 +2132,7 @@ function MeetCard({ analysis, unit, state, setState }) {
   const meet = state.meet || { date: null, name: "", attempts: {} };
   const days = meet.date ? daysUntil(meet.date) : null;
   return (
-    <Card>
+    <Card accent={C.red}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={label}>Meet prep</div>
         {meet.date && days != null && days >= 0 && (
@@ -1955,7 +2186,7 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
     doShare(setShare, { type: "stat", label: meet.name || "Projected meet total", value: fmt(thirdsTotal), unit: "kg", sub, date: meet.date ? fmtMeetDate(meet.date) : "" });
   };
 
-  const inputStyle = { width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 4, padding: "0 12px", height: 44, color: C.text, fontSize: 15, fontWeight: 600, outline: "none" };
+  const inputStyle = { width: "100%", background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "0 12px", height: 44, color: C.text, fontSize: 15, fontWeight: 600, outline: "none" };
 
   return (
     <Sheet open={open} onClose={onClose} title="Meet prep">
@@ -1976,7 +2207,7 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
         </div>
       ) : (
         <>
-          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 5, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
             <button onClick={shareMeet} aria-label="Share" style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, position: "absolute", top: 8, right: 8 }}><Share size={16} /></button>
             <div style={{ ...label, fontSize: 10 }}>If you hit your thirds</div>
             <div style={{ fontFamily: MONO, fontSize: 38, fontWeight: 700, lineHeight: 1, marginTop: 6 }}>{fmt(thirdsTotal)}<span style={{ fontSize: 15, color: C.muted, marginLeft: 4 }}>kg</span></div>
@@ -2122,7 +2353,7 @@ function FreshnessCard({ state }) {
     return { name, pct: Math.round((1 - today) * 100), full, ready: today < 0.01 };
   }).sort((a, b) => a.pct - b.pct);
   return (
-    <Card>
+    <Card accent={C.blue}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ ...label, fontSize: 10, marginBottom: 3 }}>Freshness forecast</div>
         <button onClick={() => doShare(setShare, { type: "freshness",
@@ -2171,7 +2402,7 @@ function SessionCard({ session, unit, inputMode }) {
       e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null })),
   });
   return (
-    <Card style={{ padding: 0, overflow: "hidden" }}>
+    <Card accent={C.good} style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px 11px",
         borderBottom: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(226,59,46,0.08), transparent)" }}>
         <div>
@@ -2237,7 +2468,6 @@ function InsightsTab({ analysis, unit, state, setState }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
-        <FreshnessCard state={state} />
         <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
           Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
         </Card>
@@ -2246,45 +2476,9 @@ function InsightsTab({ analysis, unit, state, setState }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
-      <FreshnessCard state={state} />
-      {total != null ? (
-        <Card style={{ textAlign: "center", paddingTop: 20, paddingBottom: 18, position: "relative" }}>
-          <button onClick={shareStat} aria-label="Share" style={{ ...iconBtn, position: "absolute", top: 10, right: 10 }}><Share size={16} /></button>
-          <div style={label}>Projected total</div>
-          <div style={{ fontFamily: SKETCH, fontSize: 46, fontWeight: 700, color: C.chalk, lineHeight: 1, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-            {fmt(Math.round(total))}<span style={{ fontSize: 16, color: C.muted, marginLeft: 5 }}>{unit}</span>
-          </div>
-          {totalDelta != null && Math.abs(totalDelta) >= 1 && (
-            <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 6, color: totalDelta > 0 ? C.good : C.red }}>
-              {totalDelta > 0 ? "+" : ""}{fmt(Math.round(totalDelta))} {unit} in 30 days
-            </div>
-          )}
-          <div style={{ display: "flex", justifyContent: "center", gap: 22, marginTop: 14 }}>
-            {parts.slice(0, 3).map((p) => (
-              <div key={p.name} style={{ textAlign: "center" }}>
-                <div style={{ ...label, fontSize: 9 }}>{p.name}</div>
-                <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, marginTop: 2 }}>{fmt(Math.round(p.e1rm))}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : parts && parts.length > 0 ? (
-        <Card>
-          <div style={{ ...label, marginBottom: 4 }}>Estimated 1RMs</div>
-          {parts.map((p) => (
-            <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-              <span style={{ fontFamily: MONO, fontWeight: 700 }}>{fmt(Math.round(p.e1rm))} <span style={{ color: C.muted, fontSize: 12 }}>{unit}</span></span>
-            </div>
-          ))}
-        </Card>
-      ) : null}
-
-      <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
-      <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
-
+      {shownInsights.length > 0 && <SectionHead accent={C.red}>What changed</SectionHead>}
       {shownInsights.map((it) => (
-        <div key={it.id} style={{ background: "linear-gradient(180deg, #1B1F26, #15181E)", border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: 12, padding: "13px 14px", boxShadow: ELEV }}>
+        <div key={it.id} style={{ background: G.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: R.surface, padding: "14px 15px", boxShadow: ELEV }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0, boxShadow: `0 0 8px ${sevColor[it.sev]}` }} />
@@ -2332,7 +2526,7 @@ function ShareSheet({ data, onClose }) {
   const reshare = async () => { try { await navigator.share({ files: [data.file] }); } catch (e) {} };
   return (
     <Sheet open onClose={onClose} title="Share">
-      <img src={data.url} alt="IRONSET card" style={{ width: "100%", borderRadius: 5, display: "block", border: `1px solid ${C.line}` }} />
+      <img src={data.url} alt="IRONSET card" style={{ width: "100%", borderRadius: 12, display: "block", border: `1px solid ${C.line}` }} />
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         {canShare && <Btn kind="primary" onClick={reshare} style={{ flex: 1 }}>Share</Btn>}
         <Btn kind="solid" onClick={save} style={{ flex: 1 }}>Save image</Btn>
@@ -2435,7 +2629,7 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
           </div>
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "11px 12px",
+          style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "11px 12px",
             color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         <div style={{ fontSize: 11.5, color: C.faint }}>
           New estimate from this set: {fmt(e1rmFromSet(parseFloat(weight) || 0, reps, inputMode === "rir" ? 10 - int : int))} {unit} e1RM
