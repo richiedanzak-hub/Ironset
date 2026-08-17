@@ -1291,6 +1291,92 @@ function FeatureTour({ onDone }) {
 }
 
 /* =============================== DASHBOARD =============================== */
+// Where the projected total comes from — each lift's contribution and its 30-day move.
+function TotalSheet({ open, onClose, parts, models, total, unit }) {
+  const now = Date.now(), CUT = now - 30 * 86400000;
+  return (
+    <Sheet open={open} onClose={onClose} title="Projected total">
+      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        Your squat, bench and deadlift estimates added together — each one built from the sets you've
+        logged, weighted toward your hardest and most recent work.
+      </div>
+      {(parts || []).map((p) => {
+        const m = models[p.name], pts = m ? m.points : [];
+        let then = null;
+        for (const q of pts) { if (q.ts <= CUT) then = q.value; }
+        const d = then != null ? p.e1rm - then : null;
+        const share = total ? Math.round((p.e1rm / total) * 100) : 0;
+        return (
+          <div key={p.name} style={{ borderTop: `1px solid ${C.line}`, padding: "13px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontWeight: 700, fontSize: 14.5 }}>{p.name}</span>
+              <span style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700 }}>{fmt(Math.round(p.e1rm))}
+                <span style={{ fontFamily: SANS, fontSize: 11, color: C.faint, marginLeft: 3 }}>{unit}</span></span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5, fontSize: 11.5 }}>
+              <span style={{ color: C.faint }}>{share}% of total</span>
+              {d != null && Math.round(d) !== 0 && (
+                <span style={{ color: d > 0 ? C.good : C.red, fontWeight: 700 }}>
+                  {d > 0 ? "▲" : "▼"} {fmt(Math.abs(Math.round(d)))} in 30 days
+                </span>
+              )}
+            </div>
+            <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.05)", marginTop: 7, overflow: "hidden" }}>
+              <div style={{ width: `${share}%`, height: "100%", background: G.blue, borderRadius: 2 }} />
+            </div>
+          </div>
+        );
+      })}
+    </Sheet>
+  );
+}
+// Where the week's tonnage came from — day by day, and which lifts carried it.
+function LoadSheet({ open, onClose, state, unit }) {
+  const cut = Date.now() - 7 * 86400000;
+  const byDay = {}, byLift = {};
+  for (const [name, ex] of Object.entries(state.exercises))
+    for (const s of ex.sets) if (s.ts >= cut) {
+      const k = new Date(s.ts).toDateString(), v = s.weight * Math.max(1, s.reps);
+      byDay[k] = byDay[k] || { ton: 0, sets: 0 };
+      byDay[k].ton += v; byDay[k].sets++;
+      byLift[name] = (byLift[name] || 0) + v;
+    }
+  const days = Object.keys(byDay).sort((a, b) => new Date(b) - new Date(a));
+  const peak = Math.max(1, ...days.map((d) => byDay[d].ton));
+  const lifts = Object.entries(byLift).sort((a, b) => b[1] - a[1]);
+  const tot = lifts.reduce((s, l) => s + l[1], 0);
+  const k = (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : fmt(Math.round(v)));
+  return (
+    <Sheet open={open} onClose={onClose} title="7-day load">
+      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        Total tonnage — every set's weight times its reps — across the last seven days. A rough
+        read on how much work you've actually put in, separate from how hard it felt.
+      </div>
+      {days.length === 0 && <div style={{ fontSize: 13, color: C.faint }}>Nothing logged in the last week.</div>}
+      {days.map((d) => (
+        <div key={d} style={{ borderTop: `1px solid ${C.line}`, padding: "11px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{dshort(new Date(d).getTime())}</span>
+            <span style={{ fontFamily: MONO, fontSize: 13.5, fontWeight: 700 }}>{k(byDay[d].ton)}
+              <span style={{ fontFamily: SANS, fontSize: 10.5, color: C.faint, marginLeft: 3 }}>{unit}</span></span>
+          </div>
+          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.05)", marginTop: 6, overflow: "hidden" }}>
+            <div style={{ width: `${(byDay[d].ton / peak) * 100}%`, height: "100%", background: G.amber, borderRadius: 2 }} />
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{byDay[d].sets} sets</div>
+        </div>
+      ))}
+      {lifts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ ...label, fontSize: 9.5, marginBottom: 9 }}>By lift</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {lifts.map(([n, v]) => <Tag key={n} color={C.amber}>{n} {Math.round((v / tot) * 100)}%</Tag>)}
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
 // Tapping readiness opens the reasoning: which session cost what, and how it clears.
 function ReadinessSheet({ open, onClose, rows }) {
   return (
@@ -1323,6 +1409,8 @@ function ReadinessSheet({ open, onClose, rows }) {
 function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel }) {
   const [share, setShare] = useState(null);
   const [why, setWhy] = useState(false);
+  const [showTotal, setShowTotal] = useState(false);
+  const [showLoad, setShowLoad] = useState(false);
   const now = Date.now();
   const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
   const fresh = mains.map(([name, ex]) => {
@@ -1403,7 +1491,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       </Card>
 
       <Grid2>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.blue}22, transparent 70%)`}>
+        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.blue}22, transparent 70%)`} onClick={() => setShowTotal(true)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <span style={{ ...label, fontSize: 9 }}>Projected total</span>
             {analysis.total != null && (
@@ -1427,7 +1515,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             </div>
           )}
         </Card>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`}>
+        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`} onClick={() => setShowLoad(true)}>
           <span style={{ ...label, fontSize: 9 }}>7-day load</span>
           <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
             {week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage)}
@@ -1441,7 +1529,12 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
 
       {liftCards.length > 0 && (
         <div>
-          <SectionHead accent={C.blue}>Estimated maxes</SectionHead>
+          <SectionHead accent={C.blue} right={<button aria-label="Share maxes" onClick={() => doShare(setShare, { type: "session",
+            headline: "Estimated maxes", sub: `${liftCards.length} lifts`,
+            lifts: liftCards.slice(0, 5).map((L) => ({ name: L.name, detail: "estimated 1RM", e1rm: fmt(Math.round(L.e1rm)) })),
+            date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
+            style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
+            <Share size={14} /></button>}>Estimated maxes</SectionHead>
           <div style={{ display: "flex", gap: 9, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", padding: "0 2px 4px" }}>
             {liftCards.map((L) => (
               <Card key={L.name} accent={C.blue} onClick={() => { setSel(L.name); setTab("history"); }}
@@ -1468,6 +1561,8 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
 
       <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%" }}>Start training →</Btn>
       <ReadinessSheet open={why} onClose={() => setWhy(false)} rows={fresh} />
+      <TotalSheet open={showTotal} onClose={() => setShowTotal(false)} parts={analysis.parts} models={models} total={analysis.total} unit={unit} />
+      <LoadSheet open={showLoad} onClose={() => setShowLoad(false)} state={state} unit={unit} />
       {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
   );
@@ -2523,7 +2618,8 @@ function SessionCard({ session, unit, inputMode }) {
 
 // Surfaces what the engine has actually learned about this lifter — data we compute on
 // every render and have never shown. Always present, so Insights has a floor.
-function ProfileCard({ state }) {
+function ProfileCard({ state, unit }) {
+  const [share, setShare] = useState(null);
   const rows = Object.entries(state.exercises)
     .filter(([n, e]) => !e.parent && e.sets.length >= 5)
     .map(([name, ex]) => ({
@@ -2534,29 +2630,44 @@ function ProfileCard({ state }) {
     }));
   if (!rows.length) return null;
   const read = (v, lo, mid, hi) => (v < 0.78 ? { txt: lo, c: C.good } : v > 1.22 ? { txt: hi, c: C.red } : { txt: mid, c: C.amber });
+  const dims = (r) => [
+    ["After a top set", read(r.top, "Holds strength", "Normal drop-off", "Falls off fast")],
+    ["Between back-offs", read(r.chain, "Holds weight", "Steady descent", "Drops quickly")],
+    ["Week to week", read(r.rec, "Recovers fast", "Normal recovery", "Carries fatigue")],
+  ];
   return (
     <Card accent={C.amber}>
-      <SectionHead accent={C.amber} sub="What IRONSET has worked out from your own logged sets — this is what shapes your loads.">
+      <SectionHead accent={C.amber}
+        sub="Learned from your own logged sets — this is what shapes the loads IRONSET gives you."
+        right={<button aria-label="Share profile" onClick={() => doShare(setShare, { type: "session",
+          headline: "My fatigue profile", sub: "learned from logged sets",
+          lifts: rows.map((r) => ({ name: r.name, detail: dims(r).map((d) => d[1].txt).join("  ·  "), e1rm: null })),
+          date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
+          style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
+          <Share size={14} /></button>}>
         Your profile
       </SectionHead>
-      {rows.map((r, i) => {
-        const a = read(r.top, "Holds strength off top sets", "Typical top-set drop", "Fades fast after a top set");
-        const b = read(r.chain, "Shallow back-off chain", "Typical chain drop", "Chain drops steeply");
-        const c = read(r.rec, "Recovers fast week to week", "Typical week-to-week recovery", "Carries fatigue into next session");
-        return (
-          <div key={r.name} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 12px" : "12px 0" }}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{r.name}</div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-              <Tag color={a.c}>{a.txt}</Tag><Tag color={b.c}>{b.txt}</Tag><Tag color={c.c}>{c.txt}</Tag>
+      {rows.map((r, i) => (
+        <div key={r.name} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 13px" : "13px 0" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 9 }}>{r.name}</div>
+          {dims(r).map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 11.5, color: C.faint }}>{k}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: v.c }}>
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: v.c }} />{v.txt}
+              </span>
             </div>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      ))}
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </Card>
   );
 }
+
 // Rolling record of the last training days, so the tab has substance on rest days too.
 function RecentCard({ state, unit, inputMode }) {
+  const [share, setShare] = useState(null);
   const today = new Date().toDateString();
   const byDay = {};
   for (const [name, ex] of Object.entries(state.exercises))
@@ -2570,7 +2681,16 @@ function RecentCard({ state, unit, inputMode }) {
   const eff = (s) => (inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`);
   return (
     <Card accent={C.blue}>
-      <SectionHead accent={C.blue}>Recent sessions</SectionHead>
+      <SectionHead accent={C.blue} right={<button aria-label="Share recent" onClick={() => doShare(setShare, { type: "session",
+        headline: "Recent sessions", sub: `${days.length} training days`,
+        lifts: days.map((d) => {
+          const all = byDay[d], w = all.filter((s) => !s.backoff), p = w.length ? w : all;
+          const tp = p.reduce((x, y) => (y.weight > x.weight ? y : x), p[0]);
+          return { name: dshort(new Date(d).getTime()), detail: `${fmt(tp.weight)}${unit} × ${tp.reps} · ${all.length} sets`, e1rm: null };
+        }),
+        date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
+        style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
+        <Share size={14} /></button>}>Recent sessions</SectionHead>
       {days.map((d, i) => {
         const all = byDay[d];
         const work = all.filter((s) => !s.backoff);
@@ -2590,6 +2710,7 @@ function RecentCard({ state, unit, inputMode }) {
           </div>
         );
       })}
+      {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </Card>
   );
 }
@@ -2617,7 +2738,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
-        <ProfileCard state={state} />
+        <ProfileCard state={state} unit={unit} />
         <RecentCard state={state} unit={unit} inputMode={state.settings.inputMode} />
         <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
           Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
@@ -2654,7 +2775,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
       <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
         These read your own logged data and refresh every time you train.
       </div>
-      <ProfileCard state={state} />
+      <ProfileCard state={state} unit={unit} />
       <RecentCard state={state} unit={unit} inputMode={state.settings.inputMode} />
       <Btn kind="ghost" onClick={() => setShowEngine(true)} style={{ width: "100%" }}><Info size={15} /> How the engine thinks</Btn>
       <Sheet open={showEngine} onClose={() => setShowEngine(false)} title="The engine">
