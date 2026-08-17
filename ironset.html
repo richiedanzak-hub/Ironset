@@ -1419,12 +1419,28 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
   }).sort((a, b) => a.pct - b.pct);
   const score = fresh.length ? Math.round(fresh.reduce((s, r) => s + r.pct, 0) / fresh.length) : 100;
   const sc = freshColor(score);
-  const status = score >= 90 ? "Primed to train" : score >= 75 ? "Ready to work"
-    : score >= 58 ? "Carrying fatigue" : "Focus on recovery";
-  const note = score >= 96 ? "Everything has cleared."
-    : score >= 90 ? "Fresh enough to push today."
-    : score >= 83 ? "Hard work still settling."
-    : "Loads trimmed — warm up well.";
+  // Copy reads the individual lifts, not just the average — a 90 overall means nothing
+  // if your squat is sitting at 72.
+  const listOf = (a) => (a.length === 1 ? a[0] : a.length === 2 ? `${a[0]} and ${a[1]}`
+    : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`);
+  const hot = fresh.filter((r) => r.pct < 80).map((r) => r.name);
+  const mid = fresh.filter((r) => r.pct >= 80 && r.pct < 92).map((r) => r.name);
+  const okL = fresh.filter((r) => r.pct >= 92).map((r) => r.name);
+  const worst = fresh.length ? fresh[0].pct : 100;
+  const status = !fresh.length ? "Ready to work"
+    : worst >= 92 ? "Primed to train"
+    : hot.length && okL.length ? "Split readiness"
+    : worst >= 80 ? "Ready to work"
+    : worst >= 62 ? "Carrying fatigue" : "Focus on recovery";
+  const note = (() => {
+    if (!fresh.length) return "Log a few sets and readiness starts tracking.";
+    if (hot.length && okL.length) return `${listOf(hot)} still recovering — ${listOf(okL)} ready to push.`;
+    if (hot.length && mid.length) return `${listOf(hot)} needs care today; ${listOf(mid)} is close.`;
+    if (hot.length) return `${listOf(hot)} still carrying real fatigue. Keep today controlled.`;
+    if (mid.length && okL.length) return `${listOf(mid)} slightly taxed — ${listOf(okL)} good to go.`;
+    if (mid.length) return "Everything is a touch taxed. Good day for quality work.";
+    return "Everything has cleared. Good day to chase a top set.";
+  })();
   const week = (() => {
     const cut = now - 7 * 86400000;
     let tonnage = 0, sets = 0; const days = new Set();
@@ -1469,7 +1485,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16, color: sc, letterSpacing: "-0.01em" }}>{status}</div>
-            <div style={{ fontSize: 11.5, color: C.faint, marginTop: 3, lineHeight: 1.45 }}>{note}</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.45 }}>{note}</div>
           </div>
         </div>
         {fresh.length > 0 && (
@@ -2676,7 +2692,6 @@ function RecentCard({ state, unit, inputMode }) {
   for (const [name, ex] of Object.entries(state.exercises))
     for (const s of ex.sets) {
       const k = new Date(s.ts).toDateString();
-      if (k === today) continue;
       (byDay[k] = byDay[k] || []).push({ ...s, lift: name });
     }
   const days = Object.keys(byDay).sort((a, b) => new Date(b) - new Date(a)).slice(0, 5);
@@ -2704,7 +2719,10 @@ function RecentCard({ state, unit, inputMode }) {
           <div key={d} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 12px" : "12px 0" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 13.5 }}>{lifts.slice(0, 2).join(" · ")}{lifts.length > 2 ? ` +${lifts.length - 2}` : ""}</span>
-              <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap" }}>{dshort(new Date(d).getTime())}</span>
+              <span style={{ fontSize: 11, fontFamily: MONO, whiteSpace: "nowrap",
+                color: d === today ? C.good : C.faint, fontWeight: d === today ? 700 : 400 }}>
+                {d === today ? "Today" : dshort(new Date(d).getTime())}
+              </span>
             </div>
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, fontFamily: MONO }}>
               top {fmt(top.weight)}{unit} × {top.reps} <span style={{ color: C.faint }}>@ {eff(top)}</span>
