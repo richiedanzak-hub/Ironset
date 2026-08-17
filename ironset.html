@@ -651,9 +651,9 @@ function DateField({ value, onChange }) {
         outline: "none", colorScheme: "dark" }} />
   );
 }
-function Card({ children, style, glow, accent }) {
+function Card({ children, style, glow, accent, onClick }) {
   const A = accent || null;
-  return <div style={{ background: G.card, border: `1px solid ${C.line}`, borderRadius: R.surface,
+  return <div onClick={onClick} style={{ cursor: onClick ? "pointer" : undefined, background: G.card, border: `1px solid ${C.line}`, borderRadius: R.surface,
     padding: 17, boxShadow: ELEV, position: "relative", overflow: "hidden", ...style }}>
     {A && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, pointerEvents: "none",
       background: `linear-gradient(90deg, transparent 4%, ${A}, transparent 96%)`, opacity: 0.8 }} />}
@@ -1011,7 +1011,7 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "dash" && (
-            <DashboardTab {...{ state, models, analysis, unit, setTab, setState }} />
+            <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
             <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
@@ -1104,7 +1104,7 @@ function residualFatigue(sets, refTs, includeToday) {
 // so essentially no correction. This keeps a hard week from reading as strength loss
 // without ever manufacturing strength that wasn't demonstrated.
 function freshCorrect(obs, s, sets, rsc) {
-  const rd = Math.min(0.18, rsc * residualFatigue(sets, s.ts).raw);
+  const rd = trimFor(residualFatigue(sets, s.ts).raw, rsc);
   if (rd < 0.01) return obs;
   let corr = 0.85 * rd;
   if (s.fromRec && s.tRpe != null) {
@@ -1115,21 +1115,41 @@ function freshCorrect(obs, s, sets, rsc) {
 }
 // Learn how strongly carryover hits THIS lift: every prescribed top set that came in
 // harder than its target, on a day residual fatigue was predicted, sizes the effect.
+// Two outputs from the same physiology, deliberately separated:
+//   TRIM      — what we subtract from a prescription. Capped hard, because a wrong trim
+//               wastes a session; being 3% light costs nothing, being 15% light ruins a day.
+//   READINESS — what the athlete sees. Mapped onto an expressive scale so a genuinely
+//               beaten-up lift reads in the 40s-50s instead of hovering in the high 80s.
+const TRIM_CAP = 0.10;
+const READY_SPAN = 0.22;
+function trimFor(raw, scale) { return Math.max(0, Math.min(TRIM_CAP, (scale || 1) * raw)); }
+function readinessFor(raw, scale) {
+  const d = Math.max(0, Math.min(READY_SPAN, (scale || 1) * raw));
+  return Math.round(100 - (d / READY_SPAN) * 62);   // fresh 100 → fully cooked 38
+}
 function learnRecoveryScale(sets) {
+  // Learn how strongly week-over-week fatigue actually bites THIS lifter, from every
+  // prescribed top set that landed on a day carryover was predicted. Recent evidence
+  // counts more (fatigue response shifts across blocks), the weighted median resists
+  // one odd session, and it shrinks toward a slightly-cautious prior until proven.
+  const now = Date.now(), HALF_LIFE = 56 * 86400000;
   const samples = [];
   for (const s of sets) {
     if (s.backoff || !s.fromRec || s.tRpe == null || s.rpe == null) continue;
-    const pred = Math.min(0.18, residualFatigue(sets, s.ts).raw);
-    if (pred < 0.01) continue;
+    const pred = residualFatigue(sets, s.ts).raw;
+    if (pred < 0.012) continue;
     const obs = 1 - e1rmFromSet(s.weight, s.reps, s.rpe) / e1rmFromSet(s.weight, s.reps, s.tRpe);
-    if (obs < -0.1 || obs > 0.2) continue;
-    const sc = obs <= 0.001 ? 0.1 : obs / pred;
-    if (sc < 2.5) samples.push(Math.max(0.05, sc));
+    if (obs < -0.12 || obs > 0.25) continue;          // outside this, something else happened
+    const sc = Math.max(0.05, Math.min(2.5, obs / pred));
+    samples.push({ sc, w: Math.pow(0.5, (now - s.ts) / HALF_LIFE) });
   }
   if (!samples.length) return 1;
-  samples.sort((a, b) => a - b);
-  const med = samples[Math.floor(samples.length / 2)], n = samples.length, W0 = 2;
-  return Math.max(0.1, Math.min(2, (n * med + W0 * 0.8) / (n + W0)));
+  samples.sort((x, y) => x.sc - y.sc);
+  const W = samples.reduce((tot, x) => tot + x.w, 0);
+  let acc = 0, med = samples[samples.length - 1].sc;
+  for (const x of samples) { acc += x.w; if (acc >= W / 2) { med = x.sc; break; } }
+  const W0 = 2;
+  return Math.max(0.15, Math.min(1.9, (W * med + W0 * 0.85) / (W + W0)));
 }
 
 function Onboarding({ onDone, unit }) {
@@ -1271,22 +1291,61 @@ function FeatureTour({ onDone }) {
 }
 
 /* =============================== DASHBOARD =============================== */
-function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
+// Tapping readiness opens the reasoning: which session cost what, and how it clears.
+function ReadinessSheet({ open, onClose, rows }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Why this score">
+      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        Readiness is built per lift from work you logged above roughly RPE 8. Each hard session
+        leaves a debt that decays over the days after it, and IRONSET learns how fast you personally
+        clear it. It trims prescribed loads by at most {Math.round(TRIM_CAP * 100)}%.
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} style={{ borderTop: `1px solid ${C.line}`, padding: "13px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontWeight: 700, fontSize: 14.5 }}>{r.name}</span>
+            <span style={{ fontFamily: MONO, fontSize: 17, fontWeight: 700, color: freshColor(r.pct) }}>{r.pct}</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.faint, marginTop: 5, lineHeight: 1.5 }}>
+            {r.trim >= 0.01
+              ? `Loads trimmed ${fmt(Math.round(r.trim * 1000) / 10)}%${r.peak ? ` — hardest recent work was RPE ${fmt(r.peak)}${r.days ? `, ${r.days}d ago` : ""}` : ""}.`
+              : "Nothing recent still weighing on this lift — prescriptions run at full strength."}
+          </div>
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 14, lineHeight: 1.55 }}>
+        100 means fully recovered. The scale is deliberately sensitive, so a genuinely hard week
+        shows up rather than hiding in the high 90s.
+      </div>
+    </Sheet>
+  );
+}
+function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel }) {
   const [share, setShare] = useState(null);
+  const [why, setWhy] = useState(false);
   const now = Date.now();
   const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
   const fresh = mains.map(([name, ex]) => {
-    const drop = Math.min(0.18, learnRecoveryScale(ex.sets) * residualFatigue(ex.sets, now, true).raw);
-    return { name, pct: Math.round((1 - drop) * 100) };
+    const rr = residualFatigue(ex.sets, now, true), sc = learnRecoveryScale(ex.sets);
+    return { name, pct: readinessFor(rr.raw, sc), trim: trimFor(rr.raw, sc), peak: rr.peak, days: rr.days };
   }).sort((a, b) => a.pct - b.pct);
   const score = fresh.length ? Math.round(fresh.reduce((s, r) => s + r.pct, 0) / fresh.length) : 100;
   const sc = freshColor(score);
-  const status = score >= 96 ? "Primed to train" : score >= 90 ? "Ready to work"
-    : score >= 83 ? "Carrying some fatigue" : "Focus on recovery";
-  const note = score >= 96 ? "Everything has cleared. Go take a swing at something heavy."
-    : score >= 90 ? "Fresh enough to push your top sets today."
-    : score >= 83 ? "Recent hard work is still settling — expect your loads to be trimmed."
-    : "Recent sessions were taxing. Warm up thoroughly and respect the trims.";
+  const status = score >= 90 ? "Primed to train" : score >= 75 ? "Ready to work"
+    : score >= 58 ? "Carrying fatigue" : "Focus on recovery";
+  const note = score >= 96 ? "Everything has cleared."
+    : score >= 90 ? "Fresh enough to push today."
+    : score >= 83 ? "Hard work still settling."
+    : "Loads trimmed — warm up well.";
+  const week = (() => {
+    const cut = now - 7 * 86400000;
+    let tonnage = 0, sets = 0; const days = new Set();
+    for (const ex of Object.values(state.exercises))
+      for (const s of ex.sets) if (s.ts >= cut) {
+        tonnage += s.weight * Math.max(1, s.reps); sets++; days.add(new Date(s.ts).toDateString());
+      }
+    return { tonnage: Math.round(tonnage), sets, days: days.size };
+  })();
   const liftCards = Object.entries(state.exercises)
     .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null)
     .map(([n]) => ({ name: n, e1rm: models[n].e1rm, points: models[n].points }))
@@ -1297,29 +1356,45 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <Card glow={`radial-gradient(130% 95% at 10% -10%, ${sc}26, transparent 68%)`} style={{ padding: 19 }}>
+      <Card accent={sc} glow={`radial-gradient(130% 95% at 10% -12%, ${sc}24, transparent 66%)`} style={{ padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
           <span style={{ ...label, fontSize: 9.5 }}>Readiness · Today</span>
-          {fresh.length > 0 && <Tag color={freshColor(fresh[0].pct)}>{fresh[0].name} {fresh[0].pct}%</Tag>}
+          <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <button aria-label="Share readiness" onClick={() => doShare(setShare, { type: "stat", label: "Readiness",
+              value: String(score), unit: "/100",
+              sub: fresh.slice(0, 3).map((r) => `${r.name} ${r.pct}`).join("    "),
+              date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
+              style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
+              <Share size={14} />
+            </button>
+            <button aria-label="Why this score" onClick={() => setWhy(true)}
+              style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
+              <Info size={15} />
+            </button>
+          </span>
         </div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 9, marginTop: 13 }}>
-          <span style={{ fontFamily: MONO, fontSize: 70, fontWeight: 700, lineHeight: 0.88, letterSpacing: "-0.045em",
-            color: C.text, textShadow: `0 0 52px ${sc}70` }}>{score}</span>
-          <span style={{ fontFamily: MONO, fontSize: 25, color: C.faint, fontWeight: 600, marginBottom: 6 }}>/100</span>
+        <div onClick={() => setWhy(true)} style={{ display: "flex", alignItems: "center", gap: 15, marginTop: 9, cursor: "pointer" }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
+            <span style={{ fontFamily: MONO, fontSize: 52, fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.05em",
+              color: C.text, textShadow: `0 0 40px ${sc}66` }}>{score}</span>
+            <span style={{ fontFamily: MONO, fontSize: 16, color: C.faint, fontWeight: 600, marginBottom: 4 }}>/100</span>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16, color: sc, letterSpacing: "-0.01em" }}>{status}</div>
+            <div style={{ fontSize: 11.5, color: C.faint, marginTop: 3, lineHeight: 1.45 }}>{note}</div>
+          </div>
         </div>
-        <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 21, color: sc, marginTop: 15, letterSpacing: "-0.01em" }}>{status}</div>
-        <div style={{ fontSize: 13, color: C.muted, marginTop: 5, lineHeight: 1.55 }}>{note}</div>
         {fresh.length > 0 && (
-          <div style={{ marginTop: 17, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             {fresh.map((r) => (
               <div key={r.name}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.11em" }}>{r.name}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 12, color: freshColor(r.pct), fontWeight: 700 }}>{r.pct}%</span>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.11em" }}>{r.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11.5, color: freshColor(r.pct), fontWeight: 700 }}>{r.pct}</span>
                 </div>
-                <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
-                  <div style={{ width: `${Math.max(5, Math.min(100, (r.pct - 70) / 0.30))}%`, height: "100%",
-                    borderRadius: 3, background: freshColor(r.pct), transition: "width .3s ease" }} />
+                <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(5, Math.min(100, r.pct))}%`, height: "100%",
+                    borderRadius: 2, background: freshColor(r.pct), transition: "width .3s ease" }} />
                 </div>
               </div>
             ))}
@@ -1353,13 +1428,13 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
           )}
         </Card>
         <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`}>
-          <span style={{ ...label, fontSize: 9 }}>{dots != null ? "Strength score" : "Lifts tracked"}</span>
+          <span style={{ ...label, fontSize: 9 }}>7-day load</span>
           <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
-            {dots != null ? dots : Object.keys(state.exercises).length}
-            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{dots != null ? "DOTS" : "lifts"}</span>
+            {week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage)}
+            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
           </div>
           <div style={{ fontSize: 11.5, marginTop: 5, color: C.faint, fontWeight: 600 }}>
-            {dots != null ? dotsTier(dots) : "across your log"}
+            {week.sets} set{week.sets === 1 ? "" : "s"} · {week.days} day{week.days === 1 ? "" : "s"}
           </div>
         </Card>
       </Grid2>
@@ -1369,7 +1444,8 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
           <SectionHead accent={C.blue}>Estimated maxes</SectionHead>
           <div style={{ display: "flex", gap: 9, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", padding: "0 2px 4px" }}>
             {liftCards.map((L) => (
-              <Card key={L.name} accent={C.blue} style={{ padding: 13, flex: "0 0 auto", minWidth: 118 }}>
+              <Card key={L.name} accent={C.blue} onClick={() => { setSel(L.name); setTab("history"); }}
+                style={{ padding: 13, flex: "0 0 auto", minWidth: 118 }}>
                 <div style={{ fontFamily: MONO, fontSize: 23, fontWeight: 700, letterSpacing: "-0.04em",
                   textShadow: `0 0 30px ${C.blue}55` }}>
                   {fmt(Math.round(L.e1rm))}
@@ -1391,6 +1467,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState }) {
       <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
 
       <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%" }}>Start training →</Btn>
+      <ReadinessSheet open={why} onClose={() => setWhy(false)} rows={fresh} />
       {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
   );
@@ -1463,7 +1540,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       total += c;
       if (c > top.c) top = { c, days: r.days, peak: r.peak, name };
     }
-    return { drop: Math.min(0.18, scale * total), days: top.days, peak: top.peak, from: top.name };
+    return { drop: trimFor(total, scale), days: top.days, peak: top.peak, from: top.name };
   }, [selEx, sel, state.exercises, e1rm, logDate]);
   const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) : null;
 
@@ -2146,7 +2223,7 @@ function MeetCard({ analysis, unit, state, setState }) {
           ? (meet.name ? meet.name + " — plan" : "Plan") + " your openers, second and third attempts off your current maxes — in kilos, rounded to the plates."
           : "Set a meet date and IRONSET builds your nine attempts off your current strength."}
       </div>
-      <Btn kind={meet.date ? "solid" : "primary"} onClick={() => setOpen(true)} style={{ marginTop: 12, width: "100%" }}>
+      <Btn kind="solid" onClick={() => setOpen(true)} style={{ marginTop: 12, width: "100%" }}>
         {meet.date ? "Open meet prep" : "Set up meet prep"}
       </Btn>
       <MeetSheet open={open} onClose={() => setOpen(false)} {...{ analysis, unit, state, setState }} />
@@ -2330,7 +2407,7 @@ function BlockSheet({ open, onClose, plan, setPlan, exNames, inputMode }) {
 // green as capacity returns — anchored to the app palette so 98% and 82% never read
 // the same. `dim` darkens for the gradient's left edge.
 function freshColor(pct, dim) {
-  const t = Math.max(0, Math.min(1, (pct - 80) / 20));
+  const t = Math.max(0, Math.min(1, (pct - 45) / 50));
   const A = [5, 76, 53], B = [42, 67, 55], D = [135, 38, 62]; // red -> gold -> green (HSL)
   const lerp = (a, b, k) => a + (b - a) * k;
   let h, s, l;
@@ -2346,11 +2423,10 @@ function FreshnessCard({ state }) {
   const now = Date.now(), DAY = 86400000;
   const rows = mains.map(([name, ex]) => {
     const scale = learnRecoveryScale(ex.sets);
-    const at = (d) => Math.min(0.18, scale * residualFatigue(ex.sets, now + d * DAY, true).raw);
-    const today = at(0);
+    const rawAt = (d) => residualFatigue(ex.sets, now + d * DAY, true).raw;
     let full = 0;
-    for (let d = 0; d <= 12; d++) { full = d; if (at(d) < 0.01) break; }
-    return { name, pct: Math.round((1 - today) * 100), full, ready: today < 0.01 };
+    for (let d = 0; d <= 12; d++) { full = d; if (trimFor(rawAt(d), scale) < 0.01) break; }
+    return { name, pct: readinessFor(rawAt(0), scale), full, ready: trimFor(rawAt(0), scale) < 0.01 };
   }).sort((a, b) => a.pct - b.pct);
   return (
     <Card accent={C.blue}>
@@ -2376,7 +2452,7 @@ function FreshnessCard({ state }) {
             </span>
           </div>
           <div style={{ height: 6, borderRadius: 3, background: "#0F1216", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.4) inset" }}>
-            <div style={{ width: `${Math.max(6, Math.min(100, (r.pct - 70) / 0.30))}%`, height: "100%", borderRadius: 3,
+            <div style={{ width: `${Math.max(6, Math.min(100, r.pct))}%`, height: "100%", borderRadius: 3,
               background: `linear-gradient(90deg, ${freshColor(r.pct, 11)}, ${freshColor(r.pct)})`,
               boxShadow: `0 0 8px ${freshColor(r.pct)}55` }} />
           </div>
@@ -2445,6 +2521,79 @@ function SessionCard({ session, unit, inputMode }) {
   );
 }
 
+// Surfaces what the engine has actually learned about this lifter — data we compute on
+// every render and have never shown. Always present, so Insights has a floor.
+function ProfileCard({ state }) {
+  const rows = Object.entries(state.exercises)
+    .filter(([n, e]) => !e.parent && e.sets.length >= 5)
+    .map(([name, ex]) => ({
+      name,
+      top: learnDropScale(ex.sets, DEFAULT_FATIGUE_K, true),
+      chain: learnDropScale(ex.sets, DEFAULT_FATIGUE_K, false),
+      rec: learnRecoveryScale(ex.sets),
+    }));
+  if (!rows.length) return null;
+  const read = (v, lo, mid, hi) => (v < 0.78 ? { txt: lo, c: C.good } : v > 1.22 ? { txt: hi, c: C.red } : { txt: mid, c: C.amber });
+  return (
+    <Card accent={C.amber}>
+      <SectionHead accent={C.amber} sub="What IRONSET has worked out from your own logged sets — this is what shapes your loads.">
+        Your profile
+      </SectionHead>
+      {rows.map((r, i) => {
+        const a = read(r.top, "Holds strength off top sets", "Typical top-set drop", "Fades fast after a top set");
+        const b = read(r.chain, "Shallow back-off chain", "Typical chain drop", "Chain drops steeply");
+        const c = read(r.rec, "Recovers fast week to week", "Typical week-to-week recovery", "Carries fatigue into next session");
+        return (
+          <div key={r.name} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 12px" : "12px 0" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{r.name}</div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+              <Tag color={a.c}>{a.txt}</Tag><Tag color={b.c}>{b.txt}</Tag><Tag color={c.c}>{c.txt}</Tag>
+            </div>
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+// Rolling record of the last training days, so the tab has substance on rest days too.
+function RecentCard({ state, unit, inputMode }) {
+  const today = new Date().toDateString();
+  const byDay = {};
+  for (const [name, ex] of Object.entries(state.exercises))
+    for (const s of ex.sets) {
+      const k = new Date(s.ts).toDateString();
+      if (k === today) continue;
+      (byDay[k] = byDay[k] || []).push({ ...s, lift: name });
+    }
+  const days = Object.keys(byDay).sort((a, b) => new Date(b) - new Date(a)).slice(0, 5);
+  if (!days.length) return null;
+  const eff = (s) => (inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`);
+  return (
+    <Card accent={C.blue}>
+      <SectionHead accent={C.blue}>Recent sessions</SectionHead>
+      {days.map((d, i) => {
+        const all = byDay[d];
+        const work = all.filter((s) => !s.backoff);
+        const pool = work.length ? work : all;
+        const top = pool.reduce((x, y) => (y.weight > x.weight ? y : x), pool[0]);
+        const lifts = Array.from(new Set(all.map((s) => s.lift)));
+        return (
+          <div key={d} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 12px" : "12px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+              <span style={{ fontWeight: 700, fontSize: 13.5 }}>{lifts.slice(0, 2).join(" · ")}{lifts.length > 2 ? ` +${lifts.length - 2}` : ""}</span>
+              <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap" }}>{dshort(new Date(d).getTime())}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, fontFamily: MONO }}>
+              top {fmt(top.weight)}{unit} × {top.reps} <span style={{ color: C.faint }}>@ {eff(top)}</span>
+              <span style={{ color: C.faint }}>  ·  {all.length} sets</span>
+            </div>
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
 function InsightsTab({ analysis, unit, state, setState }) {
   const { total, totalDelta, parts, insights } = analysis;
   const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
@@ -2468,6 +2617,8 @@ function InsightsTab({ analysis, unit, state, setState }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
+        <ProfileCard state={state} />
+        <RecentCard state={state} unit={unit} inputMode={state.settings.inputMode} />
         <Card style={{ textAlign: "center", color: C.muted, fontSize: 13.5, padding: "28px 18px", lineHeight: 1.6 }}>
           Log a few sets and I'll start reading your training here — strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads.
         </Card>
@@ -2476,7 +2627,14 @@ function InsightsTab({ analysis, unit, state, setState }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
-      {shownInsights.length > 0 && <SectionHead accent={C.red}>What changed</SectionHead>}
+      {shownInsights.length > 0 && (
+        <SectionHead accent={C.red} right={Object.keys(dismissed).length > 0 ? (
+          <button onClick={() => setState((s) => ({ ...s, dismissedInsights: {} }))}
+            style={{ background: "none", border: "none", color: C.faint, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+            Restore dismissed
+          </button>
+        ) : null}>What changed</SectionHead>
+      )}
       {shownInsights.map((it) => (
         <div key={it.id} style={{ background: G.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: R.surface, padding: "14px 15px", boxShadow: ELEV }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -2496,6 +2654,8 @@ function InsightsTab({ analysis, unit, state, setState }) {
       <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
         These read your own logged data and refresh every time you train.
       </div>
+      <ProfileCard state={state} />
+      <RecentCard state={state} unit={unit} inputMode={state.settings.inputMode} />
       <Btn kind="ghost" onClick={() => setShowEngine(true)} style={{ width: "100%" }}><Info size={15} /> How the engine thinks</Btn>
       <Sheet open={showEngine} onClose={() => setShowEngine(false)} title="The engine">
         <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>
