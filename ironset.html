@@ -591,7 +591,7 @@ function Chip({ active, children, onClick }) {
       transition: "background .15s ease, color .15s ease, border-color .15s ease",
       background: active ? G.red : "rgba(255,255,255,0.03)", color: active ? "#fff" : C.muted,
       border: `1px solid ${active ? "transparent" : C.line}`,
-      boxShadow: active ? "0 6px 16px -8px rgba(255,74,61,0.75)" : "none",
+      boxShadow: "none",
     }}>{children}</button>
   );
 }
@@ -657,8 +657,8 @@ function Card({ children, style, glow, accent, onClick }) {
     padding: 17, boxShadow: ELEV, position: "relative", overflow: "hidden", ...style }}>
     {A && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, pointerEvents: "none",
       background: `linear-gradient(90deg, transparent 4%, ${A}, transparent 96%)`, opacity: 0.8 }} />}
-    {(glow || A) && <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-      background: glow || `radial-gradient(135% 95% at 10% -14%, ${A}22, transparent 68%)` }} />}
+    {((glow && glow !== "none") || (A && !glow)) && <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+      background: glow && glow !== "none" ? glow : `radial-gradient(135% 95% at 10% -14%, ${A}22, transparent 68%)` }} />}
     <div style={{ position: "relative" }}>{children}</div>
   </div>;
 }
@@ -1838,7 +1838,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         )}
       </Card>
 
-      <Card accent={C.red}>
+      <Card accent={C.red} glow="none">
         <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
@@ -1861,16 +1861,19 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
 
       {/* recommendation */}
       <div style={{ textAlign: "center", margin: "0 -17px", padding: "20px 17px 6px",
-        background: "radial-gradient(120% 100% at 50% 0%, rgba(255,74,61,0.20), transparent 68%)" }}>
+        background: "linear-gradient(180deg, rgba(255,74,61,0.09), rgba(255,74,61,0.02) 55%, transparent)" }}>
         <div style={{ ...label, fontSize: 9.5 }}>Recommended load</div>
         {recR != null ? (
           <>
-            <div style={{ fontFamily: MONO, fontSize: 68, fontWeight: 700, lineHeight: 0.94, marginTop: 10, color: C.text,
-              letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums", textShadow: `0 0 52px ${C.red}80`, transition: "color .2s" }}>
-              {fmt(recR)}<span style={{ fontFamily: SANS, fontSize: 18, color: C.faint, marginLeft: 7, fontWeight: 600 }}>{unit}</span>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 10,
+              whiteSpace: "nowrap" }}>
+              <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
+                letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
+                textShadow: `0 0 46px ${C.red}55`, transition: "color .2s" }}>{fmt(recR)}</span>
+              <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, margin: "16px auto 12px", width: 132, background: G.red,
-              boxShadow: `0 0 18px ${C.redLine}` }} />
+            <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
+              background: `linear-gradient(90deg, transparent, ${C.red}, transparent)`, opacity: 0.75 }} />
             <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
               {percentMode
                 ? `${tReps} rep${tReps > 1 ? "s" : ""} @ ${fmt(topPct)}%`
@@ -1910,8 +1913,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             <span style={{ width: 3, height: 14, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
             <span style={label}>Log your top set</span>
           </span>
-          {recR != null && <button onClick={useRec} style={{ background: C.redSoft, border: `1px solid ${C.redLine}`,
-            color: C.red, borderRadius: 9, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Use recommendation</button>}
+          {recR != null && <button onClick={useRec} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line2}`,
+            color: C.muted, borderRadius: R.pill, padding: "7px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Use recommendation</button>}
         </div>
 
         <div style={{ marginTop: 12 }}>
