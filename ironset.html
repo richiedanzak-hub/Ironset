@@ -974,10 +974,27 @@ function App() {
     const ex = s.exercises[name]; if (!ex) return s;
     return { ...s, exercises: { ...s.exercises, [name]: { ...ex, sets: ex.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) } } };
   });
+  // Deleting a lift never destroys it outright — it moves to a recoverable bin, and any
+  // variations linked to it are unlinked so they survive on their own.
   const deleteExercise = (name) => {
-    setState((s) => { const e = { ...s.exercises }; delete e[name]; return { ...s, exercises: e }; });
+    setState((s) => {
+      const e = { ...s.exercises }, gone = e[name];
+      if (!gone) return s;
+      delete e[name];
+      for (const k of Object.keys(e)) if (e[k].parent === name) e[k] = { ...e[k], parent: undefined, ratio: undefined };
+      const trash = [{ name, ex: gone, ts: Date.now() }].concat(s.trash || []).slice(0, 20);
+      return { ...s, exercises: e, trash };
+    });
     setSel((cur) => (cur === name ? Object.keys(state.exercises).filter((k) => k !== name)[0] || null : cur));
   };
+  const restoreExercise = (name) => setState((s) => {
+    const item = (s.trash || []).find((x) => x.name === name);
+    if (!item) return s;
+    const key = s.exercises[name] ? `${name} (restored)` : name;
+    return { ...s, exercises: { ...s.exercises, [key]: { ...item.ex, name: key } },
+      trash: (s.trash || []).filter((x) => x.name !== name) };
+  });
+  const purgeExercise = (name) => setState((s) => ({ ...s, trash: (s.trash || []).filter((x) => x.name !== name) }));
   const setSetting = (k, v) => setState((s) => ({ ...s, settings: { ...s.settings, [k]: v } }));
 
 
@@ -1677,25 +1694,37 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
   const scaleChain = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, false), [selEx]);
   const boDayStr = new Date(tsFromDateStr(logDate)).toDateString();
-  const todayBos = (selEx ? selEx.sets : []).filter((x) => x.backoff && new Date(x.ts).toDateString() === boDayStr);
+  // A back-off can be run as a linked variation. Fatigue still chains off the main lift's
+  // spent capacity; the load is then scaled by how that variation measures up to the main.
+  const boFamily = sel ? [sel].concat(Object.keys(state.exercises).filter((n) => state.exercises[n].parent === sel)) : [];
+  const ratioOf = (n) => (n === sel ? 1 : ((models[n] && models[n].ratio) || (state.exercises[n] && state.exercises[n].ratio) || 1));
+  const [boLift, setBoLift] = useState(sel);
+  useEffect(() => { setBoLift(sel); setBoDraft(null); }, [sel]);
+  const boTarget = boLift && state.exercises[boLift] ? boLift : sel;
+  const todayBos = boFamily
+    .reduce((acc, n) => acc.concat((state.exercises[n] ? state.exercises[n].sets : [])
+      .filter((x) => x.backoff && new Date(x.ts).toDateString() === boDayStr)
+      .map((x) => ({ ...x, lift: n }))), [])
+    .sort((a, b) => a.ts - b.ts);
   const doneCount = todayBos.length;
   const lastBo = doneCount ? todayBos[doneCount - 1] : null;
-  // the set that drives the next back-off: last back-off → today's top set → estimate
+  // the driving set, always normalised into MAIN-lift terms so the chain stays comparable
   const prevForBo = (() => {
-    if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe), reps: lastBo.reps, rpe: lastBo.rpe };
+    if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe) / (ratioOf(lastBo.lift) || 1), reps: lastBo.reps, rpe: lastBo.rpe };
     const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
     if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe };
     if (effE1rm != null) return { implied: effE1rm, reps: tReps, rpe: tRpe };
     return null;
   })();
   const boSug = (() => {
+    const r = ratioOf(boTarget) || 1;
     if (percentMode) {
-      if (doneCount === 0) return ref != null ? roundTo(ref * (boPct / 100), round) : null;
-      return lastBo ? roundTo(lastBo.weight, round) : null;
+      if (doneCount === 0) return ref != null ? roundTo(ref * (boPct / 100) * r, round) : null;
+      return lastBo ? roundTo((lastBo.weight / (ratioOf(lastBo.lift) || 1)) * r, round) : null;
     }
     if (!prevForBo) return null;
     const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K) * (lastBo ? scaleChain : scaleTop));
-    return roundTo(weightForTarget(effCap, bo.reps, bo.rpe), round);
+    return roundTo(weightForTarget(effCap * r, bo.reps, bo.rpe), round);
   })();
   const boIntDefault = (() => {
     if (percentMode) {
@@ -1709,11 +1738,11 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   })();
   const curBo = boDraft || { weight: boSug != null ? String(boSug) : "", reps: bo.reps, int: boIntDefault };
   const logCurBackoff = () => {
-    if (!sel) return;
+    if (!boTarget) return;
     const w = parseFloat(curBo.weight);
     if (!isFinite(w) || w <= 0) return;
     const rpe = inputMode === "rir" ? 10 - curBo.int : curBo.int;
-    logSet(sel, { weight: roundTo(w, round), reps: curBo.reps, rpe, ts: tsFromDateStr(logDate),
+    logSet(boTarget, { weight: roundTo(w, round), reps: curBo.reps, rpe, ts: tsFromDateStr(logDate),
       backoff: true, fromRec: false, tReps: curBo.reps, tRpe: rpe, rec: boSug != null ? boSug : roundTo(w, round) });
     setBoDraft(null);
   };
@@ -2006,7 +2035,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                 background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px" }}>
                 <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
-                  Back-off {i + 1} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
+                  Back-off {i + 1}{s.lift !== sel ? <span style={{ color: C.blue }}> · {s.lift}</span> : null} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
                 </div>
                 <Check size={15} style={{ color: C.good }} />
               </div>
@@ -2017,6 +2046,20 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
                 <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
                   Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
                 </div>
+                {boFamily.length > 1 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    {boFamily.map((n) => (
+                      <Chip key={n} active={n === boTarget} onClick={() => { setBoLift(n); setBoDraft(null); }}>
+                        {n === sel ? n : `${n} · ${Math.round(ratioOf(n) * 100)}%`}
+                      </Chip>
+                    ))}
+                  </div>
+                )}
+                {boTarget !== sel && (
+                  <div style={{ fontSize: 11, color: C.blue, fontWeight: 700, marginBottom: 10 }}>
+                    Scaled to {Math.round(ratioOf(boTarget) * 100)}% of {sel} · fatigue still chains off your last set
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div style={{ flex: "1 1 96px" }}>
                     <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight</div>
@@ -2038,7 +2081,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
                   </button>
                 )}
                 {(parseFloat(curBo.weight) || boSug) ? <PlateView total={parseFloat(curBo.weight) || boSug} bar={bar} denoms={denoms} unit={unit} /> : null}
-                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log back-off {doneCount + 1}</Btn>
+                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log {boTarget !== sel ? boTarget : `back-off ${doneCount + 1}`}</Btn>
               </div>
             )}
 
@@ -2142,6 +2185,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
     </Card>;
   const cur = sel && state.exercises[sel] ? sel : names[0];
   const [armName, setArmName] = useState(null);
+  const [confirmText, setConfirmText] = useState("");
   const [editing, setEditing] = useState(null);
   const iconBtn = { background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4 };
   const ex = state.exercises[cur];
@@ -2217,12 +2261,26 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
       </Card>
 
       {armName === cur ? (
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn kind="danger" onClick={() => { deleteExercise(cur); setArmName(null); }}><Trash2 size={15} /> Confirm delete</Btn>
-          <Btn kind="ghost" onClick={() => setArmName(null)}>Cancel</Btn>
-        </div>
+        <Card accent={C.red}>
+          <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 6 }}>Delete {cur}?</div>
+          <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.55, marginBottom: 12 }}>
+            This removes {cur} and all {(state.exercises[cur] ? state.exercises[cur].sets.length : 0)} of its logged
+            sets from your training. It moves to Recently deleted in Settings, where you can restore it.
+            Type <b style={{ color: C.text }}>{cur}</b> below to confirm.
+          </div>
+          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={cur}
+            style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line2}`, borderRadius: R.input,
+              padding: "0 13px", height: 46, color: C.text, fontFamily: SANS, fontSize: 15, fontWeight: 600,
+              outline: "none", boxSizing: "border-box" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <Btn kind="danger" disabled={confirmText.trim() !== cur}
+              onClick={() => { deleteExercise(cur); setArmName(null); setConfirmText(""); }}
+              style={{ flex: 1 }}><Trash2 size={15} /> Delete</Btn>
+            <Btn kind="ghost" onClick={() => { setArmName(null); setConfirmText(""); }} style={{ flex: 1 }}>Cancel</Btn>
+          </div>
+        </Card>
       ) : (
-        <Btn kind="danger" onClick={() => setArmName(cur)} style={{ alignSelf: "flex-start" }}>
+        <Btn kind="ghost" onClick={() => { setArmName(cur); setConfirmText(""); }} style={{ alignSelf: "flex-start", color: C.muted }}>
           <Trash2 size={15} /> Delete this lift
         </Btn>
       )}
@@ -2947,6 +3005,14 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
 
 /* ============================== SETTINGS ================================= */
 function SettingsSheet({ open, onClose, settings, setSetting, state, setState }) {
+  const restoreExercise = (name) => setState((s) => {
+    const item = (s.trash || []).find((x) => x.name === name);
+    if (!item) return s;
+    const key = s.exercises[name] ? `${name} (restored)` : name;
+    return { ...s, exercises: { ...s.exercises, [key]: { ...item.ex, name: key } },
+      trash: (s.trash || []).filter((x) => x.name !== name) };
+  });
+  const purgeExercise = (name) => setState((s) => ({ ...s, trash: (s.trash || []).filter((x) => x.name !== name) }));
   const [backup, setBackup] = useState("");
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState("");
@@ -3064,6 +3130,31 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
       </div>
 
       <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 16 }}>
+        <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Recently deleted</div>
+        {(state.trash || []).length === 0 ? (
+          <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 18, lineHeight: 1.5 }}>
+            Nothing deleted. Lifts you remove land here so you can bring them back.
+          </div>
+        ) : (
+          <div style={{ marginBottom: 18 }}>
+            {(state.trash || []).map((x) => (
+              <div key={x.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                gap: 10, padding: "10px 0", borderTop: `1px solid ${C.line}` }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{x.name}</div>
+                  <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
+                    {x.ex && x.ex.sets ? x.ex.sets.length : 0} sets · deleted {dshort(x.ts)}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <Btn kind="solid" onClick={() => restoreExercise(x.name)} style={{ minHeight: 38, padding: "8px 14px", fontSize: 13 }}>Restore</Btn>
+                  <button onClick={() => purgeExercise(x.name)} aria-label="Remove permanently"
+                    style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 6 }}><X size={16} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ ...label, fontSize: 10, marginBottom: 4 }}>Backup</div>
         <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 9, lineHeight: 1.5 }}>
           Your training is saved on this device only. Download a backup file now and then — clearing your browser data would otherwise wipe it.
