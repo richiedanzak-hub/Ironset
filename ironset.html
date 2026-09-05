@@ -6,18 +6,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="IRONSET"/>
-<meta name="theme-color" content="#06070B"/>
+<meta name="theme-color" content="#08090B"/>
 <title>IRONSET</title>
 <style>
-  html, body { margin: 0; background: #06070B; -webkit-text-size-adjust: 100%; }
+  html, body { margin: 0; background: #08090B; -webkit-text-size-adjust: 100%; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   #root { min-height: 100vh; }
-  .boot { color: #5D646F; font-family: system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  .boot { color: #585E68; font-family: system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
   input, button, textarea { font-family: inherit; }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" crossorigin></script>
@@ -536,48 +536,59 @@ function platesShort(total, bar, denoms) {
 }
 
 /* -------------------------------- theme ---------------------------------- */
-// Direction: a strength-sport instrument. Cool powder-coated steel, chalk-white
-// text, one iron-red accent (the 25kg-plate red). Tabular monospace numerals
-// read like a meet scoreboard; heavy tracked caps read athletic.
+// Direction: a precision instrument, not a gym poster. A near-black steel
+// ground, a neutral ramp doing nearly all of the work, and one iron red that
+// marks only the single most important action on any given screen. Hierarchy
+// comes from type and space. There are deliberately no glows, no coloured
+// shadows and no card gradients — those are what make a dark UI read as
+// decoration rather than as something built to be trusted with your numbers.
 const C = {
-  bg: "#06070B", bg2: "#0C0E15", surface: "#12151E", surface2: "#1A1F2B",
-  line: "#212637", line2: "#2E3547",
-  text: "#F3F2ED", chalk: "#F3F2ED", muted: "#99A1B2", faint: "#5D6578",
-  red: "#FF4A3D", redHi: "#FF7A6B", redSoft: "rgba(255,74,61,0.12)", redLine: "rgba(255,74,61,0.42)",
-  blue: "#5B7CFF", amber: "#F7A93B", good: "#3ED88A", goodHi: "#3ED88A", gold: "#F7A93B",
+  bg: "#08090B", bg2: "#0E1013", surface: "#131519", surface2: "#1B1E24", surface3: "#23272E",
+  line: "rgba(255,255,255,0.065)", line2: "rgba(255,255,255,0.12)",
+  text: "#EDEEF0", chalk: "#EDEEF0", muted: "#8A9099", faint: "#585E68",
+  red: "#E8462C", redHi: "#F26A52", redSoft: "rgba(232,70,44,0.10)", redLine: "rgba(232,70,44,0.34)",
+  // semantic colours read as materials rather than alerts — desaturated far
+  // enough that none of them competes with the red or with the numbers
+  good: "#4E9E77", goodHi: "#63BC91", amber: "#BE9350", gold: "#BE9350", blue: "#6C82B8",
 };
-// gradient system — colour carries meaning, dark ground keeps it serious
-const G = {
-  red:   "linear-gradient(135deg, #FF6B54 0%, #D62B1C 100%)",
-  blue:  "linear-gradient(135deg, #7C97FF 0%, #3A4FD8 100%)",
-  amber: "linear-gradient(135deg, #FFC978 0%, #E08A0B 100%)",
-  green: "linear-gradient(135deg, #6BEBAA 0%, #17A362 100%)",
-  card:  "linear-gradient(168deg, #161A25 0%, #0F121A 100%)",
-};
-const R = { ctrl: 12, input: 12, surface: 20, sheet: 26, pill: 999 };
-const ELEV = "0 10px 26px -14px rgba(0,0,0,0.85)";
-const ELEV_HI = "0 18px 42px -16px rgba(0,0,0,0.9)";
-const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+// The only gradient left in the app is on the primary button, and it runs
+// between two stops of the same red so it reads as a lit surface, not a ramp.
+const G = { red: "linear-gradient(180deg, #EE5238 0%, #DA3D24 100%)", blue: C.blue, amber: C.amber, card: C.surface };
+const R = { ctrl: 10, input: 10, surface: 14, sheet: 20, pill: 999 };
+// Shadow lifts something off the page. It is never used to make a thing glow,
+// and it is always black.
+const ELEV = "none";
+const ELEV_HI = "0 24px 64px -28px rgba(0,0,0,0.9)";
+const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-const DISPLAY = "'Oswald', 'Inter', system-ui, sans-serif";
+const DISPLAY = SANS;
 const SKETCH = MONO;
-const label = { textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 700, fontSize: 10.5, color: C.muted, fontFamily: SANS };
+// The app's one typographic signature: every micro-label is set in the mono
+// face, which ties each label to the numerals underneath it and reads like
+// panel lettering instead of the usual wide-tracked sans caps.
+const label = { textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 500, fontSize: 11,
+  color: C.muted, fontFamily: MONO };
+// Modular scale. Nothing in the app should use a size that is not on this list.
+const T = { xs: 11, sm: 12, base: 13, md: 15, lg: 17, xl: 21, xxl: 28, huge: 40, hero: 66 };
 
 /* ----------------------------- UI primitives ----------------------------- */
 function Btn({ children, onClick, kind = "ghost", style, disabled }) {
   const [down, setDown] = useState(false);
-  const base = { fontFamily: SANS, fontWeight: 700, fontSize: 15, borderRadius: R.pill, padding: "14px 20px",
-    border: "1px solid transparent", cursor: disabled ? "default" : "pointer",
-    minHeight: 50, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-    WebkitTapHighlightColor: "transparent", transform: down ? "scale(0.985)" : "scale(1)",
-    filter: down ? "brightness(0.92)" : "none", transition: "transform .09s ease, filter .09s ease" };
+  // A squared-off 12px corner rather than a full pill: at CTA width a pill reads
+  // generic, where a tight radius reads like a control on a machine.
+  const base = { fontFamily: SANS, fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em",
+    borderRadius: 12, padding: "15px 20px", border: "1px solid transparent",
+    cursor: disabled ? "default" : "pointer", minHeight: 52, display: "inline-flex",
+    alignItems: "center", justifyContent: "center", gap: 8, WebkitTapHighlightColor: "transparent",
+    transform: down ? "scale(0.99)" : "scale(1)", filter: down ? "brightness(0.93)" : "none",
+    transition: "transform .13s cubic-bezier(.2,.8,.2,1), filter .13s ease" };
   const kinds = {
     primary: disabled
-      ? { background: "rgba(255,255,255,0.04)", color: C.faint, borderColor: C.line }
-      : { background: G.red, color: "#fff", boxShadow: "0 8px 22px -10px rgba(255,74,61,0.7)" },
-    solid: { background: C.surface2, color: C.text, borderColor: C.line2, opacity: disabled ? 0.45 : 1 },
+      ? { background: C.surface2, color: C.faint }
+      : { background: G.red, color: "#fff" },
+    solid: { background: C.surface2, color: C.text, opacity: disabled ? 0.4 : 1 },
     ghost: { background: "transparent", color: disabled ? C.faint : C.text, borderColor: C.line2 },
-    danger: { background: "transparent", color: C.red, borderColor: C.redLine, opacity: disabled ? 0.45 : 1 },
+    danger: { background: "transparent", color: C.red, borderColor: C.redLine, opacity: disabled ? 0.4 : 1 },
   };
   const press = disabled ? {} : { onPointerDown: () => setDown(true), onPointerUp: () => setDown(false),
     onPointerLeave: () => setDown(false), onPointerCancel: () => setDown(false) };
@@ -586,28 +597,30 @@ function Btn({ children, onClick, kind = "ghost", style, disabled }) {
 function Chip({ active, children, onClick, sm }) {
   return (
     <button onClick={onClick} style={{
-      fontFamily: SANS, fontWeight: 600, fontSize: sm ? 11.5 : 13.5, borderRadius: R.pill,
-      padding: sm ? "6px 11px" : "9px 16px", minHeight: sm ? 28 : 38,
+      // Selected state is chalk-on-black, not red. Red is spent on the one
+      // action that matters per screen; a chosen option is merely chosen.
+      fontFamily: SANS, fontWeight: 500, fontSize: sm ? 12 : 13, borderRadius: R.pill,
+      padding: sm ? "6px 12px" : "9px 16px", minHeight: sm ? 30 : 38,
       cursor: "pointer", whiteSpace: "nowrap", WebkitTapHighlightColor: "transparent",
-      transition: "background .15s ease, color .15s ease, border-color .15s ease",
-      background: active ? G.red : "rgba(255,255,255,0.03)", color: active ? "#fff" : C.muted,
-      border: `1px solid ${active ? "transparent" : C.line}`,
+      transition: "background .14s ease, color .14s ease, border-color .14s ease",
+      background: active ? C.text : "transparent", color: active ? C.bg : C.muted,
+      border: `1px solid ${active ? "transparent" : C.line2}`,
       boxShadow: "none",
     }}>{children}</button>
   );
 }
 function Segmented({ value, onChange, options }) {
   return (
-    <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
+    <div style={{ display: "inline-flex", background: C.bg2, border: `1px solid ${C.line}`,
       borderRadius: R.pill, padding: 3 }}>
       {options.map((o) => {
         const a = o.value === value;
         return (
           <button key={o.value} onClick={() => onChange(o.value)} style={{
-            fontFamily: SANS, fontWeight: 600, fontSize: 13, padding: "8px 16px", borderRadius: R.pill,
+            fontFamily: SANS, fontWeight: 500, fontSize: 13, padding: "8px 16px", borderRadius: R.pill,
             cursor: "pointer", border: "none", minHeight: 36, WebkitTapHighlightColor: "transparent",
-            transition: "background .15s ease, color .15s ease",
-            background: a ? C.surface2 : "transparent", color: a ? C.text : C.muted,
+            transition: "background .14s ease, color .14s ease",
+            background: a ? C.surface3 : "transparent", color: a ? C.text : C.muted,
           }}>{o.label}</button>
         );
       })}
@@ -616,16 +629,16 @@ function Segmented({ value, onChange, options }) {
 }
 function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, suffix, compact }) {
   const set = (v) => onChange(Math.min(max, Math.max(min, Math.round(v / step) * step)));
-  const btn = { width: compact ? 30 : 36, height: compact ? 32 : 40, borderRadius: R.pill, border: `1px solid ${C.line}`,
-    background: "rgba(255,255,255,0.03)", color: C.muted, fontSize: compact ? 16 : 19, fontWeight: 500,
-    cursor: "pointer", lineHeight: 1, WebkitTapHighlightColor: "transparent" };
+  const btn = { width: compact ? 30 : 38, height: compact ? 30 : 38, borderRadius: R.pill, border: "none",
+    background: C.surface2, color: C.muted, fontSize: compact ? 15 : 18, fontWeight: 400,
+    cursor: "pointer", lineHeight: 1, WebkitTapHighlightColor: "transparent",
+    display: "grid", placeItems: "center" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: compact ? 5 : 7 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: compact ? 6 : 8 }}>
       <button style={btn} onClick={() => set(value - step)}>−</button>
-      <div style={{ fontFamily: MONO, fontSize: compact ? 18 : 27, fontWeight: 700, minWidth: compact ? 26 : 58, textAlign: "center",
-        color: C.text, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.035em",
-        textShadow: "0 0 26px rgba(255,255,255,0.14)" }}>
-        {fmt(value)}{suffix ? <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 1, fontWeight: 600 }}>{suffix}</span> : null}
+      <div style={{ fontFamily: MONO, fontSize: compact ? 17 : 22, fontWeight: 500, minWidth: compact ? 26 : 46, textAlign: "center",
+        color: C.text, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
+        {fmt(value)}{suffix ? <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 2, fontWeight: 500 }}>{suffix}</span> : null}
       </div>
       <button style={btn} onClick={() => set(value + step)}>+</button>
     </div>
@@ -633,49 +646,41 @@ function Stepper({ value, onChange, step = 1, min = -Infinity, max = Infinity, s
 }
 function NumField({ value, onChange, suffix }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
-      borderRadius: R.input, padding: "0 13px", height: 48,
-      backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), transparent 60%)" }}>
+    <div style={{ display: "flex", alignItems: "center", background: C.bg2, border: `1px solid ${C.line}`,
+      borderRadius: R.input, padding: "0 14px", height: 48 }}>
       <input value={value} onChange={(e) => onChange(e.target.value)} inputMode="decimal" type="number"
         style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: C.text,
-          fontFamily: MONO, fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} />
-      {suffix ? <span style={{ color: C.faint, fontSize: 12.5, fontWeight: 600, marginLeft: 6, fontFamily: SANS }}>{suffix}</span> : null}
+          fontFamily: MONO, fontSize: 18, fontWeight: 500, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }} />
+      {suffix ? <span style={{ color: C.faint, fontSize: 12, fontWeight: 500, marginLeft: 6, fontFamily: SANS }}>{suffix}</span> : null}
     </div>
   );
 }
 function DateField({ value, onChange }) {
   return (
     <input type="date" value={value} max={todayStr()} onChange={(e) => onChange(e.target.value || todayStr())}
-      style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`, borderRadius: R.input,
-        padding: "0 13px", height: 48, color: C.text, fontFamily: MONO, fontSize: 15.5, fontWeight: 700,
-        backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), transparent 60%)",
+      style={{ width: "100%", background: C.bg2, border: `1px solid ${C.line}`, borderRadius: R.input,
+        padding: "0 14px", height: 48, color: C.text, fontFamily: MONO, fontSize: 15, fontWeight: 500,
         outline: "none", colorScheme: "dark" }} />
   );
 }
+// Every card is the same flat surface. Identity comes from what is written on
+// it, not from a coloured edge — `accent` and `glow` are still accepted so call
+// sites read the same, and are deliberately ignored.
 function Card({ children, style, glow, accent, onClick }) {
-  const A = accent || null;
-  return <div onClick={onClick} style={{ cursor: onClick ? "pointer" : undefined, background: G.card, border: `1px solid ${C.line}`, borderRadius: R.surface,
-    padding: 17, boxShadow: ELEV, position: "relative", overflow: "hidden", ...style }}>
-    {A && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, pointerEvents: "none",
-      background: `linear-gradient(90deg, transparent 4%, ${A}, transparent 96%)`, opacity: 0.8 }} />}
-    {((glow && glow !== "none") || (A && !glow)) && <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-      background: glow && glow !== "none" ? glow : `radial-gradient(135% 95% at 10% -14%, ${A}22, transparent 68%)` }} />}
-    <div style={{ position: "relative" }}>{children}</div>
-  </div>;
+  return <div onClick={onClick} style={{ cursor: onClick ? "pointer" : undefined,
+    background: C.surface, border: `1px solid ${C.line}`, borderRadius: R.surface,
+    padding: 18, position: "relative", overflow: "hidden", ...style }}>{children}</div>;
 }
-// section marker — a tinted bar instead of another bare label
+// A label and nothing else. The coloured bar that used to sit here was the
+// single most repeated piece of decoration in the app.
 function SectionHead({ children, accent, right, sub }) {
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-          <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || C.red,
-            boxShadow: `0 0 10px ${accent || C.red}88` }} />
-          <span style={label}>{children}</span>
-        </span>
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <span style={label}>{children}</span>
         {right}
       </div>
-      {sub && <div style={{ fontSize: 12, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>{sub}</div>}
     </div>
   );
 }
@@ -694,22 +699,22 @@ function Spark({ points, color, w = 96, h = 34 }) {
   return (
     <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
       <defs><linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+        <stop offset="0%" stopColor={color} stopOpacity="0.16" />
         <stop offset="100%" stopColor={color} stopOpacity="0" />
       </linearGradient></defs>
       <path d={`${d} L${w} ${h} L0 ${h} Z`} fill={`url(#${uid})`} />
-      <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={d} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 // legend / filter pill
 function Tag({ color, children, onClick, active }) {
   return (
-    <span onClick={onClick} style={{ display: "inline-flex", alignItems: "center", gap: 6,
-      background: active ? C.surface2 : "rgba(255,255,255,0.03)", border: `1px solid ${active ? C.line2 : C.line}`,
-      borderRadius: R.pill, padding: "6px 12px", fontSize: 12, fontWeight: 600, fontFamily: SANS,
+    <span onClick={onClick} style={{ display: "inline-flex", alignItems: "center", gap: 7,
+      background: active ? C.surface2 : "transparent", border: `1px solid ${active ? "transparent" : C.line}`,
+      borderRadius: R.pill, padding: "6px 12px", fontSize: 12, fontWeight: 500, fontFamily: SANS,
       color: active ? C.text : C.muted, cursor: onClick ? "pointer" : "default", whiteSpace: "nowrap" }}>
-      {color && <span style={{ width: 7, height: 7, borderRadius: 99, background: color }} />}
+      {color && <span style={{ width: 6, height: 6, borderRadius: 99, background: color }} />}
       {children}
     </span>
   );
@@ -717,15 +722,15 @@ function Tag({ color, children, onClick, active }) {
 function Sheet({ open, onClose, title, children }) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 50,
-      display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.66)", zIndex: 50,
+      display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480,
-        background: C.bg2, borderTop: `1px solid ${C.line2}`,
-        borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, padding: 18, maxHeight: "85vh", overflowY: "auto",
-        boxShadow: "0 -20px 50px -20px rgba(0,0,0,0.8)" }}>
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.line2, margin: "-4px auto 14px" }} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ ...label, fontSize: 13, fontFamily: DISPLAY, letterSpacing: "0.08em", fontWeight: 800 }}>{title}</span>
+        background: C.bg2, borderTop: `1px solid ${C.line}`,
+        borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, padding: 20, maxHeight: "85vh", overflowY: "auto",
+        boxShadow: ELEV_HI }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: C.line2, margin: "-6px auto 16px" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <span style={label}>{title}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer" }}><X size={22} /></button>
         </div>
         {children}
@@ -760,7 +765,7 @@ function smoothPath(pts) {
   }
   return d;
 }
-function LineChart({ data, color = C.red, height = 176, unit = "" }) {
+function LineChart({ data, color = C.text, height = 176, unit = "" }) {
   const uid = useMemo(() => "c" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0)
     return <div style={{ color: C.faint, fontSize: 13, padding: "36px 4px", textAlign: "center" }}>No data yet — log a set to start your trend.</div>;
@@ -790,13 +795,12 @@ function LineChart({ data, color = C.red, height = 176, unit = "" }) {
     <svg viewBox={"0 0 " + W + " " + H} style={{ width: "100%", height: "auto", display: "block" }}>
       <defs>
         <linearGradient id={uid + "a"} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.32" />
-          <stop offset="55%" stopColor={color} stopOpacity="0.10" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.10" />
+          <stop offset="60%" stopColor={color} stopOpacity="0.03" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
         <linearGradient id={uid + "l"} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#6D7885" />
-          <stop offset="60%" stopColor="#B4553F" />
+          <stop offset="0%" stopColor={C.faint} />
           <stop offset="100%" stopColor={color} />
         </linearGradient>
       </defs>
@@ -809,18 +813,16 @@ function LineChart({ data, color = C.red, height = 176, unit = "" }) {
       ))}
       {showBest && (
         <g>
-          <line x1={gutter} x2={W - padR} y1={py(hi)} y2={py(hi)} stroke={C.good} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-          <text x={W - padR} y={py(hi) - 5} fill={C.good} fontSize="8" fontFamily={SANS} fontWeight="700" textAnchor="end" opacity="0.75">PEAK {fmt(Math.round(hi))}</text>
+          <line x1={gutter} x2={W - padR} y1={py(hi)} y2={py(hi)} stroke={C.line2} strokeWidth="1" strokeDasharray="3 3" />
+          <text x={W - padR} y={py(hi) - 5} fill={C.faint} fontSize="8.5" fontFamily={MONO} letterSpacing="0.08em" textAnchor="end">PEAK {fmt(Math.round(hi))}</text>
         </g>
       )}
       {pts.length > 1 && <path d={area} fill={"url(#" + uid + "a)"} />}
-      {pts.length > 1 && <path d={line} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" opacity="0.12" />}
-      {pts.length > 1 && <path d={line} fill="none" stroke={"url(#" + uid + "l)"} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
-      <line x1={last[0]} x2={last[0]} y1={last[1]} y2={H - padB} stroke={color} strokeWidth="1" strokeDasharray="2 3" opacity="0.35" />
-      <circle cx={last[0]} cy={last[1]} r="7" fill={color} opacity="0.2" />
-      <circle cx={last[0]} cy={last[1]} r="3.6" fill={color} stroke="#0C0D10" strokeWidth="1.6" />
-      <rect x={labX} y={labY - 12} width={labW} height="17" rx="5" fill="#20242C" stroke={C.line2} strokeWidth="1" />
-      <text x={labX + labW / 2} y={labY} fill={C.text} fontSize="10" fontWeight="700" fontFamily={MONO} textAnchor="middle">
+      {pts.length > 1 && <path d={line} fill="none" stroke={"url(#" + uid + "l)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />}
+      <line x1={last[0]} x2={last[0]} y1={last[1]} y2={H - padB} stroke={C.line2} strokeWidth="1" strokeDasharray="2 3" />
+      <circle cx={last[0]} cy={last[1]} r="3" fill={color} stroke={C.bg} strokeWidth="1.6" />
+      <rect x={labX} y={labY - 12} width={labW} height="17" rx="5" fill={C.surface2} stroke={C.line} strokeWidth="1" />
+      <text x={labX + labW / 2} y={labY} fill={C.text} fontSize="10" fontWeight="500" fontFamily={MONO} textAnchor="middle">
         {fmt(Math.round(lastVal))}{unit}
       </text>
       <line x1={gutter} x2={W - padR} y1={H - padB} y2={H - padB} stroke={C.line2} strokeWidth="1" />
@@ -1007,27 +1009,32 @@ function App() {
   ];
 
   return (
-    <div style={{ background: `radial-gradient(680px 440px at 4% -6%, rgba(91,124,255,0.20), transparent 62%), radial-gradient(560px 380px at 106% 3%, rgba(255,74,61,0.15), transparent 60%), ${C.bg}`, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 120px" }}>
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: SANS }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 0 118px" }}>
         {/* header */}
-        <div style={{ padding: "calc(16px + env(safe-area-inset-top, 0px)) 18px 4px" }}>
+        <div style={{ padding: "calc(20px + env(safe-area-inset-top, 0px)) 20px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 21, letterSpacing: "0.07em", lineHeight: 1 }}>
-              IRON<span style={{ color: C.red }}>SET</span>
+            {/* The wordmark stays small and grey. Someone who opened the app knows
+                what it is; the screen they are on is the more useful headline. The
+                red square is the only brand mark that needs to shout. */}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 1.5, background: C.red }} />
+              <span style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: "0.24em",
+                color: C.muted, lineHeight: 1 }}>IRONSET</span>
             </span>
-            <button onClick={() => setShowSettings(true)} style={{ background: C.surface2, border: `1px solid ${C.line2}`,
-              width: 38, height: 38, borderRadius: R.pill, color: C.muted, cursor: "pointer", display: "grid",
-              placeItems: "center", WebkitTapHighlightColor: "transparent" }}>
-              <Settings size={17} />
+            <button onClick={() => setShowSettings(true)} style={{ background: "transparent", border: "none",
+              width: 36, height: 36, borderRadius: R.pill, color: C.faint, cursor: "pointer", display: "grid",
+              placeItems: "center", WebkitTapHighlightColor: "transparent", marginRight: -8 }}>
+              <Settings size={18} />
             </button>
           </div>
-          <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 33, letterSpacing: "-0.035em",
-            marginTop: 15, lineHeight: 1, color: C.text }}>
+          <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 30, letterSpacing: "-0.038em",
+            marginTop: 20, lineHeight: 1, color: C.text }}>
             {(tabs.find((x) => x.id === tab) || {}).label}
           </div>
         </div>
 
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: "22px 20px 0" }}>
           {tab === "dash" && (
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
@@ -1045,19 +1052,19 @@ function App() {
 
       {/* floating tab bar */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 30, display: "flex",
-        justifyContent: "center", padding: "0 12px calc(12px + env(safe-area-inset-bottom, 0px))", pointerEvents: "none" }}>
-        <div style={{ display: "flex", gap: 2, background: "rgba(14,17,25,0.92)", backdropFilter: "blur(22px)",
-          WebkitBackdropFilter: "blur(22px)", border: `1px solid ${C.line2}`, borderRadius: R.pill, padding: 6,
-          pointerEvents: "auto", boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
+        justifyContent: "center", padding: "0 16px calc(14px + env(safe-area-inset-bottom, 0px))", pointerEvents: "none" }}>
+        <div style={{ display: "flex", gap: 2, background: "rgba(19,21,25,0.80)", backdropFilter: "blur(24px) saturate(140%)",
+          WebkitBackdropFilter: "blur(24px) saturate(140%)", border: `1px solid ${C.line}`, borderRadius: R.pill, padding: 5,
+          pointerEvents: "auto", boxShadow: "0 16px 44px -22px rgba(0,0,0,0.95)" }}>
           {tabs.map((t) => {
             const a = t.id === tab; const I = t.icon;
             return (
               <button key={t.id} onClick={() => setTab(t.id)} style={{ display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 3, padding: "8px 15px", borderRadius: R.pill, border: "none",
-                background: a ? C.surface2 : "transparent", cursor: "pointer",
-                WebkitTapHighlightColor: "transparent", transition: "background .16s ease" }}>
-                <I size={18} style={{ color: a ? C.red : C.faint }} />
-                <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 700, letterSpacing: "0.01em",
+                alignItems: "center", gap: 4, padding: "8px 16px", borderRadius: R.pill, border: "none",
+                background: a ? C.surface3 : "transparent", cursor: "pointer",
+                WebkitTapHighlightColor: "transparent", transition: "background .18s ease" }}>
+                <I size={17} style={{ color: a ? C.text : C.faint }} />
+                <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 500, letterSpacing: "0.005em",
                   color: a ? C.text : C.faint }}>{t.label}</span>
               </button>
             );
@@ -1189,16 +1196,11 @@ function Onboarding({ onDone, unit }) {
     return n;
   });
   const opt = (title, desc, onClick, accent) => (
-    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: G.card,
-      border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "17px 18px", cursor: "pointer",
-      color: C.text, marginBottom: 12, position: "relative", overflow: "hidden", boxShadow: ELEV,
-      WebkitTapHighlightColor: "transparent" }}>
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-        background: `radial-gradient(120% 100% at 0% 0%, ${accent || C.red}22, transparent 66%)` }} />
-      <div style={{ position: "relative" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em" }}>{title}</div>
-        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.55 }}>{desc}</div>
-      </div>
+    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: C.surface,
+      border: `1px solid ${C.line}`, borderRadius: R.surface, padding: "18px 20px", cursor: "pointer",
+      color: C.text, marginBottom: 12, WebkitTapHighlightColor: "transparent" }}>
+      <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.02em" }}>{title}</div>
+      <div style={{ fontSize: 13, color: C.muted, marginTop: 6, lineHeight: 1.55 }}>{desc}</div>
     </button>
   );
   const goSeed = (patch) => { setChosen(patch); setStep("seed"); };
@@ -1219,10 +1221,13 @@ function Onboarding({ onDone, unit }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: C.bg, display: "flex", flexDirection: "column",
       justifyContent: step === "seed" ? "flex-start" : "center", padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", overflowY: "auto",
-      backgroundImage: `radial-gradient(680px 420px at 6% -4%, rgba(91,124,255,0.22), transparent 62%), radial-gradient(560px 380px at 104% 2%, rgba(255,74,61,0.18), transparent 60%)` }}>
+      }}>
       <div style={{ maxWidth: 460, margin: "0 auto", width: "100%" }}>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 40, letterSpacing: "0.1em", textAlign: "center",
-          textShadow: `0 0 44px ${C.red}55` }}>IRON<span style={{ color: C.red }}>SET</span></div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: C.red }} />
+          <span style={{ fontFamily: MONO, fontWeight: 500, fontSize: 15, letterSpacing: "0.32em",
+            color: C.text, paddingLeft: 2 }}>IRONSET</span>
+        </div>
         {step === "style" ? (
           <>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 13.5, margin: "8px 0 22px", lineHeight: 1.5 }}>How do you train? You can switch anytime in settings.</div>
@@ -1238,14 +1243,14 @@ function Onboarding({ onDone, unit }) {
           </>
         ) : (
           <>
-            <div style={{ textAlign: "center", fontWeight: 800, fontSize: 15, marginTop: 14 }}>Head start <span style={{ color: C.faint, fontWeight: 600 }}>(entirely optional)</span></div>
+            <div style={{ textAlign: "center", fontWeight: 600, fontSize: 15, marginTop: 14 }}>Head start <span style={{ color: C.faint, fontWeight: 600 }}>(entirely optional)</span></div>
             <div style={{ textAlign: "center", color: C.muted, fontSize: 12.5, margin: "6px 0 14px", lineHeight: 1.5 }}>Logging a recent hard set or two gets your estimates and load suggestions working from minute one. Tap a lift to log against it — as many or as few sets as you want. Variations and any other lifts can be added later.</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", marginBottom: 14 }}>
               {LIFTS.map((name) => <Chip key={name} active={!!seeds[name]} onClick={() => toggleLift(name)}>{name}</Chip>)}
             </div>
             {Object.keys(seeds).map((name) => (
               <div key={name} style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "11px 12px", marginBottom: 10 }}>
-                <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>{name}</div>
                 {seeds[name].map((r, i) => (
                   <div key={i} style={{ marginBottom: 10, paddingBottom: i < seeds[name].length - 1 ? 10 : 0, borderBottom: i < seeds[name].length - 1 ? `1px solid ${C.line}` : "none" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -1269,7 +1274,7 @@ function Onboarding({ onDone, unit }) {
                     </div>
                   </div>
                 ))}
-                <button onClick={() => addRow(name)} style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12, cursor: "pointer", padding: 0 }}>+ Add another set</button>
+                <button onClick={() => addRow(name)} style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 12, cursor: "pointer", padding: 0 }}>+ Add another set</button>
               </div>
             ))}
             <Btn kind="primary" onClick={() => finish(true)} style={{ width: "100%", marginTop: 4 }}>{anySeed ? "Calibrate & start" : "Continue"}</Btn>
@@ -1284,19 +1289,19 @@ function Onboarding({ onDone, unit }) {
 function FeatureTour({ onDone }) {
   const row = (Icon, title, desc) => (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
-      <div style={{ background: G.red, borderRadius: 13, padding: 9, display: "flex", flexShrink: 0,
-        boxShadow: `0 6px 16px -8px ${C.redLine}` }}><Icon size={16} style={{ color: "#fff" }} /></div>
+      <div style={{ background: C.surface2, borderRadius: 10, padding: 9, display: "flex", flexShrink: 0 }}>
+        <Icon size={16} style={{ color: C.muted }} /></div>
       <div>
-        <div style={{ fontWeight: 800, fontSize: 13.5 }}>{title}</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+        <div style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.015em" }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{desc}</div>
       </div>
     </div>
   );
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,11,13,0.72)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.line2}`, borderRadius: "12px 12px 0 0", padding: "22px 20px calc(24px + env(safe-area-inset-bottom, 0px))", maxWidth: 520, width: "100%" }}>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 25, letterSpacing: "0.1em", textTransform: "uppercase" }}>Quick tour</div>
-        <div style={{ fontSize: 12, color: C.faint, margin: "3px 0 16px" }}>Thirty seconds, then it's all yours.</div>
+      <div style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, padding: "24px 20px calc(24px + env(safe-area-inset-bottom, 0px))", maxWidth: 520, width: "100%" }}>
+        <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 24, letterSpacing: "-0.035em" }}>Quick tour</div>
+        <div style={{ fontSize: 13, color: C.faint, margin: "6px 0 20px" }}>Thirty seconds, then it's all yours.</div>
         {row(Activity, "Train", "Dial in your target set and it suggests the load. Log what you actually hit — every set teaches it your real strength.")}
         {row(Check, "Back-offs", "Auto-adjust off how hard your last set actually was. Grind the top set and the next loads drop to match.")}
         {row(Plus, "Variations", "Link variations to their main lift — paused bench under Bench, deficit pulls under Deadlift. They feed one strength model, so a PR on a variation sharpens the main lift's estimate too.")}
@@ -1477,10 +1482,10 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
     ? Math.round(toKg(analysis.total, unit) * dotsCoeff(bwKg, (state.settings && state.settings.sex) || "male")) : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <Card accent={sc} glow={`radial-gradient(130% 95% at 10% -12%, ${sc}24, transparent 66%)`} style={{ padding: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <span style={{ ...label, fontSize: 9.5 }}>Readiness · Today</span>
+          <span style={label}>Readiness · Today</span>
           <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
             <button aria-label="Share readiness" onClick={() => doShare(setShare, { type: "stat", label: "Readiness",
               value: String(score), unit: "/100",
@@ -1495,26 +1500,26 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             </button>
           </span>
         </div>
-        <div onClick={() => setWhy(true)} style={{ display: "flex", alignItems: "center", gap: 15, marginTop: 9, cursor: "pointer" }}>
+        <div onClick={() => setWhy(true)} style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12, cursor: "pointer" }}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
-            <span style={{ fontFamily: MONO, fontSize: 52, fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.05em",
-              color: C.text, textShadow: `0 0 40px ${sc}66` }}>{score}</span>
-            <span style={{ fontFamily: MONO, fontSize: 16, color: C.faint, fontWeight: 600, marginBottom: 4 }}>/100</span>
+            <span style={{ fontFamily: SANS, fontSize: 50, fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums",
+              color: C.text }}>{score}</span>
+            <span style={{ fontFamily: MONO, fontSize: 14, color: C.faint, fontWeight: 500, marginBottom: 5 }}>/100</span>
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16, color: sc, letterSpacing: "-0.01em" }}>{status}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.45 }}>{note}</div>
+            <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: C.text, letterSpacing: "-0.02em" }}>{status}</div>
+            <div style={{ fontSize: 13, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{note}</div>
           </div>
         </div>
         {fresh.length > 0 && (
-          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 11 }}>
             {fresh.map((r) => (
               <div key={r.name}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.11em" }}>{r.name}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 11.5, color: freshColor(r.pct), fontWeight: 700 }}>{r.pct}</span>
+                  <span style={{ ...label, fontSize: 10, color: C.faint }}>{r.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: C.muted, fontWeight: 500 }}>{r.pct}</span>
                 </div>
-                <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,0.055)", overflow: "hidden" }}>
                   <div style={{ width: `${Math.max(5, Math.min(100, r.pct))}%`, height: "100%",
                     borderRadius: 2, background: freshColor(r.pct), transition: "width .3s ease" }} />
                 </div>
@@ -1525,9 +1530,9 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       </Card>
 
       <Grid2>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.blue}22, transparent 70%)`} onClick={() => setShowTotal(true)}>
+        <Card onClick={() => setShowTotal(true)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <span style={{ ...label, fontSize: 9 }}>Projected total</span>
+            <span style={{ ...label, fontSize: 10 }}>Projected total</span>
             {analysis.total != null && (
               <button aria-label="Share total" onClick={() => doShare(setShare, { type: "stat", label: "Projected total",
                 value: fmt(Math.round(analysis.total)), unit,
@@ -1539,23 +1544,24 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
               </button>
             )}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
+          <div style={{ fontFamily: SANS, fontSize: 28, fontWeight: 700, marginTop: 10, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>
             {analysis.total != null ? fmt(Math.round(analysis.total)) : "—"}
             <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
           </div>
           {analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 && (
-            <div style={{ fontSize: 11.5, marginTop: 5, fontWeight: 700, color: analysis.totalDelta > 0 ? C.good : C.red }}>
-              {analysis.totalDelta > 0 ? "▲" : "▼"} {fmt(Math.abs(Math.round(analysis.totalDelta)))} in 30 days
+            <div style={{ fontSize: 12, marginTop: 7, fontWeight: 500, fontFamily: MONO,
+              color: analysis.totalDelta > 0 ? C.muted : C.redHi }}>
+              {analysis.totalDelta > 0 ? "+" : "−"}{fmt(Math.abs(Math.round(analysis.totalDelta)))} · 30d
             </div>
           )}
         </Card>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`} onClick={() => setShowLoad(true)}>
-          <span style={{ ...label, fontSize: 9 }}>7-day load</span>
-          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
+        <Card onClick={() => setShowLoad(true)}>
+          <span style={{ ...label, fontSize: 10 }}>7-day load</span>
+          <div style={{ fontFamily: SANS, fontSize: 28, fontWeight: 700, marginTop: 10, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>
             {week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage)}
             <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
           </div>
-          <div style={{ fontSize: 11.5, marginTop: 5, color: C.faint, fontWeight: 600 }}>
+          <div style={{ fontSize: 12, marginTop: 7, color: C.faint, fontWeight: 500, fontFamily: MONO }}>
             {week.sets} set{week.sets === 1 ? "" : "s"} · {week.days} day{week.days === 1 ? "" : "s"}
           </div>
         </Card>
@@ -1569,20 +1575,19 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
             style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, display: "flex" }}>
             <Share size={14} /></button>}>Estimated maxes</SectionHead>
-          <div style={{ display: "flex", gap: 9, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", padding: "0 2px 4px" }}>
+          <div style={{ display: "flex", gap: 10, overflowX: "auto", margin: "0 -2px", padding: "0 2px 4px" }}>
             {liftCards.map((L) => (
-              <Card key={L.name} accent={C.blue} onClick={() => { setSel(L.name); setTab("history"); }}
-                style={{ padding: 13, flex: "0 0 auto", minWidth: 118 }}>
-                <div style={{ fontFamily: MONO, fontSize: 23, fontWeight: 700, letterSpacing: "-0.04em",
-                  textShadow: `0 0 30px ${C.blue}55` }}>
+              <Card key={L.name} onClick={() => { setSel(L.name); setTab("history"); }}
+                style={{ padding: 14, flex: "0 0 auto", minWidth: 124 }}>
+                <div style={{ fontFamily: SANS, fontSize: 22, fontWeight: 700, letterSpacing: "-0.04em",
+                  fontVariantNumeric: "tabular-nums" }}>
                   {fmt(Math.round(L.e1rm))}
                   <span style={{ fontFamily: SANS, fontSize: 11, color: C.faint, marginLeft: 3, fontWeight: 600 }}>{unit}</span>
                 </div>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.1em", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden",
-                  textOverflow: "ellipsis", maxWidth: 108 }}>{L.name}</div>
-                <div style={{ marginTop: 9, marginLeft: -13, marginRight: -13, marginBottom: -13 }}>
-                  <Spark points={L.points} color={C.blue} h={30} />
+                <div style={{ ...label, fontSize: 10, color: C.faint, marginTop: 6, whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis", maxWidth: 108 }}>{L.name}</div>
+                <div style={{ marginTop: 12, marginLeft: -14, marginRight: -14, marginBottom: -14 }}>
+                  <Spark points={L.points} color={C.muted} h={28} />
                 </div>
               </Card>
             ))}
@@ -1593,7 +1598,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
       <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
 
-      <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%" }}>Start training →</Btn>
+      <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%", marginTop: 4 }}>Start training</Btn>
       <ReadinessSheet open={why} onClose={() => setWhy(false)} rows={fresh} />
       <TotalSheet open={showTotal} onClose={() => setShowTotal(false)} parts={analysis.parts} models={models} total={analysis.total} unit={unit} />
       <LoadSheet open={showLoad} onClose={() => setShowLoad(false)} state={state} unit={unit} />
@@ -1621,6 +1626,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
   const [fromRec, setFromRec] = useState(false);
   const [note, setNote] = useState("");
   const [showPlates, setShowPlates] = useState(false);
+  const [showDate, setShowDate] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
   const [logDate, setLogDate] = useState(todayStr());
@@ -1819,28 +1825,28 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       {adding && <Card style={{ padding: 12 }}><AddRow {...{ newName, setNewName, mains, addExercise: (n, p) => { addExercise(n, p); setAdding(false); } }} /></Card>}
       {sel && (
         <button onClick={() => setLinking(true)} style={{ alignSelf: "flex-start", background: "none", border: "none",
-          color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 6, marginTop: -4 }}>
-          <span style={{ color: C.red, fontSize: 14 }}>↔</span>
+          color: C.faint, fontFamily: MONO, fontSize: 11.5, fontWeight: 400, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 7, marginTop: -2 }}>
+          <span style={{ color: C.faint, fontSize: 14 }}>↔</span>
           {parentName ? `Feeds ${parentName} · ${ratioPct}%` : childNames.length ? `Includes ${childNames.join(", ")}` : "Link as a variation"}
         </button>
       )}
 
       {meetDays != null && meetDays >= 0 && (
-        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "9px 12px",
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 13px",
           fontSize: 12.5, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <b style={{ color: C.red }}>{meetName || "Meet"}</b>
-          <span style={{ fontFamily: MONO, fontWeight: 700 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
+          <b style={{ color: C.text, fontWeight: 600 }}>{meetName || "Meet"}</b>
+          <span style={{ fontFamily: MONO, fontWeight: 500, color: C.muted, fontSize: 12 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
         </div>
       )}
 
       {/* strength readout */}
-      <Card accent={C.blue}>
+      <Card style={{ padding: "15px 18px" }}>
         {locked ? (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={label}>Training max{sel ? ` · ${sel}` : ""}</div>
               {!editTmax && <button onClick={() => { setTmaxInput(ref != null ? String(ref) : ""); setEditTmax(true); }}
-                style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>Edit</button>}
+                style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 12.5, cursor: "pointer" }}>Edit</button>}
             </div>
             {editTmax ? (
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
@@ -1859,18 +1865,17 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             )}
           </div>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ ...label, fontSize: 9.5 }}>Estimated 1RM</div>
-              <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, color: C.text, lineHeight: 1.05,
-                marginTop: 5, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums",
-                textShadow: `0 0 34px ${C.blue}55` }}>
-                {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontFamily: SANS, fontSize: 13, color: C.faint, marginLeft: 5, fontWeight: 600 }}>{unit}</span>
-              </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <span style={label}>Estimated 1RM</span>
+              <span style={{ fontFamily: SANS, fontSize: 24, fontWeight: 700, color: C.text, lineHeight: 1,
+                letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
+                {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 500 }}>{unit}</span>
+              </span>
             </div>
-            <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
+            <div style={{ fontFamily: MONO, fontSize: 11, color: C.faint, marginTop: 9 }}>
               {model.count > 0
-                ? <>from {model.count} set{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
+                ? `from ${model.count} set${model.count > 1 ? "s" : ""} · updated ${dshort(model.points[model.points.length - 1].ts)}`
                 : "not calibrated"}
             </div>
           </div>
@@ -1878,16 +1883,14 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
       </Card>
 
       {/* TOP SET widget — prescribe, see the load, log it, all in one */}
-      <Card accent={C.amber} style={{ padding: "14px 15px" }}>
+      {todayPlan.length ? (
+      <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
-            <span style={{ ...label, fontSize: 9.5 }}>Today's plan</span>
-          </span>
-          <button onClick={onEditPlan} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{todayPlan.length ? "Edit" : "Set up"}</button>
+          <span style={label}>Today's plan</span>
+          <button onClick={onEditPlan} style={{ background: "none", border: "none", color: C.text,
+            fontWeight: 500, fontSize: 12, cursor: "pointer", padding: 0 }}>Edit</button>
         </div>
-        {todayPlan.length ? (
+        {true ? (
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
             {todayPlan.map((it, i) => {
               const on = it.name === sel && it.reps === tReps && (inputMode === "rir" ? 10 - it.rpe : it.rpe) === tInt;
@@ -1898,22 +1901,24 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
               );
             })}
           </div>
-        ) : (
-          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
-            No lifts planned for today. Set a weekly plan and Train opens ready to go.
-          </div>
-        )}
+        ) : null}
       </Card>
+      ) : (
+        <button onClick={onEditPlan} style={{ alignSelf: "flex-start", background: "none", border: "none",
+          padding: 0, color: C.faint, fontFamily: MONO, fontSize: 12, cursor: "pointer", letterSpacing: "0.02em" }}>
+          No plan today · set one up
+        </button>
+      )}
 
       <Card accent={C.red} glow="none">
         <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Reps</div>
             <Stepper value={tReps} onChange={setTReps} min={1} max={20} />
           </div>
           <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
             {percentMode
               ? <Stepper value={topPct} onChange={setTopPct} step={2.5} min={30} max={105} suffix="%" />
               : <Stepper value={tInt} onChange={setTInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
@@ -1924,71 +1929,79 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             ? [70, 75, 80, 85, 90].map((v) => <Chip key={v} active={topPct === v} onClick={() => setTopPct(v)}>{v}%</Chip>)
             : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10]).map((v) => <Chip key={v} active={tInt === v} onClick={() => setTInt(v)}>{inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}</Chip>)}
         </div>
-      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
+      <div style={{ height: 1, background: C.line, margin: "20px -18px" }} />
 
       {/* recommendation */}
-      <div style={{ textAlign: "center", margin: "0 -17px", padding: "20px 17px 6px",
-        background: "linear-gradient(180deg, rgba(255,74,61,0.09), rgba(255,74,61,0.02) 55%, transparent)" }}>
-        <div style={{ ...label, fontSize: 9.5 }}>Recommended load</div>
+      <div style={{ textAlign: "center", margin: "0 -18px", padding: "24px 18px 8px",
+        background: "transparent" }}>
+        <div style={label}>Recommended load</div>
         {recR != null ? (
           <>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 10,
+            {/* The number is the product. Nothing sits on top of it, behind it or
+                around it — no glow, no rule, no tint. Just size and air. */}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 9, marginTop: 16,
               whiteSpace: "nowrap" }}>
-              <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
-                letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
-                textShadow: `0 0 46px ${C.red}55`, transition: "color .2s" }}>{fmt(recR)}</span>
-              <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
+              <span style={{ fontFamily: SANS, fontSize: 66, fontWeight: 700, lineHeight: 0.88, color: C.text,
+                letterSpacing: "-0.055em", fontVariantNumeric: "tabular-nums" }}>{fmt(recR)}</span>
+              <span style={{ fontFamily: SANS, fontSize: 17, color: C.faint, fontWeight: 500 }}>{unit}</span>
             </div>
-            <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
-              background: `linear-gradient(90deg, transparent, ${C.red}, transparent)`, opacity: 0.75 }} />
-            <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
+            <div style={{ fontFamily: MONO, fontSize: 13, color: C.muted, fontWeight: 500, marginTop: 14,
+              letterSpacing: "0.02em" }}>
               {percentMode
-                ? `${tReps} rep${tReps > 1 ? "s" : ""} @ ${fmt(topPct)}%`
-                : `${tReps} rep${tReps > 1 ? "s" : ""} @ ${inputMode === "rir" ? `${10 - tRpe} RIR` : `RPE ${fmt(tRpe)}`}`}
+                ? `${tReps} × ${fmt(topPct)}%`
+                : `${tReps} × ${inputMode === "rir" ? `${10 - tRpe} RIR` : `RPE ${fmt(tRpe)}`}`}
             </div>
             {percentMode
-              ? (predRpe != null && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>≈ RPE {fmt(Math.round(predRpe * 2) / 2)} · {fmt(Math.max(0, Math.round((10 - predRpe) * 2) / 2))} RIR</div>)
+              ? (predRpe != null && <div style={{ fontSize: 12, color: C.faint, marginTop: 8, fontFamily: MONO }}>≈ RPE {fmt(Math.round(predRpe * 2) / 2)} · {fmt(Math.max(0, Math.round((10 - predRpe) * 2) / 2))} RIR</div>)
               : ((strongDay || toughDay) && (
-                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>
-                  {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
+                <div style={{ fontSize: 12, color: C.faint, marginTop: 10, fontFamily: MONO, letterSpacing: "0.01em" }}>
+                  {strongDay ? `${fmt(strongDay)} strong` : ""}{strongDay && toughDay ? "   ·   " : ""}{toughDay ? `${fmt(toughDay)} tough` : ""}
                 </div>
               ))}
             {recovery.drop >= 0.01 && (
-              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+              <div style={{ fontSize: 12, color: C.amber, marginTop: 10, fontWeight: 500 }}>
                 Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
               </div>
             )}
             {/* plates */}
-            <button onClick={() => setShowPlates((v) => !v)} style={{ marginTop: 12, background: "none", border: "none",
-              color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <button onClick={() => setShowPlates((v) => !v)} style={{ marginTop: 16, background: "none", border: "none",
+              color: C.faint, fontSize: 12, fontWeight: 500, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
               Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
             </button>
             {showPlates && <PlateView total={recR} bar={bar} denoms={denoms} unit={unit} />}
           </>
         ) : (
-          <div style={{ color: C.muted, fontSize: 13.5, padding: "18px 8px", lineHeight: 1.5 }}>
-            Log a set below to calibrate <b style={{ color: C.text }}>{sel}</b>. Enter a known 1RM (1 rep @ RPE 10) or any working set.
+          <div style={{ color: C.muted, fontSize: 14, padding: "20px 8px", lineHeight: 1.55 }}>
+            Log a set below to calibrate <b style={{ color: C.text, fontWeight: 600 }}>{sel}</b>. Enter a known 1RM (1 rep @ RPE 10) or any working set.
           </div>
         )}
       </div>
 
-      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
+      <div style={{ height: 1, background: C.line, margin: "20px -18px" }} />
 
       {/* log what you did */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
             <span style={label}>Log your top set</span>
           </span>
           {recR != null && <button onClick={useRec} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line2}`,
             color: C.muted, borderRadius: R.pill, padding: "7px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Use recommendation</button>}
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>
-            Date{logDate !== todayStr() ? <span style={{ color: C.red }}> · backdated</span> : ""}
-          </div>
-          <DateField value={logDate} onChange={setLogDate} />
+        <div style={{ marginTop: 14 }}>
+          {logDate === todayStr() && !showDate ? (
+            <button onClick={() => setShowDate(true)} style={{ background: "none", border: "none", padding: 0,
+              color: C.faint, fontFamily: MONO, fontSize: 12, cursor: "pointer", letterSpacing: "0.02em" }}>
+              Today · change date
+            </button>
+          ) : (
+            <>
+              <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>
+                Date{logDate !== todayStr() ? <span style={{ color: C.red }}> · backdated</span> : ""}
+              </div>
+              <DateField value={logDate} onChange={setLogDate} />
+            </>
+          )}
         </div>
 
         {fromRec && (
@@ -2004,15 +2017,15 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
 
         <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 110px" }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Weight</div>
             <NumField value={log.weight} onChange={(v) => setLog((l) => ({ ...l, weight: v }))} suffix={unit} />
           </div>
           <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Reps</div>
             <Stepper value={log.reps} onChange={(v) => setLog((l) => ({ ...l, reps: v }))} min={1} max={30} />
           </div>
           <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
             <Stepper value={log.int} onChange={(v) => setLog((l) => ({ ...l, int: v }))} step={0.5}
               min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 6 : 10} />
           </div>
@@ -2051,7 +2064,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             ))}
 
             {doneCount < bo.sets && (
-              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
+              <div style={{ background: C.bg2, border: `1px solid ${C.line2}`, borderRadius: 12, padding: "14px 15px" }}>
                 <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
                   Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
                 </div>
@@ -2072,18 +2085,18 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
                 {/* this back-off's own target — drives the suggested weight below */}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+                    <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Reps</div>
                     <Stepper value={boReps} onChange={(v) => setStep(doneCount, { reps: Math.max(1, Math.min(20, v)) })} min={1} max={20} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
+                    <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
                     {percentMode
                       ? <Stepper value={boStepPct} onChange={(v) => setStep(doneCount, { pct: Math.max(30, Math.min(100, v)) })} step={2.5} min={30} max={100} suffix="%" />
                       : <Stepper value={inputMode === "rir" ? 10 - boRpe : boRpe} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10}
                           onChange={(v) => setStep(doneCount, { rpe: inputMode === "rir" ? 10 - v : v })} />}
                   </div>
                   <div style={{ flex: "1 1 110px" }}>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight{boDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · suggested</span>}</div>
+                    <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Weight{boDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · suggested</span>}</div>
                     <NumField value={curBo.weight} onChange={setBoW} suffix={unit} />
                   </div>
                 </div>
@@ -2113,7 +2126,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             {doneCount >= bo.sets && (
               <div style={{ fontSize: 12, color: C.muted, textAlign: "center", padding: "8px 0 2px" }}>
                 All {bo.sets} back-off{bo.sets > 1 ? "s" : ""} logged.{" "}
-                <button onClick={() => setBo({ sets: bo.sets + 1 })} style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12, cursor: "pointer", padding: 0 }}>add another</button>
+                <button onClick={() => setBo({ sets: bo.sets + 1 })} style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 12, cursor: "pointer", padding: 0 }}>add another</button>
               </div>
             )}
           </div>
@@ -2162,7 +2175,7 @@ function AddRow({ newName, setNewName, addExercise, mains }) {
       </div>
       {mains && mains.length > 0 && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Variation of (optional)</div>
+          <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Variation of (optional)</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <Chip active={parent === ""} onClick={() => setParent("")}>None</Chip>
             {mains.map((m) => <Chip key={m} active={parent === m} onClick={() => setParent(m)}>{m}</Chip>)}
@@ -2235,7 +2248,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             <div key={l} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
               borderRadius: 14, padding: "11px 12px" }}>
               <div style={{ ...label, fontSize: 8.5 }}>{l}</div>
-              <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, marginTop: 4, color: col,
+              <div style={{ fontFamily: SANS, fontSize: 20, fontWeight: 700, marginTop: 5, color: col,
                 letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
                 {l === "30-day" && v != null && v > 0 ? "+" : ""}{v != null ? fmt(v) : "—"}
               </div>
@@ -2243,7 +2256,6 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           ))}
         </div>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
-          <span style={{ width: 3, height: 13, borderRadius: 2, background: C.blue, boxShadow: `0 0 10px ${C.blue}88` }} />
           <span style={{ ...label, fontSize: 9.5 }}>Strength trend ({unit})</span>
         </span>
         <LineChart data={model.points} height={176} unit={unit} />
@@ -2252,8 +2264,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 13, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
-            <span style={label}>Set log</span>
+              <span style={label}>Set log</span>
           </span>
           <span style={{ fontSize: 11.5, color: C.faint }}>{sets.length} total</span>
         </div>
@@ -2264,7 +2275,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600 }}>
                 {fmt(s.weight)}{unit} × {s.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
-                {s.backoff && <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 800, color: C.muted,
+                {s.backoff && <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 600, color: C.muted,
                   border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 6px", marginLeft: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>Back-off</span>}
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
@@ -2287,7 +2298,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
 
       {armName === cur ? (
         <Card accent={C.red}>
-          <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 6 }}>Delete {cur}?</div>
+          <div style={{ fontWeight: 600, fontSize: 14.5, marginBottom: 6 }}>Delete {cur}?</div>
           <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.55, marginBottom: 12 }}>
             This removes {cur} and all {(state.exercises[cur] ? state.exercises[cur].sets.length : 0)} of its logged
             sets from your training. It moves to Recently deleted in Settings, where you can restore it.
@@ -2379,7 +2390,7 @@ function ScoreCard({ analysis, unit, state, setState }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10 }}>
             <span style={{ fontSize: 12.5, color: C.muted }}>BW {fmt(fromKg(bwKg, unit))} {unit}
-              <button onClick={() => { setInp(fmt(fromKg(bwKg, unit))); setEditing(true); }} style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>Edit</button>
+              <button onClick={() => { setInp(fmt(fromKg(bwKg, unit))); setEditing(true); }} style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 12.5, cursor: "pointer" }}>Edit</button>
             </span>
             <Segmented value={sex} onChange={setSex} options={[{ value: "male", label: "M" }, { value: "female", label: "F" }]} />
           </div>
@@ -2484,7 +2495,7 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
           <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", position: "relative", marginBottom: 12, textAlign: "center" }}>
             <button onClick={shareMeet} aria-label="Share" style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4, position: "absolute", top: 8, right: 8 }}><Share size={16} /></button>
             <div style={{ ...label, fontSize: 10 }}>If you hit your thirds</div>
-            <div style={{ fontFamily: MONO, fontSize: 38, fontWeight: 700, lineHeight: 1, marginTop: 6 }}>{fmt(thirdsTotal)}<span style={{ fontSize: 15, color: C.muted, marginLeft: 4 }}>kg</span></div>
+            <div style={{ fontFamily: SANS, fontSize: 36, fontWeight: 700, lineHeight: 1, marginTop: 8, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>{fmt(thirdsTotal)}<span style={{ fontSize: 15, color: C.muted, marginLeft: 4 }}>kg</span></div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
               Openers in the bag <b style={{ color: C.text, fontFamily: MONO }}>{fmt(openersTotal)}</b> kg{dots != null && <> · DOTS <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(dots))}</b></>}
             </div>
@@ -2496,12 +2507,12 @@ function MeetSheet({ open, onClose, analysis, unit, state, setState }) {
               <Card key={lf.name} style={{ marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <b style={{ fontSize: 15 }}>{lf.name}</b>
-                  <span style={{ fontSize: 11.5, color: C.muted }}>e1RM {fmt(lf.e1rm)} {unit} · <button onClick={() => autoLift(lf.name)} style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Auto</button></span>
+                  <span style={{ fontSize: 11.5, color: C.muted }}>e1RM {fmt(lf.e1rm)} {unit} · <button onClick={() => autoLift(lf.name)} style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Auto</button></span>
                 </div>
                 {["opener", "second", "third"].map((k) => (
                   <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{lblmap[k]}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{lblmap[k]}</div>
                       <div style={{ fontSize: 11, color: C.faint }}>{pct[k]} · {fmt(Math.round(at[k] * LBKG))} lb</div>
                     </div>
                     <Stepper value={at[k]} step={2.5} min={0} suffix="kg" onChange={(v) => setAttempt(lf.name, k, v)} />
@@ -2563,7 +2574,7 @@ function BlockSheet({ open, onClose, plan, setPlan, exNames, inputMode }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Back-offs</div>
             <button onClick={() => upd(items.map((x, j) => j === i ? (x.bo ? { ...x, bo: null } : { ...x, bo: { sets: 2, reps: 5, rpe: 7 } }) : x))}
-              style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+              style={{ background: "none", border: "none", color: C.text, fontWeight: 500, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
               {it.bo ? "Remove" : "+ Add"}
             </button>
           </div>
@@ -2605,7 +2616,14 @@ function BlockSheet({ open, onClose, plan, setPlan, exNames, inputMode }) {
 // the same. `dim` darkens for the gradient's left edge.
 function freshColor(pct, dim) {
   const t = Math.max(0, Math.min(1, (pct - 45) / 50));
-  const A = [5, 76, 53], B = [42, 67, 55], D = [135, 38, 62]; // red -> gold -> green (HSL)
+  // Desaturated on purpose: these are materials (rust, brass, sage), not traffic
+  // lights. A readiness bar should inform at a glance without competing with the
+  // one red thing on the screen that is actually asking to be pressed.
+  // Fully recovered is deliberately near-neutral: on a good day the whole card
+  // reads as chalk, and colour only appears as a lift starts to fall behind. It
+  // means the eye is drawn to a problem rather than to a row of green bars
+  // congratulating you for nothing.
+  const A = [10, 48, 46], B = [34, 38, 50], D = [150, 7, 53]; // rust -> brass -> chalk (HSL)
   const lerp = (a, b, k) => a + (b - a) * k;
   let h, s, l;
   if (t < 0.5) { const k = t / 0.5; h = lerp(A[0], B[0], k); s = lerp(A[1], B[1], k); l = lerp(A[2], B[2], k); }
@@ -2677,15 +2695,15 @@ function SessionCard({ session, unit, inputMode }) {
   return (
     <Card accent={C.good} style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px 11px",
-        borderBottom: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(226,59,46,0.08), transparent)" }}>
+        borderBottom: `1px solid ${C.line}` }}>
         <div>
-          <div style={{ ...label, fontSize: 9.5, color: C.red }}>Today's session</div>
-          <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 17, marginTop: 2 }}>{dateStr}</div>
+          <div style={{ ...label, fontSize: 10 }}>Today's session</div>
+          <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 17, marginTop: 2, letterSpacing: "-0.02em" }}>{dateStr}</div>
         </div>
         <button onClick={shareSession} aria-label="Share session" style={{ background: "none", border: "none",
           color: C.faint, cursor: "pointer", padding: 6, marginLeft: "auto", marginRight: 10, display: "flex" }}><Share size={16} /></button>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{lifts.length}<span style={{ fontSize: 11, color: C.muted }}> {lifts.length === 1 ? "lift" : "lifts"}</span></div>
+          <div style={{ fontFamily: SANS, fontSize: 22, fontWeight: 700, lineHeight: 1, letterSpacing: "-0.03em" }}>{lifts.length}<span style={{ fontSize: 11, color: C.muted }}> {lifts.length === 1 ? "lift" : "lifts"}</span></div>
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{totalSets} set{totalSets !== 1 ? "s" : ""}{backoffs ? ` · ${backoffs} back-off` : ""}</div>
         </div>
       </div>
@@ -2738,8 +2756,8 @@ function ProfileCard({ state, unit }) {
     ["Week to week", read(r.rec, "Recovers fast", "Normal recovery", "Carries fatigue")],
   ];
   return (
-    <Card accent={C.amber}>
-      <SectionHead accent={C.amber}
+    <Card>
+      <SectionHead
         sub="Learned from your own logged sets — this is what shapes the loads IRONSET gives you."
         right={<button aria-label="Share profile" onClick={() => doShare(setShare, { type: "session",
           headline: "My fatigue profile", sub: "learned from logged sets",
@@ -2750,13 +2768,13 @@ function ProfileCard({ state, unit }) {
         Your profile
       </SectionHead>
       {rows.map((r, i) => (
-        <div key={r.name} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 13px" : "13px 0" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 9 }}>{r.name}</div>
+        <div key={r.name} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}`, padding: i === 0 ? "0 0 16px" : "16px 0" }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 11, letterSpacing: "-0.015em" }}>{r.name}</div>
           {dims(r).map(([k, v]) => (
-            <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 11.5, color: C.faint }}>{k}</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: v.c }}>
-                <span style={{ width: 6, height: 6, borderRadius: 99, background: v.c }} />{v.txt}
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 12.5, color: C.faint }}>{k}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: C.text }}>
+                <span style={{ width: 5, height: 5, borderRadius: 99, background: v.c }} />{v.txt}
               </span>
             </div>
           ))}
@@ -2821,7 +2839,7 @@ function RecentCard({ state, unit, inputMode }) {
 
 function InsightsTab({ analysis, unit, state, setState }) {
   const { total, totalDelta, parts, insights } = analysis;
-  const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
+  const sevColor = { alert: C.red, watch: C.amber, win: C.good, note: C.blue };
   const [share, setShare] = useState(null);
   const [showEngine, setShowEngine] = useState(false);
   const dismissed = state.dismissedInsights || {};
@@ -2861,18 +2879,18 @@ function InsightsTab({ analysis, unit, state, setState }) {
         ) : null}>What changed</SectionHead>
       )}
       {shownInsights.map((it) => (
-        <div key={it.id} style={{ background: G.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: R.surface, padding: "14px 15px", boxShadow: ELEV }}>
+        <div key={it.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: R.surface, padding: "16px 18px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0, boxShadow: `0 0 8px ${sevColor[it.sev]}` }} />
-              <span style={{ fontWeight: 800, fontSize: 13.5 }}>{it.title}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <span style={{ width: 5, height: 5, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.015em" }}>{it.title}</span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, marginRight: -4 }}>
               <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
               <button onClick={() => dismiss(it)} aria-label="Dismiss" style={iconBtn}><X size={15} /></button>
             </div>
           </div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{it.detail}</div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 7, lineHeight: 1.55, paddingLeft: 14 }}>{it.detail}</div>
         </div>
       ))}
 
@@ -2894,7 +2912,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
           ["Week-over-week capacity", "Work above ~RPE 8 leaves a recovery debt that decays across the days between sessions. Its size is learned per lift from your own history, and when it applies your prescriptions are trimmed — visibly — while your max stays untouched."],
         ].map(([t, d]) => (
           <div key={t} style={{ marginBottom: 16 }}>
-            <div style={{ ...label, fontSize: 10, marginBottom: 5, color: C.red }}>{t}</div>
+            <div style={{ ...label, fontSize: 10, marginBottom: 6, color: C.text }}>{t}</div>
             <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>{d}</div>
           </div>
         ))}
@@ -3224,7 +3242,7 @@ class Boundary extends React.Component {
   render() {
     if (this.state.err) return (
       <div style={{ padding: 20, minHeight: "100vh", background: "#0C0D10", color: "#ECEAE3", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>IRONSET hit an error</div>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>IRONSET hit an error</div>
         <div style={{ fontSize: 12, color: "#9098A4", marginBottom: 10 }}>Reload the page. Your saved data on this device is untouched.</div>
         <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: "#E23B2E" }}>{String((this.state.err && this.state.err.message) || this.state.err)}</pre>
       </div>
