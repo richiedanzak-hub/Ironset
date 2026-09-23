@@ -1,0 +1,16 @@
+{
+  "name": "reel-royale",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Toss movies in a hat, vote head-to-head, and crown tonight's movie. A party game for picking movie night.",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  }
+}

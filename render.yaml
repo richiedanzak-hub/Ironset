@@ -1,0 +1,14 @@
+# One-click deploy of Reel Royale (the movie night party game in reel-royale/)
+# on Render: New -> Blueprint -> pick this repo. See reel-royale/README.md.
+services:
+  - type: web
+    name: reel-royale
+    runtime: node
+    plan: free
+    rootDir: reel-royale
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/config
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false
