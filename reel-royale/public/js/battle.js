@@ -32,15 +32,16 @@ function Fighter({ m, badge, picked, outcome, tally, voters, fresh, canVote, onV
     <button class="fighter-info-btn" aria-label=${`About ${m.title}`} onClick=${(e) => (e.stopPropagation(), onInfo(m))}>i</button>
     ${picked && !outcome ? html`<span class="my-vote">Your pick ✓</span>` : null}
     ${outcome === 'lost' ? html`<span class="stamp">OUT</span>` : null}
+    ${outcome === 'kept' ? html`<span class="stamp keep">STILL IN</span>` : null}
     <span class="fighter-title">${m.title}</span>
     <span class="fighter-meta">${movieMeta(m) || ' '}</span>
     ${m.by?.length
       ? html`<span class="fighter-by">
           <span class="face-stack">${m.by.slice(0, 2).map((p) => html`<${Avatar} key=${p.id} p=${p} size=${20} />`)}</span>
-          ${names(m.by)}'s pick
+          <span class="who">${names(m.by)}'s pick</span>
         </span>`
       : m.mine
-        ? html`<span class="fighter-by">🤫 Your pick</span>`
+        ? html`<span class="fighter-by">🤫<span class="who"> Your pick</span></span>`
         : null}
     ${outcome
       ? html`<span class="tally">
@@ -112,11 +113,58 @@ function MovieInfo({ movie, onClose }) {
   </${Sheet}>`;
 }
 
+function Roulette({ movies, winner, onDone }) {
+  const [i, setI] = useState(0);
+  const [landed, setLanded] = useState(false);
+  useEffect(() => {
+    const n = movies.length;
+    const steps = n * 4 + movies.findIndex((m) => m.id === winner);
+    let k = 0;
+    let timer;
+    const tick = () => {
+      k += 1;
+      setI(k % n);
+      sfx.tick();
+      if (k >= steps) {
+        setLanded(true);
+        sfx.reveal();
+        timer = setTimeout(onDone, 1400);
+        return;
+      }
+      timer = setTimeout(tick, 70 + (k / steps) ** 3 * 380);
+    };
+    timer = setTimeout(tick, 250);
+    return () => clearTimeout(timer);
+  }, []);
+  return html`<div class="coin-overlay" onClick=${onDone}>
+    <div>
+      <h2>${movies.length}‑way tie! 🎲</h2>
+      <div class="roulette">
+        ${movies.map(
+          (m, n) => html`<div class="roulette-row ${n === i ? 'on' : ''} ${landed && n === i ? 'won' : ''}" key=${m.id}>
+            <${Poster} movie=${m} tiny /><span>${m.title}</span>
+          </div>`,
+        )}
+      </div>
+      <p class="coin-caption">${landed ? `${movies[i].title} wins the draw!` : 'Drawing one at random…'}</p>
+    </div>
+  </div>`;
+}
+
 function banner(result, b, entries) {
+  const n = b.fighters.length;
+  if (result.method === 'keep') {
+    const k = result.survivors.length;
+    const who = result.losers.length ? `The top ${k} stay in` : k === 2 ? 'Both stay in' : `All ${k} stay in`;
+    return ["🤝 It's a tie!", `${who}. The next movie joins for a ${k + 1}‑way showdown`, true];
+  }
   const w = entries[result.winner];
-  if (result.method === 'coin') return ['🪙 Coin flip!', `${w.title} wins the toss`, true];
+  if (result.method === 'coin') {
+    return result.tied?.length > 2 ? ['🎲 Random draw!', `${w.title} wins the draw`, true] : ['🪙 Coin flip!', `${w.title} wins the toss`, true];
+  }
   if (result.method === 'champ') return ['🤝 Dead heat!', `Ties go to the champ. ${w.title} holds on`, true];
   if (b.round === 1) return ['⚡ First crown!', `${w.title} takes the throne`, true];
+  if (n > 2) return ['🏆 Last one standing!', `${w.title} wins the ${n}‑way showdown`, true];
   if (result.winner === b.champ) return ['🛡️ The champ holds!', `${w.title} survives another round`, true];
   return ['💥 Upset!', `${w.title} is the new champ`, false];
 }
@@ -125,20 +173,21 @@ export function Battle() {
   const { view, act, offset } = useGame();
   const b = view.battle;
   const E = view.entries;
-  const champ = E[b.champ];
-  const challenger = E[b.challenger];
+  const fighters = b.fighters.map((id) => E[id]);
+  const n = fighters.length;
   const result = b.stage === 'result' ? b.result : null;
 
   const [pending, setPending] = useState(null);
   const [info, setInfo] = useState(null);
-  const [coinSeen, setCoinSeen] = useState(0); // round whose coin flip we've shown
+  const [drawSeen, setDrawSeen] = useState(0); // round whose tie-break animation we've shown
   const [intro, setIntro] = useState(() => b.round === 1 && b.stage === 'voting' && Date.now() + offset.current - b.startedAt < 3000);
   const lastRound = useRef(b.round);
 
   useEffect(() => setPending(null), [b.round, b.stage]);
 
-  const flipping = result && result.method === 'coin' && coinSeen !== b.round;
-  const revealed = result && !flipping;
+  const tied = result?.method === 'coin' ? (result.tied || b.fighters).map((id) => E[id]) : null;
+  const breaking = tied && drawSeen !== b.round;
+  const revealed = result && !breaking;
 
   // Sounds for a new challenger and for each reveal.
   useEffect(() => {
@@ -147,7 +196,7 @@ export function Battle() {
   }, [b.round]);
   useEffect(() => {
     if (!revealed || result.method === 'coin') return;
-    if (b.round > 1 && result.winner === b.challenger) sfx.upset();
+    if (b.round > 1 && result.winner && result.winner === b.challenger && n === 2) sfx.upset();
     else sfx.reveal();
   }, [revealed, b.round]);
 
@@ -169,14 +218,31 @@ export function Battle() {
     if (b.round === 1) return html`<span class="fighter-badge new">🎩 Fresh from the hat</span>`;
     if (id === b.champ) {
       const w = b.wins[id] || 0;
-      return html`<span class="fighter-badge champ">👑 Champ · ${w} ${w === 1 ? 'win' : 'wins'}</span>`;
+      return html`<span class="fighter-badge champ">👑 Champ${n > 2 ? '' : ` · ${w} ${w === 1 ? 'win' : 'wins'}`}</span>`;
     }
-    return html`<span class="fighter-badge new">🎩 New challenger</span>`;
+    if (id === b.challenger) return html`<span class="fighter-badge new">🎩 ${n > 2 ? 'New' : 'New challenger'}</span>`;
+    return html`<span class="fighter-badge tied">🤝 Still in</span>`;
   };
 
-  const outcome = (id) => (revealed ? (result.winner === id ? 'won' : 'lost') : null);
+  const outcome = (id) => {
+    if (!revealed) return null;
+    if (result.winner === id) return 'won';
+    return result.survivors?.includes(id) ? 'kept' : 'lost';
+  };
   const done = b.round - 1 + (result ? 1 : 0);
   const [title, sub, gold] = revealed ? banner(result, b, E) : [];
+  const heading =
+    b.round === 1 && n === 2
+      ? html`First two out of <span class="hl">the hat!</span>`
+      : n > 2
+        ? html`<span class="hl">${n}‑way</span> showdown!`
+        : b.champ
+          ? html`Can anything <span class="hl">dethrone</span> the champ?`
+          : html`Which one <span class="hl">tonight?</span>`;
+  const advance = () => {
+    sfx.tap();
+    act({ type: 'next', round: b.round });
+  };
 
   return html`<div>
     <div class="round-row">
@@ -191,10 +257,10 @@ export function Battle() {
           <span class="banner-big ${gold ? 'gold' : ''}">${title}</span>
           <span class="banner-sub">${sub}</span>
         </div>`
-      : html`<h1 class="duel-title">${b.round === 1 ? html`First two out of <span class="hl">the hat!</span>` : html`Can anything <span class="hl">dethrone</span> the champ?`}</h1>`}
+      : html`<h1 class="duel-title">${heading}</h1>`}
 
-    <div class="duel" key=${`d${b.round}`}>
-      ${[champ, challenger].map(
+    <div class="duel n${n}" key=${`d${b.round}`}>
+      ${fighters.map(
         (m) => html`<${Fighter}
           key=${m.id}
           m=${m}
@@ -209,7 +275,7 @@ export function Battle() {
           onInfo=${setInfo}
         />`,
       )}
-      <span class="vs" aria-hidden="true">VS</span>
+      ${n === 2 ? html`<span class="vs" aria-hidden="true">VS</span>` : null}
     </div>
 
     ${!result
@@ -232,7 +298,9 @@ export function Battle() {
       ${revealed
         ? result.last
           ? html`<button class="btn btn-gold btn-block btn-xl" onClick=${() => (sfx.pop(), act({ type: 'next', round: b.round }))}>👑 Crown the champion</button>`
-          : html`<button class="btn btn-hot btn-block btn-xl" onClick=${() => (sfx.tap(), act({ type: 'next', round: b.round }))}>🎩 Draw the next movie</button>`
+          : result.method === 'keep'
+            ? html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>🎩 Draw a movie to join the fight</button>`
+            : html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>🎩 Draw the next movie</button>`
         : !result && myVote && waitingOn.length
           ? html`<div class="card center" style=${{ padding: '14px' }}>
               <strong class="dots">Waiting on ${waitingOn.map((p) => p.name).slice(0, 3).join(', ')}${waitingOn.length > 3 ? ` +${waitingOn.length - 3}` : ''}</strong>
@@ -241,7 +309,11 @@ export function Battle() {
           : null}
     </div>
 
-    ${flipping ? html`<${CoinFlip} a=${champ} b=${challenger} winner=${result.winner} onDone=${() => setCoinSeen(b.round)} />` : null}
+    ${breaking
+      ? tied.length > 2
+        ? html`<${Roulette} movies=${tied} winner=${result.winner} onDone=${() => setDrawSeen(b.round)} />`
+        : html`<${CoinFlip} a=${tied[0]} b=${tied[1]} winner=${result.winner} onDone=${() => setDrawSeen(b.round)} />`
+      : null}
     ${intro ? html`<${ShuffleIntro} count=${b.total + 1} onDone=${() => setIntro(false)} />` : null}
     <${MovieInfo} movie=${info} onClose=${() => setInfo(null)} />
   </div>`;

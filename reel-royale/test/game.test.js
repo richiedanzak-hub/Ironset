@@ -168,7 +168,7 @@ test('king of the hill: winner stays on until the hat is empty', () => {
   vote(room, ids[0], b.challenger);
   vote(room, ids[1], b.challenger);
   assert.equal(b.stage, 'voting');
-  vote(room, ids[2], b.champ);
+  vote(room, ids[2], b.fighters[0]);
   assert.equal(b.stage, 'result');
   assert.equal(b.result.winner, order[1]);
   assert.equal(b.result.method, 'votes');
@@ -195,11 +195,11 @@ test('king of the hill: winner stays on until the hat is empty', () => {
 test('votes can be changed until everyone has voted, and old rounds are closed', () => {
   const { room, ids } = toBattle(['A', 'B', 'C']);
   const b = room.battle;
-  vote(room, ids[0], b.champ);
+  vote(room, ids[0], b.fighters[0]);
   vote(room, ids[0], b.challenger);
   assert.equal(b.votes[ids[0]], b.challenger);
-  assert.throws(() => game.act(room, ids[1], { type: 'vote', round: 5, entryId: b.champ }, T0), /closed/);
-  assert.throws(() => game.act(room, ids[1], { type: 'vote', round: 1, entryId: 'nope' }, T0), /one of the two/);
+  assert.throws(() => game.act(room, ids[1], { type: 'vote', round: 5, entryId: b.fighters[0] }, T0), /closed/);
+  assert.throws(() => game.act(room, ids[1], { type: 'vote', round: 1, entryId: 'nope' }, T0), /one of the movies/);
 });
 
 test('ties: coin flip by default, or the reigning champ keeps the crown', () => {
@@ -222,22 +222,118 @@ test('ties: coin flip by default, or the reigning champ keeps the crown', () => 
   assert.equal(b.result.winner, b.champ);
 });
 
+test('ties: "keep" puts both through and the next movie makes it a 3-way', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D', 'E'], { ties: 'keep' });
+  const b = room.battle;
+  const [a, c] = b.fighters;
+  vote(room, ids[0], a);
+  vote(room, ids[1], c);
+  game.act(room, ids[0], { type: 'close', round: 1 }, T0, rng);
+  assert.equal(b.result.method, 'keep');
+  assert.equal(b.result.winner, null);
+  assert.deepEqual(b.result.survivors, [a, c]);
+  assert.deepEqual(b.result.losers, []);
+  assert.equal(b.result.last, false);
+  assert.equal(b.wins[a], undefined, 'a tie is not a win');
+
+  next(room, ids[0]);
+  assert.equal(b.round, 2);
+  assert.equal(b.fighters.length, 3);
+  const third = b.fighters[2];
+  assert.deepEqual(b.fighters, [a, c, third]);
+  assert.equal(b.challenger, third);
+  const v = game.viewFor(room, ids[2], T0);
+  assert.deepEqual(v.battle.fighters, [a, c, third]);
+  assert.ok(v.entries[third]);
+
+  // Most votes wins a 3-way outright; everyone else is out.
+  vote(room, ids[0], third);
+  vote(room, ids[1], third);
+  vote(room, ids[2], a);
+  assert.equal(b.result.method, 'votes');
+  assert.equal(b.result.winner, third);
+  assert.deepEqual([...b.result.losers].sort(), [a, c].sort());
+  assert.equal(b.wins[third], 1);
+
+  // ...and it's back to 1v1 with the winner as champ.
+  next(room, ids[0]);
+  assert.deepEqual(b.fighters, [third, b.order[3]]);
+  assert.equal(b.champ, third);
+});
+
+test('ties: "keep" can grow to a 4-way, then a random draw settles it', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D', 'E', 'F'], { ties: 'keep' });
+  const b = room.battle;
+  const close = () => game.act(room, ids[0], { type: 'close', round: b.round }, T0, rng);
+  close(); // 0-0
+  next(room, ids[0]);
+  assert.equal(b.fighters.length, 3);
+  close(); // 0-0-0: all three stay
+  assert.equal(b.result.method, 'keep');
+  assert.equal(b.result.survivors.length, 3);
+  next(room, ids[0]);
+  assert.equal(b.fighters.length, game.MAX_FIGHTERS);
+  const four = [...b.fighters];
+  close(); // a 4-way can't grow any more
+  assert.equal(b.result.method, 'coin');
+  assert.equal(b.result.winner, four[0]);
+  assert.equal(b.result.tied.length, 4);
+  assert.equal(b.result.losers.length, 3);
+  // Every round still draws exactly one movie, so the round count holds.
+  assert.equal(b.round, 3);
+  assert.equal(b.next, 4);
+  assert.equal(b.total, 5);
+});
+
+test('ties: "keep" with an empty hat falls back to a coin flip', () => {
+  const { room, ids } = toBattle(['A', 'B'], { ties: 'keep' });
+  game.act(room, ids[0], { type: 'close', round: 1 }, T0, rng);
+  assert.equal(room.battle.result.method, 'coin');
+  assert.equal(room.battle.result.last, true);
+  next(room, ids[0]);
+  assert.equal(room.phase, 'final');
+});
+
+test('ties: "keep" drops the champ if it misses a 3-way tie', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D', 'E', 'F'], { ties: 'keep' });
+  const b = room.battle;
+  const [a] = b.fighters;
+  for (const id of ids) vote(room, id, a);
+  next(room, ids[0]);
+  assert.equal(b.champ, a);
+  const c = b.challenger;
+  vote(room, ids[0], a);
+  vote(room, ids[1], c);
+  game.act(room, ids[0], { type: 'close', round: 2 }, T0, rng);
+  next(room, ids[0]);
+  assert.equal(b.champ, a, 'still champ after a tie it was part of');
+  const d = b.challenger;
+  vote(room, ids[0], c);
+  vote(room, ids[1], d);
+  game.act(room, ids[0], { type: 'close', round: 3 }, T0, rng);
+  assert.deepEqual(b.result.survivors, [c, d]);
+  assert.deepEqual(b.result.losers, [a]);
+  next(room, ids[0]);
+  assert.equal(b.champ, null);
+  assert.equal(b.fighters.length, 3);
+});
+
 test('vote timer closes the vote without waiting on stragglers', () => {
   const { room, ids } = toBattle(['A', 'B'], { voteSeconds: 20 });
   const b = room.battle;
-  vote(room, ids[0], b.champ);
+  vote(room, ids[0], b.fighters[0]);
   game.tick(room, T0 + 10_000, rng);
   assert.equal(b.stage, 'voting');
   game.tick(room, T0 + 21_000, rng);
   assert.equal(b.stage, 'result');
-  assert.equal(b.result.winner, b.champ);
+  assert.equal(b.result.winner, b.fighters[0]);
 });
 
 test('a player who leaves mid-vote does not block the round', () => {
   const { room, ids } = toBattle(['A', 'B', 'C']);
   const b = room.battle;
-  vote(room, ids[0], b.champ);
-  vote(room, ids[1], b.champ);
+  vote(room, ids[0], b.fighters[0]);
+  vote(room, ids[1], b.fighters[0]);
   game.act(room, ids[2], { type: 'leave' }, T0, rng);
   assert.equal(b.stage, 'result');
   assert.equal(room.players[ids[2]], undefined);
@@ -268,9 +364,9 @@ test('submitters: hidden, revealed after each vote, or shown while voting', () =
 
   const hidden = toBattle(['A', 'B', 'C'], { reveal: 'hidden' });
   const hb = hidden.room.battle;
-  assert.equal(byOf(hidden.room, hidden.ids[0], hb.champ), null);
+  assert.equal(byOf(hidden.room, hidden.ids[0], hb.fighters[0]), null);
   game.act(hidden.room, hidden.ids[0], { type: 'close', round: 1 }, T0, rng);
-  assert.equal(byOf(hidden.room, hidden.ids[0], hb.champ), null);
+  assert.equal(byOf(hidden.room, hidden.ids[0], hb.fighters[0]), null);
   const owner = hidden.room.entries[hb.order[0]].by[0];
   assert.equal(game.viewFor(hidden.room, owner, T0).entries[hb.order[0]].mine, true);
 
@@ -292,7 +388,7 @@ test('battle views only include movies already drawn from the hat', () => {
   assert.equal(Object.keys(v.entries).length, 2);
   assert.equal(v.battle.left, 3);
   assert.equal(v.battle.myVote, null);
-  vote(room, ids[1], room.battle.champ);
+  vote(room, ids[1], room.battle.fighters[0]);
   const v2 = game.viewFor(room, ids[0], T0);
   assert.equal(v2.players.find((p) => p.id === ids[1]).voted, true);
   assert.equal(v2.battle.myVote, null, "can't see other people's votes");

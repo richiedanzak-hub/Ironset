@@ -763,6 +763,7 @@ p { margin: 0; }
 .fighter .poster { border-radius: 16px; box-shadow: 0 16px 30px -18px rgba(0, 0, 0, 0.9); }
 .fighter.picked { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.35), 0 18px 40px -14px rgba(252, 211, 77, 0.6); transform: translateY(-4px); }
 .fighter.won { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.4), 0 0 50px -8px rgba(252, 211, 77, 0.8); animation: winPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); z-index: 2; }
+.fighter.kept { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.3), 0 0 40px -10px rgba(52, 211, 153, 0.8); }
 .fighter.lost { filter: grayscale(0.95) brightness(0.55); animation: knockout 0.7s ease; transform: rotate(-2deg) scale(0.95); }
 .fighter-badge {
   position: absolute;
@@ -780,6 +781,7 @@ p { margin: 0; }
 }
 .fighter-badge.champ { background: var(--grad-gold); color: #3b1d00; border-color: #fff3; box-shadow: 0 6px 16px -6px rgba(252, 211, 77, 0.9); }
 .fighter-badge.new { background: var(--grad-hot); border-color: #fff3; }
+.fighter-badge.tied { background: linear-gradient(180deg, #6ee7b7, #10b981); color: #03261a; border-color: #fff3; }
 .fighter-title { font: 600 1.02rem/1.15 var(--font-display); padding: 0 4px; overflow-wrap: anywhere; }
 .fighter-meta { font-size: 0.76rem; color: var(--dim); font-weight: 800; padding: 0 4px; margin-top: -4px; }
 .fighter-by { display: inline-flex; align-items: center; gap: 6px; margin: 0 4px; padding: 3px 9px 3px 3px; border-radius: 99px; background: rgba(255, 255, 255, 0.07); font-size: 0.74rem; font-weight: 800; align-self: flex-start; max-width: calc(100% - 8px); }
@@ -792,6 +794,40 @@ p { margin: 0; }
 .tally b { font: 700 1.9rem/1 var(--font-display); }
 .fighter.won .tally b { color: var(--gold); }
 .tally .face-stack .avatar { width: 24px; height: 24px; font-size: 13px; box-shadow: 0 0 0 2px var(--bg); }
+
+.stamp.keep { border-color: var(--mint); color: var(--mint); font-size: 1.2rem; transform: translate(-50%, -50%) rotate(-8deg); white-space: nowrap; }
+
+/* 3- and 4-way matchups (the "keep" tie rule) */
+.duel.n3 { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.duel.n4 { grid-template-columns: repeat(2, 1fr); gap: 22px 12px; }
+.duel.n4 .fighter { padding: 6px 6px 10px; gap: 6px; border-radius: 20px; }
+.duel.n4 .fighter .poster { aspect-ratio: 4 / 5; border-radius: 14px; }
+.duel.n4 .fighter-title { font-size: 0.92rem; }
+.duel.n4 .fighter-meta { font-size: 0.7rem; }
+.duel.n4 .poster-fallback .pf-title { font-size: 11cqw; }
+.duel.n4 .stamp { font-size: 1.2rem; }
+.duel.n4 .stamp.keep { font-size: 0.9rem; }
+.duel.n4 .crown-top { top: -28px; font-size: 32px; }
+.duel.n3 .fighter { padding: 6px 6px 10px; border-radius: 18px; gap: 6px; }
+.duel.n3 .fighter .poster { border-radius: 12px; }
+.duel.n3 .fighter-title { font-size: 0.84rem; padding: 0 2px; }
+.duel.n3 .fighter-meta { font-size: 0.66rem; padding: 0 2px; }
+.duel.n3 .fighter-badge, .duel.n4 .fighter-badge { font-size: 0.62rem; padding: 3px 8px; }
+.duel.n3 .fighter-info-btn { top: 10px; right: 10px; width: 24px; height: 24px; font-size: 0.7rem; }
+.duel.n3 .my-vote { font-size: 0.72rem; padding: 5px 9px; }
+.duel.n3 .stamp { font-size: 1.05rem; padding: 4px 8px; border-width: 3px; }
+.duel.n3 .stamp.keep { font-size: 0.8rem; }
+.duel.n3 .tally b { font-size: 1.35rem; }
+.duel.n3 .crown-top { top: -26px; font-size: 30px; }
+.duel.n3 .rating, .duel.n4 .rating { top: 6px; left: 6px; padding: 2px 6px; font-size: 0.62rem; }
+.duel.n3 .fighter-by .who, .duel.n4 .fighter-by .who { display: none; }
+.duel.n3 .fighter-by, .duel.n4 .fighter-by { padding: 3px; }
+
+.roulette { display: flex; flex-direction: column; gap: 10px; width: min(320px, 86vw); margin: 0 auto; }
+.roulette-row { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 16px; border: 2px solid var(--line); background: rgba(255, 255, 255, 0.05); font-weight: 800; text-align: left; transition: transform 0.08s, background 0.08s; }
+.roulette-row .poster { width: 36px; flex: none; border-radius: 8px; }
+.roulette-row.on { border-color: var(--gold); background: rgba(252, 211, 77, 0.16); transform: scale(1.04); box-shadow: 0 0 24px -6px var(--gold); }
+.roulette-row.won { background: var(--grad-gold); color: #3b1d00; }
 
 @keyframes enter { from { transform: translateY(24px) scale(0.9); opacity: 0; } }
 @keyframes drawn { 0% { transform: translateY(-60px) scale(0.4) rotate(-12deg); opacity: 0; } 60% { opacity: 1; } }

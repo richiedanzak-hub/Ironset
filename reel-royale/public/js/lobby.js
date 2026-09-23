@@ -56,6 +56,12 @@ const REVEAL_HELP = {
   open: "Everyone sees who added each movie while voting",
 };
 
+const TIE_HELP = {
+  coin: 'A coin flip decides',
+  champ: 'The reigning champ keeps the crown (a coin flip decides round 1)',
+  keep: 'Both stay in and the next movie joins for a 3‑way showdown',
+};
+
 export function rulesSummary(s) {
   const each = s.maxPerPlayer
     ? s.minPerPlayer === s.maxPerPlayer
@@ -68,7 +74,7 @@ export function rulesSummary(s) {
     `🎬 ${each}`,
     s.submitSeconds ? `⏱ ${Math.round(s.submitSeconds / 60)} min to add` : '⏱ No time limit',
     { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
-    s.ties === 'coin' ? '🪙 Ties: coin flip' : '👑 Ties: champ stays',
+    { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
     s.voteSeconds ? `⚡ ${s.voteSeconds}s to vote` : null,
   ].filter(Boolean);
 }
@@ -121,9 +127,9 @@ export function RulesCard() {
         onChange=${(v) => set({ reveal: v })} />
     </div>
     <div class="rule rule-col">
-      <div class="rule-text"><strong>If a vote ties</strong><span>${s.ties === 'coin' ? 'A coin flip decides' : 'The reigning champ keeps the crown'}</span></div>
+      <div class="rule-text"><strong>If a vote ties</strong><span>${TIE_HELP[s.ties]}</span></div>
       <${Seg} label="Tie breaker" value=${s.ties}
-        options=${[['coin', '🪙 Coin flip'], ['champ', '👑 Champ stays']]}
+        options=${[['coin', '🪙 Coin flip'], ['champ', '👑 Champ'], ['keep', '⚔️ 3‑way']]}
         onChange=${(v) => set({ ties: v })} />
     </div>
     <div class="rule rule-col">

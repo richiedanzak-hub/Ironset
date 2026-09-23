@@ -132,6 +132,8 @@ function Podium({ pickers, meId }) {
   </section>`;
 }
 
+const listNames = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names.at(-1)}` : names[0]);
+
 function Road({ history, entries }) {
   return html`<section class="section">
     <details class="fold card">
@@ -142,13 +144,17 @@ function Road({ history, entries }) {
       </summary>
       <div class="road" style=${{ marginTop: '14px' }}>
         ${history.map((h) => {
-          const w = entries[h.winner];
-          const l = entries[h.loser];
-          const how = h.method === 'coin' ? '🪙' : h.method === 'champ' ? '🤝' : `${h.tally[h.winner]}–${h.tally[h.loser]}`;
+          const score = h.fighters.map((id) => h.tally[id]).sort((x, y) => y - x).join('–');
+          const kept = h.method === 'keep';
+          const top = entries[kept ? h.survivors[0] : h.winner];
+          const how = h.method === 'coin' ? (h.fighters.length > 2 ? '🎲' : '🪙') : h.method === 'champ' ? '🤝' : score;
           return html`<div class="road-row" key=${h.round}>
             <span class="r">R${h.round}</span>
-            <${Poster} movie=${w} tiny />
-            <span class="grow"><span class="w">${w.title}</span><br /><span class="l">${l.title}</span></span>
+            <${Poster} movie=${top} tiny />
+            <span class="grow">
+              <span class="w">${kept ? `🤝 ${listNames(h.survivors.map((id) => entries[id].title))} tie` : top.title}</span>
+              ${h.losers.length ? html`<br /><span class="l">${h.losers.map((id) => entries[id].title).join(', ')}</span>` : null}
+            </span>
             <span class="score">${how}</span>
           </div>`;
         })}

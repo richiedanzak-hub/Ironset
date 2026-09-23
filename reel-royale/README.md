@@ -18,7 +18,7 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code) an
   - an optional timer for filling the hat
   - an optional vote timer
   - whether to reveal who picked each movie: *never*, *after each vote*, or *always*
-  - tie-breaker: coin flip, or the reigning champ keeps the crown
+  - tie-breaker: coin flip, the reigning champ keeps the crown, or **3-way showdown** (both tied movies stay in and the next movie from the hat joins them; a tied 3-way can grow to a 4-way, and a random draw settles anything past that)
 - **Secret hat.** You only see your own picks until they're drawn. You can remove your picks any time before the hat closes.
 - **Duplicates merge.** If two people add the same movie, it goes in once and both get credit ("Great minds!").
 - **The hat closes** when everyone taps *I'm done*, when the timer runs out, or when the host closes it early.

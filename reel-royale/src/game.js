@@ -24,11 +24,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   submitSeconds: 0,    // 0 = no timer
   voteSeconds: 0,      // 0 = no timer
   reveal: 'reveal',    // 'hidden' | 'reveal' (after each vote) | 'open' (while voting)
-  ties: 'coin',        // 'coin' | 'champ' (reigning champ keeps the crown)
+  ties: 'coin',        // 'coin' | 'champ' (reigning champ keeps the crown) | 'keep' (tied movies stay, next one joins)
 });
 
 const REVEAL = ['hidden', 'reveal', 'open'];
-const TIES = ['coin', 'champ'];
+const TIES = ['coin', 'champ', 'keep'];
+export const MAX_FIGHTERS = 4;      // a 'keep' tie can grow a matchup up to a 4-way
 const COLORS = ['#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#fb923c', '#f87171', '#22d3ee', '#c084fc', '#a3e635'];
 const POSTER_RE = /^https:\/\/(image\.tmdb\.org|is\d+-ssl\.mzstatic\.com)\/[\w\-./%]+$/;
 
@@ -274,9 +275,10 @@ function startBattle(room, now, rng) {
     order,
     next: 2,               // index of the next movie to draw from the hat
     round: 1,
-    total: order.length - 1,
-    champ: order[0],
-    challenger: order[1],
+    total: order.length - 1, // every round after the first draws exactly one movie
+    fighters: [order[0], order[1]],
+    champ: null,           // reigning champion, if one is in this matchup
+    challenger: order[1],  // the movie drawn most recently
     stage: 'voting',
     votes: {},
     endsAt: voteDeadline(room, now),
@@ -290,9 +292,8 @@ function startBattle(room, now, rng) {
 
 function closeVoting(room, now, rng) {
   const b = room.battle;
-  const a = b.champ;
-  const c = b.challenger;
-  const tally = { [a]: 0, [c]: 0 };
+  const fighters = b.fighters;
+  const tally = Object.fromEntries(fighters.map((id) => [id, 0]));
   const votes = {};
   for (const [pid, eid] of Object.entries(b.votes)) {
     if (room.players[pid] && eid in tally) {
@@ -300,37 +301,51 @@ function closeVoting(room, now, rng) {
       votes[pid] = eid;
     }
   }
-  let winner;
+  const top = Math.max(...fighters.map((id) => tally[id]));
+  const leaders = fighters.filter((id) => tally[id] === top);
+  const ties = room.settings.ties;
+  let winner = null;
+  let survivors = null;
   let method = 'votes';
-  if (tally[a] === tally[c]) {
-    if (room.settings.ties === 'champ' && b.round > 1) {
-      winner = a;
-      method = 'champ';
-    } else {
-      winner = rng() < 0.5 ? a : c;
-      method = 'coin';
-    }
+  if (leaders.length === 1) {
+    winner = leaders[0];
+  } else if (ties === 'keep' && b.next < b.order.length && leaders.length < MAX_FIGHTERS) {
+    survivors = leaders;   // they all stay in and the next movie joins them
+    method = 'keep';
+  } else if (ties === 'champ' && b.champ && leaders.includes(b.champ)) {
+    winner = b.champ;
+    method = 'champ';
   } else {
-    winner = tally[a] > tally[c] ? a : c;
+    winner = leaders[Math.floor(rng() * leaders.length)];
+    method = 'coin';
   }
-  const loser = winner === a ? c : a;
-  b.wins[winner] = (b.wins[winner] || 0) + 1;
-  b.result = { winner, loser, tally, votes, method, last: b.next >= b.order.length };
-  b.history.push({ round: b.round, champ: a, challenger: c, winner, loser, tally, method });
+  const losers = fighters.filter((id) => id !== winner && !survivors?.includes(id));
+  if (winner) b.wins[winner] = (b.wins[winner] || 0) + 1;
+  const tied = leaders.length > 1 ? leaders : null;
+  b.result = { winner, losers, survivors, tied, tally, votes, method, last: !survivors && b.next >= b.order.length };
+  b.history.push({ round: b.round, fighters: [...fighters], champ: b.champ, winner, losers, survivors, tally, method });
   b.stage = 'result';
   b.endsAt = null;
 }
 
 function nextMatchup(room, now) {
   const b = room.battle;
-  if (b.next >= b.order.length) {
+  const r = b.result;
+  if (r.last) {
     room.phase = 'final';
-    room.final = { winner: b.result.winner, at: now };
+    room.final = { winner: r.winner, at: now };
     return;
   }
-  b.champ = b.result.winner;
-  b.challenger = b.order[b.next];
+  const newcomer = b.order[b.next];
   b.next += 1;
+  if (r.survivors) {
+    b.fighters = [...r.survivors, newcomer];
+    if (!r.survivors.includes(b.champ)) b.champ = null;
+  } else {
+    b.fighters = [r.winner, newcomer];
+    b.champ = r.winner;
+  }
+  b.challenger = newcomer;
   b.round += 1;
   b.stage = 'voting';
   b.votes = {};
@@ -498,7 +513,7 @@ export function act(room, pid, action, now, rng = Math.random) {
       if (b.stage !== 'voting' || action.round !== b.round) {
         throw new GameError('Voting for that matchup is closed', 409);
       }
-      if (action.entryId !== b.champ && action.entryId !== b.challenger) throw new GameError('Pick one of the two movies');
+      if (!b.fighters.includes(action.entryId)) throw new GameError('Pick one of the movies in this matchup');
       b.votes[pid] = action.entryId;
       break;
     }
@@ -671,7 +686,7 @@ export function viewFor(room, pid, now) {
   if (b && (room.phase === 'battle' || room.phase === 'final')) {
     // Only movies already drawn from the hat are sent; the rest stay a surprise.
     const drawn = b.order.slice(0, b.next);
-    const decided = new Set(b.history.flatMap((h) => [h.champ, h.challenger]));
+    const decided = new Set(b.history.flatMap((h) => h.fighters));
     const showBy = (id) => s.reveal === 'open' || (s.reveal === 'reveal' && (room.phase === 'final' || decided.has(id)));
     view.entries = Object.fromEntries(drawn.map((id) => [id, entryView(room, room.entries[id], pid, showBy(id))]));
     view.battle = {
@@ -680,6 +695,7 @@ export function viewFor(room, pid, now) {
       left: b.order.length - b.next,
       stage: b.stage,
       endsAt: b.endsAt,
+      fighters: b.fighters,
       champ: b.champ,
       challenger: b.challenger,
       myVote: b.votes[pid] || null,

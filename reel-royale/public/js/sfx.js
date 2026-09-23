@@ -47,6 +47,9 @@ export const sfx = {
     tone(820, 0.1, { at: 0.06 });
     buzz(12);
   },
+  tick() {
+    tone(900, 0.03, { type: 'square', gain: 0.02 });
+  },
   drop() {
     tone(700, 0.18, { slide: 0.5 });
   },
