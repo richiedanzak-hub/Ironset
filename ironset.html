@@ -168,7 +168,15 @@ function buildModel(sets, allSets) {
   let e = null;
   const points = [];
   for (const s of sorted) {
-    const obs = freshCorrect(e1rmFromSet(s.weight, s.reps, s.rpe), s, ctx, rsc);
+    const raw = e1rmFromSet(s.weight, s.reps, s.rpe);
+    let obs = freshCorrect(raw, s, ctx, rsc);
+    // The one guarantee that keeps check-ins honest, and it is worth stating in a
+    // single line: a check-in can HOLD your estimate up, but it can never PUSH it up.
+    // The correction is allowed to undo the drop a handicapped day would have caused
+    // and not one pound more, so a rough day protects your max while a real PR is
+    // still credited at exactly the weight you actually moved. Declaring yourself
+    // wrecked can therefore never be used to talk your numbers upward.
+    if (s.cond != null && s.cond < 1) obs = Math.min(obs, Math.max(e != null ? e : raw, raw));
     e = e == null ? obs : e + 0.35 * reliability(s.reps, s.rpe) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
@@ -282,6 +290,29 @@ function analyze(state, models, unit) {
   if (S && B && D && models[S].e1rm && models[B].e1rm && models[D].e1rm) {
     const sq = models[S].e1rm, be = models[B].e1rm;
     if (be / sq < 0.58) add("watch", "Bench is your lagging lift", "Your bench is " + Math.round((be / sq) * 100) + "% of your squat (typical is ~65–75%) — likely the biggest lever on your total.", "bal");
+  }
+
+  // Conditions: the read that answers "am I actually getting weaker, or was that
+  // just a bad month?" — which is the only question a lifter asks after a rough
+  // stretch, and the one the raw trend line answers badly.
+  const condSets = [];
+  for (const n of names) for (const s of ex[n].sets) if (s.cond != null && s.cond < 0.995 && now - s.ts < 28 * DAY) condSets.push(s);
+  if (condSets.length >= 2) {
+    const dayCount = new Set(condSets.map((s) => new Date(s.ts).toDateString())).size;
+    const avgTrim = Math.round((1 - condSets.reduce((a, b) => a + b.cond, 0) / condSets.length) * 1000) / 10;
+    add("note", "Training through rough conditions",
+      dayCount + " recent session" + (dayCount > 1 ? "s were" : " was") + " logged under a check-in, with loads trimmed about " +
+      avgTrim + "% on average. Those sets are being read in the conditions you actually lifted them in, so a bad stretch isn't quietly scored as lost strength.", "cond");
+  } else if (!state.checkins || !Object.keys(state.checkins).length) {
+    // Nobody discovers a feature they've never needed. This appears only for the
+    // lifter whose own data already shows the problem it solves.
+    const recentRec = [];
+    for (const n of names) for (const s of ex[n].sets) if (!s.backoff && s.fromRec && s.tRpe != null && s.rpe != null && now - s.ts < 24 * DAY) recentRec.push(s);
+    const misses = recentRec.filter((s) => s.rpe - s.tRpe >= 0.5).length;
+    if (recentRec.length >= 3 && misses >= 2) {
+      add("watch", "Sets landing harder than prescribed",
+        misses + " of your last " + recentRec.length + " prescribed sets came in half an RPE or more above target. If life outside the gym is part of that — sleep, illness, a week away — the daily check-in on Train shades your loads to match, without marking a rough patch down as lost strength.", "cond-suggest");
+    }
   }
 
   const rank = { alert: 0, win: 1, watch: 2, note: 3 };
@@ -837,6 +868,7 @@ const DEFAULT = {
   exercises: {}, // name -> { name, sets: [{id, ts, weight, reps, rpe, fromRec, tReps, tRpe, rec, note}] }
   bodyweight: [], // [{id, ts, kg}]
   meet: { date: null, name: "", attempts: {} }, // attempts: { liftName: { opener, second, third } in kg }
+  checkins: {}, // "YYYY-MM-DD" -> { score 1-10, gear: [..], ts }
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", trainingMode: "rpe", maxMode: "dynamic", topPct: 85, backoff: { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75, steps: [] } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
@@ -1032,7 +1064,7 @@ function App() {
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
-            <TrainTab {...{ state, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
+            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
           )}
           {tab === "insights" && (
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
@@ -1122,6 +1154,13 @@ function residualFatigue(sets, refTs, includeToday) {
 // so essentially no correction. This keeps a hard week from reading as strength loss
 // without ever manufacturing strength that wasn't demonstrated.
 function freshCorrect(obs, s, sets, rsc) {
+  // A declared handicap is divided straight back out, with no deficit guard, because
+  // the prescription was already reduced by exactly this factor: hit the trimmed
+  // target on effort and the estimate lands back where it started, which is the
+  // whole point. Predicted training debt below still keeps its guard — that one is
+  // the app's guess and can simply be wrong.
+  const cond = (s.cond != null && s.cond >= COND_FLOOR && s.cond < 1) ? s.cond : 1;
+  obs = obs / cond;
   const rd = trimFor(residualFatigue(sets, s.ts).raw, rsc);
   if (rd < 0.01) return obs;
   let corr = 0.85 * rd;
@@ -1169,6 +1208,78 @@ function learnRecoveryScale(sets) {
   const W0 = 2;
   return Math.max(0.15, Math.min(1.9, (W * med + W0 * 0.85) / (W + W0)));
 }
+
+
+/* ----------------------------------------------------------------------------
+   DAILY CONDITIONS — the half of readiness your training data cannot see.
+
+   Residual fatigue above explains what your TRAINING did to you. It has no way of
+   knowing you slept five hours, that the house has had flu for a fortnight, or that
+   you left your belt at home and are lifting on a bar you've never touched. Those
+   get declared rather than inferred, and they work exactly like fatigue does: they
+   shade what gets PRESCRIBED today, and they are never allowed to mean you got
+   weaker. Your estimated max stays anchored to what you can do rested and properly
+   equipped, which is the only definition of a max that stays comparable over time.
+---------------------------------------------------------------------------- */
+
+// 8 is an ordinary training day and the anchor of the whole scale: check in at 8,
+// or never check in at all, and you get precisely the numbers you'd have got before
+// this existed. Above 8 gives a little back, below it costs progressively more.
+// The spread is deliberately narrow — measured effects of poor sleep and illness on
+// maximal strength land in low single-digit percents, not the 20% a bad morning
+// feels like. Under-trimming costs you a slightly easy session; over-trimming
+// wastes the day.
+const READY = {
+  10: { m: 1.012, t: "Primed" },      9: { m: 1.006, t: "Sharp" },
+  8:  { m: 1.000, t: "Normal" },      7: { m: 0.990, t: "Slightly off" },
+  6:  { m: 0.978, t: "Run down" },    5: { m: 0.964, t: "Rough" },
+  4:  { m: 0.948, t: "Depleted" },    3: { m: 0.930, t: "Very rough" },
+  2:  { m: 0.910, t: "Barely there" },1: { m: 0.885, t: "Empty" },
+};
+const READY_DEFAULT = 8;
+function readyInfo(v) { return READY[Math.max(1, Math.min(10, Math.round(v || READY_DEFAULT)))] || READY[8]; }
+
+// Kit is mechanical rather than physiological, so unlike sleep it is lift-specific
+// and far more predictable: a belt is worth real weight on a squat and almost
+// nothing on a bench. These are conservative estimates, not measurements.
+function liftClass(name) {
+  const n = (name || "").toLowerCase();
+  if (/squat/.test(n)) return "squat";
+  if (/dead|rdl|hinge|pull|clean|snatch/.test(n)) return "deadlift";
+  if (/bench|fly|dip/.test(n)) return "bench";
+  if (/press|ohp|jerk/.test(n)) return "press";
+  return "other";
+}
+const GEAR = {
+  belt:    { label: "No belt",     squat: 0.975, deadlift: 0.978, bench: 0.997, press: 0.990, other: 0.993 },
+  sleeves: { label: "No sleeves",  squat: 0.990, deadlift: 0.999, bench: 1.000, press: 1.000, other: 0.997 },
+  shoes:   { label: "Wrong shoes", squat: 0.987, deadlift: 0.997, bench: 0.999, press: 0.994, other: 0.997 },
+  away:    { label: "Away gym",    squat: 0.990, deadlift: 0.990, bench: 0.990, press: 0.990, other: 0.990 },
+};
+const GEAR_KEYS = ["belt", "sleeves", "shoes", "away"];
+const GEAR_FLOOR = 0.96;   // kit alone never explains more than 4%
+const COND_FLOOR = 0.88;   // and everything together never more than 12%
+
+function gearFactor(gear, cls) {
+  let f = 1;
+  for (const g of gear || []) { const G = GEAR[g]; if (G) f *= (G[cls] != null ? G[cls] : G.other); }
+  return Math.max(GEAR_FLOOR, f);
+}
+// Today's capacity as a fraction of rested, fully-equipped strength.
+function conditionFactor(ck, cls) {
+  if (!ck) return 1;
+  return Math.max(COND_FLOOR, readyInfo(ck.score).m * gearFactor(ck.gear, cls));
+}
+// Plain-language attribution, so a trimmed load is never mysterious.
+function conditionWhy(ck, cls) {
+  if (!ck) return "";
+  const bits = [];
+  const r = readyInfo(ck.score);
+  if (Math.abs(r.m - 1) > 0.001) bits.push("readiness " + Math.round(ck.score) + " · " + r.t.toLowerCase());
+  for (const g of ck.gear || []) if (GEAR[g] && (GEAR[g][cls] != null ? GEAR[g][cls] : GEAR[g].other) < 0.999) bits.push(GEAR[g].label.toLowerCase());
+  return bits.join(" · ");
+}
+const checkinOn = (state, dateStr) => (state.checkins || {})[dateStr] || null;
 
 function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
@@ -1435,7 +1546,14 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
     const rr = residualFatigue(ex.sets, now, true), sc = learnRecoveryScale(ex.sets);
     return { name, pct: readinessFor(rr.raw, sc), trim: trimFor(rr.raw, sc), peak: rr.peak, days: rr.days };
   }).sort((a, b) => a.pct - b.pct);
-  const score = fresh.length ? Math.round(fresh.reduce((s, r) => s + r.pct, 0) / fresh.length) : 100;
+  const trainScore = fresh.length ? Math.round(fresh.reduce((s, r) => s + r.pct, 0) / fresh.length) : 100;
+  // A card titled "Readiness · Today" cannot only know what your training did to you.
+  // Declared life readiness lands on the same scale as predicted training debt, so
+  // one number answers the question the card is actually asking. Kit is deliberately
+  // left out of it: forgetting a belt says nothing about how recovered you are.
+  const ckToday = checkinOn(state, todayStr());
+  const lifeM = ckToday ? readyInfo(ckToday.score).m : 1;
+  const score = Math.max(15, Math.min(100, Math.round(trainScore - (Math.max(0, 1 - lifeM) / READY_SPAN) * 62)));
   const sc = freshColor(score);
   // Copy reads the individual lifts, not just the average — a 90 overall means nothing
   // if your squat is sitting at 72.
@@ -1506,6 +1624,26 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.45 }}>{note}</div>
           </div>
         </div>
+        {ckToday ? (
+          <div onClick={() => setTab("train")} style={{ marginTop: 12, display: "flex", alignItems: "center",
+            justifyContent: "space-between", gap: 10, cursor: "pointer", background: "rgba(255,255,255,0.03)",
+            border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
+            <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
+              Checked in <b style={{ color: C.text }}>{ckToday.score} · {readyInfo(ckToday.score).t}</b>
+              {(ckToday.gear || []).length ? <span style={{ color: C.faint }}> · {(ckToday.gear || []).length} kit note{(ckToday.gear || []).length > 1 ? "s" : ""}</span> : null}
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: C.faint, fontWeight: 700 }}>edit</span>
+          </div>
+        ) : (
+          <div onClick={() => setTab("train")} style={{ marginTop: 12, display: "flex", alignItems: "center",
+            justifyContent: "space-between", gap: 10, cursor: "pointer", background: "rgba(255,255,255,0.03)",
+            border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
+            <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
+              No check-in today — <span style={{ color: C.text }}>how did you sleep?</span>
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: C.red, fontWeight: 700 }}>add</span>
+          </div>
+        )}
         {fresh.length > 0 && (
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             {fresh.map((r) => (
@@ -1602,8 +1740,105 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
   );
 }
 
+
+// The 1-10 strip. One tap sets it — no dragging, no confirming, no modal.
+function ReadinessStrip({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 3, marginTop: 11 }}>
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => {
+        const on = value === v;
+        return (
+          <button key={v} onClick={() => onChange(v)} style={{
+            flex: 1, minWidth: 0, height: 42, borderRadius: 10, cursor: "pointer",
+            border: `1px solid ${on ? "transparent" : C.line}`,
+            background: on ? G.red : "rgba(255,255,255,0.03)",
+            color: on ? "#fff" : C.faint, fontFamily: MONO, fontSize: 13, fontWeight: 700,
+            WebkitTapHighlightColor: "transparent", padding: 0,
+            transition: "background .14s ease, color .14s ease" }}>{v}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Today's check-in. The only place in the app where the lifter tells the engine
+// something it had no way of working out for itself.
+function CheckinCard({ state, setState, sel, dateStr }) {
+  const day = dateStr || todayStr();
+  const ck = checkinOn(state, day);
+  const [open, setOpen] = useState(false);
+  const cls = liftClass(sel);
+  const write = (patch) => setState((st) => {
+    const cur = (st.checkins || {})[day] || { score: READY_DEFAULT, gear: [] };
+    return { ...st, checkins: { ...(st.checkins || {}), [day]: { ...cur, ...patch, ts: Date.now() } } };
+  });
+  const toggleGear = (g) => {
+    const cur = (ck && ck.gear) || [];
+    write({ gear: cur.indexOf(g) >= 0 ? cur.filter((x) => x !== g) : cur.concat([g]) });
+  };
+  const factor = conditionFactor(ck, cls);
+  const trim = Math.round((1 - factor) * 1000) / 10;
+  const editing = open || !ck;
+  const info = ck ? readyInfo(ck.score) : null;
+  return (
+    <Card accent={C.blue}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+          <span style={{ width: 3, height: 14, borderRadius: 2, background: C.blue, boxShadow: `0 0 10px ${C.blue}88` }} />
+          <span style={{ ...label, fontSize: 9.5 }}>{day === todayStr() ? "Today's check-in" : "Check-in · " + dshort(tsFromDateStr(day))}</span>
+        </span>
+        {ck && <button onClick={() => setOpen((v) => !v)} style={{ background: "none", border: "none",
+          color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{open ? "Done" : "Change"}</button>}
+      </div>
+
+      {!editing ? (
+        <div style={{ marginTop: 10, display: "flex", alignItems: "baseline", gap: 11, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: MONO, fontSize: 27, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1 }}>{ck.score}</span>
+          <span style={{ fontSize: 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.01em" }}>{info.t}</span>
+          {trim > 0
+            ? <span style={{ fontFamily: MONO, fontSize: 11.5, color: C.gold, fontWeight: 700 }}>loads −{trim}%</span>
+            : <span style={{ fontFamily: MONO, fontSize: 11.5, color: C.faint, fontWeight: 700 }}>loads as normal</span>}
+          {(ck.gear || []).length > 0 && (
+            <span style={{ fontSize: 11.5, color: C.faint, width: "100%" }}>
+              {(ck.gear || []).map((g) => GEAR[g] && GEAR[g].label).filter(Boolean).join(" · ")}
+            </span>
+          )}
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: C.faint, marginTop: 5, lineHeight: 1.5 }}>
+            Sleep, stress, illness, food, life outside the gym. 8 is an ordinary day.
+          </div>
+          {/* Setting the number must not snap the card shut — kit and the explanation
+              live below it, and the first tap is exactly when they matter most. */}
+          <ReadinessStrip value={ck ? ck.score : null} onChange={(v) => { write({ score: v }); setOpen(true); }} />
+          {ck && (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginTop: 11 }}>
+                {ck.score} · {info.t}
+              </div>
+              <div style={{ ...label, fontSize: 9, marginTop: 15, marginBottom: 8 }}>Kit &amp; venue</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {GEAR_KEYS.map((g) => (
+                  <Chip key={g} sm active={(ck.gear || []).indexOf(g) >= 0} onClick={() => toggleGear(g)}>{GEAR[g].label}</Chip>
+                ))}
+              </div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 13, lineHeight: 1.55,
+                borderTop: `1px solid ${C.line}`, paddingTop: 11 }}>
+                {trim > 0
+                  ? <>Today&rsquo;s suggested loads drop <b style={{ color: C.gold }}>{trim}%</b>{sel ? <> for {sel}</> : null}. Your estimated max is left exactly where it is — a rough day changes what you&rsquo;re asked to lift, never what you&rsquo;re capable of.</>
+                  : <>Loads run as normal. Drop the number on a day sleep, stress or illness has caught up with you and the suggestions follow, without touching your estimated max.</>}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan }) {
+function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan }) {
   const { unit, round, bar, inputMode } = settings;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
@@ -1671,7 +1906,14 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
     }
     return { drop: trimFor(total, scale), days: top.days, peak: top.peak, from: top.name };
   }, [selEx, sel, state.exercises, e1rm, logDate]);
-  const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) : null;
+  // Declared conditions ride on top of predicted training debt: independent causes
+  // of the same shortfall, so they multiply. Everything downstream — the top set,
+  // every back-off, the strong/tough-day bracket, the plate maths — reads this one
+  // number, so the whole session shifts together.
+  const dayCheckin = checkinOn(state, logDate);
+  const condFactor = conditionFactor(dayCheckin, liftClass(sel));
+  const condWhy = conditionWhy(dayCheckin, liftClass(sel));
+  const effE1rm = e1rm != null ? e1rm * (1 - recovery.drop) * condFactor : null;
 
   const ref = percentMode ? (locked ? (tmax != null ? tmax : (e1rm != null ? roundTo(e1rm, round) : null)) : (effE1rm != null ? roundTo(effE1rm, round) : null)) : effE1rm;
   const topPct = settings.topPct || 85;
@@ -1765,6 +2007,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
     if (!isFinite(w) || w <= 0) return;
     logSet(boTarget, { weight: roundTo(w, round), reps: boReps, rpe: curBo.rpe, ts: tsFromDateStr(logDate),
       backoff: true, fromRec: false, tReps: boReps, tRpe: percentMode ? Math.round(boBaseRpe * 2) / 2 : boRpe,
+      cond: conditionFactor(dayCheckin, liftClass(boTarget)) < 1 ? conditionFactor(dayCheckin, liftClass(boTarget)) : undefined,
       rec: boSug != null ? boSug : roundTo(w, round) });
     setBoDraft(null);
   };
@@ -1790,6 +2033,7 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
     logSet(sel, {
       weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate),
       fromRec, tReps, tRpe, rec: recR, note: note.trim() || undefined,
+      cond: condFactor < 1 ? condFactor : undefined,
     });
     setNote(""); setFromRec(false); setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
@@ -1877,6 +2121,8 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
         )}
       </Card>
 
+      <CheckinCard state={state} setState={setState} sel={sel} dateStr={logDate} />
+
       {/* TOP SET widget — prescribe, see the load, log it, all in one */}
       <Card accent={C.amber} style={{ padding: "14px 15px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1956,6 +2202,11 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
             {recovery.drop >= 0.01 && (
               <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
                 Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
+              </div>
+            )}
+            {condFactor < 0.999 && (
+              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                Trimmed {fmt(Math.round((1 - condFactor) * 1000) / 10)}% — {condWhy}
               </div>
             )}
             {/* plates */}
@@ -2131,7 +2382,9 @@ function TrainTab({ state, sel, setSel, models, addExercise, updateExercise, log
           with recent ones weighted more, and low-rep top sets count more than long high-rep sets. Recommendations just run that estimate backward
           for the reps and RPE you prescribe. Back-offs read the fatigue from your last set's actual reps and how close to failure it was — a grindy RPE 9
           set drops the next one further than an easy one — and each set, top or back-off, feeds the one after it. The app also learns how fast you personally
-          fade from past sessions. Back-offs stay out of your 1RM estimate so a tired one never drags your numbers down.
+          fade from past sessions. Back-offs stay out of your 1RM estimate so a tired one never drags your numbers down. Your daily check-in works the same way
+          from the other end: it trims what you're asked to lift by a few percent, records that handicap against every set you log under it, and divides it back
+          out before your max is updated — so a rough week changes today's loads without ever being recorded as lost strength.
         </Card>
       )}
 
@@ -2269,6 +2522,9 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
                 {dshort(s.ts)}{s.backoff ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
+                {s.cond != null && s.cond < 1
+                  ? <span style={{ color: C.gold }}> · −{fmt(Math.round((1 - s.cond) * 1000) / 10)}% conditions</span>
+                  : null}
                 {s.fromRec && s.tRpe != null && (
                   <span style={{ color: Math.abs(s.rpe - s.tRpe) < 0.25 ? C.good : C.red }}>
                     {"  ·  target " + (inputMode === "rir" ? `${fmt(10 - s.tRpe)} RIR` : `RPE ${fmt(s.tRpe)}`) + (Math.abs(s.rpe - s.tRpe) < 0.25 ? " ✓" : ` → felt ${inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}`)}
@@ -2892,6 +3148,7 @@ function InsightsTab({ analysis, unit, state, setState }) {
           ["Variations", "Linked variations feed one family model through a learned ratio to their main lift, so a paused-squat PR sharpens your squat estimate too."],
           ["Back-offs", "Suggestions come off your actual last set, discounted by your personal fatigue profile — learned separately per lift, and separately for the top-set drop versus the chain, from every transition you've ever logged."],
           ["Week-over-week capacity", "Work above ~RPE 8 leaves a recovery debt that decays across the days between sessions. Its size is learned per lift from your own history, and when it applies your prescriptions are trimmed — visibly — while your max stays untouched."],
+          ["Daily conditions", "Sleep, illness, stress and the belt you left at home are invisible to a training log, so you declare them instead. A check-in shades today's prescriptions by a few percent — kit is applied per lift, since a belt is worth real weight on a squat and almost nothing on a bench — and every set you log is stamped with the handicap that was in force. The estimator divides that straight back out, so hitting a trimmed target on effort leaves your max exactly where it was. The rule that keeps this honest: a check-in can hold your estimate up, it can never push it up. A genuine PR on a rough day scores exactly what it would have scored anyway."],
         ].map(([t, d]) => (
           <div key={t} style={{ marginBottom: 16 }}>
             <div style={{ ...label, fontSize: 10, marginBottom: 5, color: C.red }}>{t}</div>
