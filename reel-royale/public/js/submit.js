@@ -169,7 +169,7 @@ export function Submit() {
             ${mine.map(
               (e) => html`<div class="pick" key=${e.id}>
                 <${Poster} movie=${e} tiny />
-                <div class="grow"><strong>${e.title}</strong><span>${movieMeta(e) || 'Looking up details…'}</span></div>
+                <div class="grow"><strong>${e.title}</strong><span>${movieMeta(e) || 'Added as typed'}</span></div>
                 <button class="x" aria-label=${`Remove ${e.title}`} onClick=${() => remove(e)}>✕</button>
               </div>`,
             )}
