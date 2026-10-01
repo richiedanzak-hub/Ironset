@@ -2116,7 +2116,14 @@ function ExercisePicker({ open, onClose, onPick, existing }) {
   // Search beats filters: if you typed "spoto" you want it whatever is selected.
   const hits = LIB.filter((x) => (!query || x.n.toLowerCase().includes(query))
     && (query || !cat || x.c === cat) && (query || !eq || x.e === eq));
-  const own = (existing || []).filter((n) => !libFind(n) && (!query || n.toLowerCase().includes(query)));
+  // Your own movements carry no catalogue metadata, so they have to be filtered on
+  // what can actually be inferred: the lift pattern from the name, and nothing at
+  // all about equipment. A movement we can't place stays out of a filtered list
+  // rather than claiming to be an arm exercise. Search still finds everything.
+  const ownCat = (n) => { const c = liftClass(n); return c === "other" ? null : c; };
+  const own = (existing || []).filter((n) => !libFind(n)
+    && (!query || n.toLowerCase().includes(query))
+    && (query || ((!cat || ownCat(n) === cat) && !eq)));
   const canCustom = query.length > 1 && !LIB.some((x) => x.n.toLowerCase() === query) && !(existing || []).some((n) => n.toLowerCase() === query);
   const eqName = (k) => { const E = LIB_EQUIP.find((x) => x.k === k); return E ? E.t : ""; };
   return (
