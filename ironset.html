@@ -1297,84 +1297,214 @@ const checkinOn = (state, dateStr) => (state.checkins || {})[dateStr] || null;
    has, and every load still comes from the same estimator.
 ---------------------------------------------------------------------------- */
 
-// m: the main lift this feeds (variations inherit its strength model via ratio r).
-// r: starting ratio to that main lift — the app re-learns it from your own sets.
-// d: the default intensity language for this kind of work.
+// n name · c movement pattern · m the main lift it feeds (null = accessory)
+// r starting ratio to that main lift, re-learned from your own sets · d default
+// intensity language · e equipment, so you can filter to what your gym has.
 const LIB = [
-  // ---- squat pattern ----
-  ["Low-Bar Squat","squat","Squat",1,"rpe"],["High-Bar Squat","squat","Squat",0.95,"rpe"],
-  ["Front Squat","squat","Squat",0.82,"rpe"],["Safety Bar Squat","squat","Squat",0.88,"rpe"],
-  ["Pause Squat","squat","Squat",0.9,"rpe"],["Tempo Squat","squat","Squat",0.88,"rpe"],
-  ["Box Squat","squat","Squat",0.95,"rpe"],["Pin Squat","squat","Squat",0.9,"rpe"],
-  ["Anderson Squat","squat","Squat",0.9,"rpe"],["1.5 Rep Squat","squat","Squat",0.8,"rpe"],
-  ["Belt Squat","squat",null,1,"rir"],["Hack Squat","squat",null,1,"rir"],
-  ["Leg Press","squat",null,1,"rir"],["Bulgarian Split Squat","squat",null,1,"rir"],
-  ["Walking Lunge","squat",null,1,"rir"],["Step-Up","squat",null,1,"rir"],
-  ["Goblet Squat","squat",null,1,"rir"],["Zercher Squat","squat","Squat",0.8,"rpe"],
-  ["Banded Squat","squat","Squat",0.9,"pct"],["Chain Squat","squat","Squat",0.9,"pct"],
-  // ---- bench pattern ----
-  ["Competition Bench","bench","Bench Press",1,"rpe"],["Close-Grip Bench","bench","Bench Press",0.93,"rpe"],
-  ["Wide-Grip Bench","bench","Bench Press",0.97,"rpe"],["Pause Bench","bench","Bench Press",0.95,"rpe"],
-  ["Spoto Press","bench","Bench Press",0.93,"rpe"],["Larsen Press","bench","Bench Press",0.93,"rpe"],
-  ["1-Board Press","bench","Bench Press",1.04,"rpe"],["2-Board Press","bench","Bench Press",1.08,"rpe"],
-  ["3-Board Press","bench","Bench Press",1.12,"rpe"],["Pin Press","bench","Bench Press",0.95,"rpe"],
-  ["Floor Press","bench","Bench Press",0.95,"rpe"],["Incline Bench","bench",null,1,"rpe"],
-  ["Decline Bench","bench",null,1,"rir"],["Dumbbell Bench","bench",null,1,"rir"],
-  ["Dumbbell Incline","bench",null,1,"rir"],["Feet-Up Bench","bench","Bench Press",0.95,"rpe"],
-  ["Slingshot Bench","bench","Bench Press",1.1,"rpe"],["Tempo Bench","bench","Bench Press",0.9,"rpe"],
-  ["Machine Chest Press","bench",null,1,"rir"],["Cable Fly","bench",null,1,"rir"],
-  ["Dumbbell Fly","bench",null,1,"rir"],["Push-Up","bench",null,1,"rir"],
-  // ---- deadlift pattern ----
-  ["Conventional Deadlift","deadlift","Deadlift",1,"rpe"],["Sumo Deadlift","deadlift","Deadlift",1,"rpe"],
-  ["Deficit Deadlift","deadlift","Deadlift",0.92,"rpe"],["Block Pull","deadlift","Deadlift",1.08,"rpe"],
-  ["Rack Pull","deadlift","Deadlift",1.15,"rpe"],["Pause Deadlift","deadlift","Deadlift",0.9,"rpe"],
-  ["Tempo Deadlift","deadlift","Deadlift",0.88,"rpe"],["Snatch-Grip Deadlift","deadlift","Deadlift",0.85,"rpe"],
-  ["Trap Bar Deadlift","deadlift",null,1,"rpe"],["Romanian Deadlift","deadlift",null,1,"rir"],
-  ["Stiff-Leg Deadlift","deadlift",null,1,"rir"],["Good Morning","deadlift",null,1,"rir"],
-  ["Back Extension","deadlift",null,1,"rir"],["Reverse Hyper","deadlift",null,1,"rir"],
-  ["Glute Ham Raise","deadlift",null,1,"rir"],["Hip Thrust","deadlift",null,1,"rir"],
-  ["Banded Deadlift","deadlift","Deadlift",0.9,"pct"],["Speed Deadlift","deadlift","Deadlift",1,"pct"],
-  // ---- overhead press ----
-  ["Overhead Press","press","Overhead Press",1,"rpe"],["Push Press","press",null,1,"rpe"],
-  ["Seated Overhead Press","press","Overhead Press",0.93,"rpe"],["Z Press","press","Overhead Press",0.8,"rpe"],
-  ["Dumbbell Shoulder Press","press",null,1,"rir"],["Landmine Press","press",null,1,"rir"],
-  ["Lateral Raise","press",null,1,"rir"],["Front Raise","press",null,1,"rir"],
-  ["Rear Delt Fly","press",null,1,"rir"],["Face Pull","press",null,1,"rir"],
-  ["Upright Row","press",null,1,"rir"],
-  // ---- back / pulling ----
-  ["Barbell Row","back",null,1,"rir"],["Pendlay Row","back",null,1,"rpe"],
-  ["Chest-Supported Row","back",null,1,"rir"],["Dumbbell Row","back",null,1,"rir"],
-  ["Seated Cable Row","back",null,1,"rir"],["T-Bar Row","back",null,1,"rir"],
-  ["Lat Pulldown","back",null,1,"rir"],["Pull-Up","back",null,1,"rir"],
-  ["Chin-Up","back",null,1,"rir"],["Straight-Arm Pulldown","back",null,1,"rir"],
-  ["Meadows Row","back",null,1,"rir"],["Barbell Shrug","back",null,1,"rir"],
-  ["Dumbbell Shrug","back",null,1,"rir"],["Rack Pull Shrug","back",null,1,"rir"],
-  // ---- arms ----
-  ["Triceps Pushdown","arms",null,1,"rir"],["Overhead Triceps Extension","arms",null,1,"rir"],
-  ["Skullcrusher","arms",null,1,"rir"],["JM Press","arms",null,1,"rir"],
-  ["Dip","arms",null,1,"rir"],["Barbell Curl","arms",null,1,"rir"],
-  ["Dumbbell Curl","arms",null,1,"rir"],["Hammer Curl","arms",null,1,"rir"],
-  ["Preacher Curl","arms",null,1,"rir"],["Cable Curl","arms",null,1,"rir"],
-  ["Incline Dumbbell Curl","arms",null,1,"rir"],["Reverse Curl","arms",null,1,"rir"],
-  ["Triceps Kickback","arms",null,1,"rir"],["Close-Grip Push-Up","arms",null,1,"rir"],
-  // ---- legs (isolation) ----
-  ["Leg Extension","legs",null,1,"rir"],["Lying Leg Curl","legs",null,1,"rir"],
-  ["Seated Leg Curl","legs",null,1,"rir"],["Nordic Curl","legs",null,1,"rir"],
-  ["Standing Calf Raise","legs",null,1,"rir"],["Seated Calf Raise","legs",null,1,"rir"],
-  ["Hip Adduction","legs",null,1,"rir"],["Hip Abduction","legs",null,1,"rir"],
-  ["Sissy Squat","legs",null,1,"rir"],["Tibialis Raise","legs",null,1,"rir"],
-  // ---- trunk ----
-  ["Plank","core",null,1,"rir"],["Hanging Leg Raise","core",null,1,"rir"],
-  ["Ab Wheel","core",null,1,"rir"],["Cable Crunch","core",null,1,"rir"],
-  ["Pallof Press","core",null,1,"rir"],["Side Plank","core",null,1,"rir"],
-  ["Weighted Sit-Up","core",null,1,"rir"],["Copenhagen Plank","core",null,1,"rir"],
-  ["Suitcase Carry","core",null,1,"rir"],["Farmer's Walk","core",null,1,"rir"],
-].map(([n, c, m, r, d]) => ({ n, c, m, r, d }));
+  // ============================ SQUAT PATTERN ============================
+  ["Low-Bar Squat","squat","Squat",1,"rpe","bb"],["High-Bar Squat","squat","Squat",0.95,"rpe","bb"],
+  ["Front Squat","squat","Squat",0.82,"rpe","bb"],["Safety Bar Squat","squat","Squat",0.88,"rpe","sp"],
+  ["Cambered Bar Squat","squat","Squat",0.85,"rpe","sp"],["Buffalo Bar Squat","squat","Squat",0.97,"rpe","sp"],
+  ["Pause Squat","squat","Squat",0.9,"rpe","bb"],["2ct Pause Squat","squat","Squat",0.88,"rpe","bb"],
+  ["3ct Pause Squat","squat","Squat",0.86,"rpe","bb"],["Tempo Squat","squat","Squat",0.88,"rpe","bb"],
+  ["Box Squat","squat","Squat",0.95,"rpe","bb"],["High Box Squat","squat","Squat",1.02,"rpe","bb"],
+  ["Pin Squat","squat","Squat",0.9,"rpe","bb"],["Anderson Squat","squat","Squat",0.9,"rpe","bb"],
+  ["1.5 Rep Squat","squat","Squat",0.8,"rpe","bb"],["Zercher Squat","squat","Squat",0.8,"rpe","bb"],
+  ["Close-Stance Squat","squat","Squat",0.97,"rpe","bb"],["Wide-Stance Squat","squat","Squat",1,"rpe","bb"],
+  ["Heels-Elevated Squat","squat","Squat",0.93,"rpe","bb"],["Banded Squat","squat","Squat",0.9,"pct","bd"],
+  ["Chain Squat","squat","Squat",0.9,"pct","bb"],["Speed Squat","squat","Squat",1,"pct","bb"],
+  ["Paused Front Squat","squat","Squat",0.78,"rpe","bb"],["Overhead Squat","squat",null,1,"rpe","bb"],
+  ["Smith Machine Squat","squat",null,1,"rir","sm"],["Hack Squat","squat",null,1,"rir","mc"],
+  ["Pendulum Squat","squat",null,1,"rir","mc"],["V-Squat","squat",null,1,"rir","mc"],
+  ["Belt Squat","squat",null,1,"rir","mc"],["Leg Press","squat",null,1,"rir","mc"],
+  ["Single-Leg Press","squat",null,1,"rir","mc"],["Horizontal Leg Press","squat",null,1,"rir","mc"],
+  ["Bulgarian Split Squat","squat",null,1,"rir","db"],["Split Squat","squat",null,1,"rir","db"],
+  ["Walking Lunge","squat",null,1,"rir","db"],["Reverse Lunge","squat",null,1,"rir","db"],
+  ["Forward Lunge","squat",null,1,"rir","db"],["Curtsy Lunge","squat",null,1,"rir","db"],
+  ["Deficit Reverse Lunge","squat",null,1,"rir","db"],["Step-Up","squat",null,1,"rir","db"],
+  ["Lateral Step-Up","squat",null,1,"rir","db"],["Box Step-Down","squat",null,1,"rir","bw"],
+  ["Goblet Squat","squat",null,1,"rir","db"],["Kettlebell Front Squat","squat",null,1,"rir","kb"],
+  ["Cyclist Squat","squat",null,1,"rir","bb"],["Sissy Squat","squat",null,1,"rir","bw"],
+  ["Air Squat","squat",null,1,"rir","bw"],["Pistol Squat","squat",null,1,"rir","bw"],
+  ["Wall Sit","squat",null,1,"rir","bw"],["Jump Squat","squat",null,1,"rir","bw"],
+  ["Box Jump","squat",null,1,"rir","bw"],["Broad Jump","squat",null,1,"rir","bw"],
+  ["Depth Jump","squat",null,1,"rir","bw"],["Sled Push","squat",null,1,"rir","sl"],
+  ["Hatfield Squat","squat",null,1,"rir","sp"],["Landmine Squat","squat",null,1,"rir","bb"],
+  // ============================ BENCH / CHEST ============================
+  ["Competition Bench","bench","Bench Press",1,"rpe","bb"],["Touch-and-Go Bench","bench","Bench Press",1.04,"rpe","bb"],
+  ["Close-Grip Bench","bench","Bench Press",0.93,"rpe","bb"],["Wide-Grip Bench","bench","Bench Press",0.97,"rpe","bb"],
+  ["Pause Bench","bench","Bench Press",0.95,"rpe","bb"],["2ct Pause Bench","bench","Bench Press",0.93,"rpe","bb"],
+  ["3ct Pause Bench","bench","Bench Press",0.91,"rpe","bb"],["Spoto Press","bench","Bench Press",0.93,"rpe","bb"],
+  ["Larsen Press","bench","Bench Press",0.93,"rpe","bb"],["Feet-Up Bench","bench","Bench Press",0.95,"rpe","bb"],
+  ["1-Board Press","bench","Bench Press",1.04,"rpe","bb"],["2-Board Press","bench","Bench Press",1.08,"rpe","bb"],
+  ["3-Board Press","bench","Bench Press",1.12,"rpe","bb"],["Pin Press","bench","Bench Press",0.95,"rpe","bb"],
+  ["Floor Press","bench","Bench Press",0.95,"rpe","bb"],["Dead Bench","bench","Bench Press",0.88,"rpe","bb"],
+  ["Slingshot Bench","bench","Bench Press",1.1,"rpe","sp"],["Tempo Bench","bench","Bench Press",0.9,"rpe","bb"],
+  ["Reverse-Grip Bench","bench","Bench Press",0.95,"rpe","bb"],["Swiss Bar Bench","bench","Bench Press",0.92,"rpe","sp"],
+  ["Football Bar Bench","bench","Bench Press",0.92,"rpe","sp"],["Guillotine Press","bench","Bench Press",0.85,"rpe","bb"],
+  ["Banded Bench","bench","Bench Press",0.95,"pct","bd"],["Chain Bench","bench","Bench Press",0.95,"pct","bb"],
+  ["Speed Bench","bench","Bench Press",1,"pct","bb"],["Incline Bench","bench",null,1,"rpe","bb"],
+  ["Low-Incline Bench","bench",null,1,"rpe","bb"],["Decline Bench","bench",null,1,"rir","bb"],
+  ["Dumbbell Bench","bench",null,1,"rir","db"],["Dumbbell Incline","bench",null,1,"rir","db"],
+  ["Dumbbell Decline","bench",null,1,"rir","db"],["Neutral-Grip DB Press","bench",null,1,"rir","db"],
+  ["Smith Bench","bench",null,1,"rir","sm"],["Smith Incline","bench",null,1,"rir","sm"],
+  ["Machine Chest Press","bench",null,1,"rir","mc"],["Incline Machine Press","bench",null,1,"rir","mc"],
+  ["Pec Deck","bench",null,1,"rir","mc"],["Cable Fly","bench",null,1,"rir","cb"],
+  ["Low-to-High Cable Fly","bench",null,1,"rir","cb"],["High-to-Low Cable Fly","bench",null,1,"rir","cb"],
+  ["Dumbbell Fly","bench",null,1,"rir","db"],["Incline Dumbbell Fly","bench",null,1,"rir","db"],
+  ["Cable Crossover","bench",null,1,"rir","cb"],["Push-Up","bench",null,1,"rir","bw"],
+  ["Deficit Push-Up","bench",null,1,"rir","bw"],["Weighted Push-Up","bench",null,1,"rir","bw"],
+  ["Ring Push-Up","bench",null,1,"rir","bw"],["Band Push-Up","bench",null,1,"rir","bd"],
+  ["Dumbbell Pullover","bench",null,1,"rir","db"],["Med Ball Chest Throw","bench",null,1,"rir","bw"],
+  // ========================== DEADLIFT / HINGE ===========================
+  ["Conventional Deadlift","deadlift","Deadlift",1,"rpe","bb"],["Sumo Deadlift","deadlift","Deadlift",1,"rpe","bb"],
+  ["Deficit Deadlift 1in","deadlift","Deadlift",0.95,"rpe","bb"],["Deficit Deadlift 2in","deadlift","Deadlift",0.92,"rpe","bb"],
+  ["Deficit Deadlift 3in","deadlift","Deadlift",0.9,"rpe","bb"],["Block Pull 2in","deadlift","Deadlift",1.08,"rpe","bb"],
+  ["Block Pull 4in","deadlift","Deadlift",1.15,"rpe","bb"],["Rack Pull Below Knee","deadlift","Deadlift",1.15,"rpe","bb"],
+  ["Rack Pull At Knee","deadlift","Deadlift",1.25,"rpe","bb"],["Pause Deadlift","deadlift","Deadlift",0.9,"rpe","bb"],
+  ["Pause Below Knee","deadlift","Deadlift",0.88,"rpe","bb"],["Tempo Deadlift","deadlift","Deadlift",0.88,"rpe","bb"],
+  ["Snatch-Grip Deadlift","deadlift","Deadlift",0.85,"rpe","bb"],["Halting Deadlift","deadlift","Deadlift",0.9,"rpe","bb"],
+  ["Banded Deadlift","deadlift","Deadlift",0.9,"pct","bd"],["Chain Deadlift","deadlift","Deadlift",0.9,"pct","bb"],
+  ["Speed Deadlift","deadlift","Deadlift",1,"pct","bb"],["Trap Bar Deadlift","deadlift",null,1,"rpe","sp"],
+  ["Trap Bar High Handle","deadlift",null,1,"rpe","sp"],["Jefferson Deadlift","deadlift",null,1,"rir","bb"],
+  ["Suitcase Deadlift","deadlift",null,1,"rir","bb"],["Romanian Deadlift","deadlift",null,1,"rir","bb"],
+  ["Dumbbell RDL","deadlift",null,1,"rir","db"],["Single-Leg RDL","deadlift",null,1,"rir","db"],
+  ["B-Stance RDL","deadlift",null,1,"rir","db"],["Stiff-Leg Deadlift","deadlift",null,1,"rir","bb"],
+  ["Good Morning","deadlift",null,1,"rir","bb"],["Seated Good Morning","deadlift",null,1,"rir","bb"],
+  ["SSB Good Morning","deadlift",null,1,"rir","sp"],["Back Extension","deadlift",null,1,"rir","bw"],
+  ["45-Degree Back Extension","deadlift",null,1,"rir","bw"],["Reverse Hyper","deadlift",null,1,"rir","mc"],
+  ["Glute Ham Raise","deadlift",null,1,"rir","bw"],["Nordic Curl","deadlift",null,1,"rir","bw"],
+  ["Hip Thrust","deadlift",null,1,"rir","bb"],["Single-Leg Hip Thrust","deadlift",null,1,"rir","bw"],
+  ["Glute Bridge","deadlift",null,1,"rir","bb"],["Cable Pull-Through","deadlift",null,1,"rir","cb"],
+  ["Kettlebell Swing","deadlift",null,1,"rir","kb"],["Kettlebell Deadlift","deadlift",null,1,"rir","kb"],
+  ["Sled Drag","deadlift",null,1,"rir","sl"],["Belt Squat March","deadlift",null,1,"rir","mc"],
+  ["Hyperextension Hold","deadlift",null,1,"rir","bw"],["Band Pull-Through","deadlift",null,1,"rir","bd"],
+  // ========================= OVERHEAD / SHOULDERS ========================
+  ["Overhead Press","press","Overhead Press",1,"rpe","bb"],["Pause Overhead Press","press","Overhead Press",0.95,"rpe","bb"],
+  ["Seated Overhead Press","press","Overhead Press",0.93,"rpe","bb"],["Z Press","press","Overhead Press",0.8,"rpe","bb"],
+  ["Behind-Neck Press","press","Overhead Press",0.95,"rpe","bb"],["Pin Press Overhead","press","Overhead Press",0.95,"rpe","bb"],
+  ["Savickas Press","press","Overhead Press",0.85,"rpe","bb"],["Push Press","press",null,1,"rpe","bb"],
+  ["Push Jerk","press",null,1,"rpe","bb"],["Split Jerk","press",null,1,"rpe","bb"],
+  ["Log Press","press",null,1,"rpe","sp"],["Axle Press","press",null,1,"rpe","sp"],
+  ["Dumbbell Shoulder Press","press",null,1,"rir","db"],["Seated DB Shoulder Press","press",null,1,"rir","db"],
+  ["Arnold Press","press",null,1,"rir","db"],["Single-Arm DB Press","press",null,1,"rir","db"],
+  ["Machine Shoulder Press","press",null,1,"rir","mc"],["Smith Shoulder Press","press",null,1,"rir","sm"],
+  ["Landmine Press","press",null,1,"rir","bb"],["Half-Kneeling Landmine Press","press",null,1,"rir","bb"],
+  ["Lateral Raise","press",null,1,"rir","db"],["Cable Lateral Raise","press",null,1,"rir","cb"],
+  ["Machine Lateral Raise","press",null,1,"rir","mc"],["Lean-Away Lateral Raise","press",null,1,"rir","db"],
+  ["Front Raise","press",null,1,"rir","db"],["Plate Front Raise","press",null,1,"rir","bb"],
+  ["Rear Delt Fly","press",null,1,"rir","db"],["Reverse Pec Deck","press",null,1,"rir","mc"],
+  ["Cable Rear Delt Fly","press",null,1,"rir","cb"],["Face Pull","press",null,1,"rir","cb"],
+  ["Band Pull-Apart","press",null,1,"rir","bd"],["Upright Row","press",null,1,"rir","bb"],
+  ["Cable Upright Row","press",null,1,"rir","cb"],["Cuban Press","press",null,1,"rir","db"],
+  ["Powell Raise","press",null,1,"rir","db"],["Y Raise","press",null,1,"rir","db"],
+  ["Scap Push-Up","press",null,1,"rir","bw"],["Wall Slide","press",null,1,"rir","bw"],
+  ["External Rotation","press",null,1,"rir","cb"],["Internal Rotation","press",null,1,"rir","cb"],
+  ["Handstand Push-Up","press",null,1,"rir","bw"],["Pike Push-Up","press",null,1,"rir","bw"],
+  // ============================= BACK / PULL =============================
+  ["Barbell Row","back",null,1,"rir","bb"],["Pendlay Row","back",null,1,"rpe","bb"],
+  ["Underhand Barbell Row","back",null,1,"rir","bb"],["Chest-Supported Row","back",null,1,"rir","mc"],
+  ["Seal Row","back",null,1,"rir","bb"],["T-Bar Row","back",null,1,"rir","bb"],
+  ["Dumbbell Row","back",null,1,"rir","db"],["Kroc Row","back",null,1,"rir","db"],
+  ["Meadows Row","back",null,1,"rir","bb"],["Landmine Row","back",null,1,"rir","bb"],
+  ["Seated Cable Row","back",null,1,"rir","cb"],["Single-Arm Cable Row","back",null,1,"rir","cb"],
+  ["Wide-Grip Cable Row","back",null,1,"rir","cb"],["Machine Row","back",null,1,"rir","mc"],
+  ["Inverted Row","back",null,1,"rir","bw"],["Ring Row","back",null,1,"rir","bw"],
+  ["Lat Pulldown","back",null,1,"rir","cb"],["Wide-Grip Pulldown","back",null,1,"rir","cb"],
+  ["Neutral-Grip Pulldown","back",null,1,"rir","cb"],["Single-Arm Pulldown","back",null,1,"rir","cb"],
+  ["Pull-Up","back",null,1,"rir","bw"],["Weighted Pull-Up","back",null,1,"rir","bw"],
+  ["Chin-Up","back",null,1,"rir","bw"],["Weighted Chin-Up","back",null,1,"rir","bw"],
+  ["Neutral-Grip Pull-Up","back",null,1,"rir","bw"],["Rack Chin","back",null,1,"rir","bw"],
+  ["Straight-Arm Pulldown","back",null,1,"rir","cb"],["Cable Pullover","back",null,1,"rir","cb"],
+  ["Barbell Shrug","back",null,1,"rir","bb"],["Dumbbell Shrug","back",null,1,"rir","db"],
+  ["Trap Bar Shrug","back",null,1,"rir","sp"],["Cable Shrug","back",null,1,"rir","cb"],
+  ["Rack Pull Shrug","back",null,1,"rir","bb"],["Prone Trap Raise","back",null,1,"rir","db"],
+  ["Dead Hang","back",null,1,"rir","bw"],["Scap Pull-Up","back",null,1,"rir","bw"],
+  // ================================ ARMS =================================
+  ["Triceps Pushdown","arms",null,1,"rir","cb"],["Rope Pushdown","arms",null,1,"rir","cb"],
+  ["Reverse-Grip Pushdown","arms",null,1,"rir","cb"],["Overhead Triceps Extension","arms",null,1,"rir","cb"],
+  ["Dumbbell Overhead Extension","arms",null,1,"rir","db"],["Skullcrusher","arms",null,1,"rir","bb"],
+  ["Dumbbell Skullcrusher","arms",null,1,"rir","db"],["JM Press","arms",null,1,"rir","bb"],
+  ["Tate Press","arms",null,1,"rir","db"],["French Press","arms",null,1,"rir","bb"],
+  ["Dip","arms",null,1,"rir","bw"],["Weighted Dip","arms",null,1,"rir","bw"],
+  ["Machine Dip","arms",null,1,"rir","mc"],["Bench Dip","arms",null,1,"rir","bw"],
+  ["Close-Grip Push-Up","arms",null,1,"rir","bw"],["Triceps Kickback","arms",null,1,"rir","db"],
+  ["Barbell Curl","arms",null,1,"rir","bb"],["EZ-Bar Curl","arms",null,1,"rir","bb"],
+  ["Dumbbell Curl","arms",null,1,"rir","db"],["Alternating DB Curl","arms",null,1,"rir","db"],
+  ["Hammer Curl","arms",null,1,"rir","db"],["Cross-Body Hammer Curl","arms",null,1,"rir","db"],
+  ["Preacher Curl","arms",null,1,"rir","bb"],["DB Preacher Curl","arms",null,1,"rir","db"],
+  ["Incline Dumbbell Curl","arms",null,1,"rir","db"],["Spider Curl","arms",null,1,"rir","db"],
+  ["Concentration Curl","arms",null,1,"rir","db"],["Cable Curl","arms",null,1,"rir","cb"],
+  ["Bayesian Curl","arms",null,1,"rir","cb"],["Rope Hammer Curl","arms",null,1,"rir","cb"],
+  ["Reverse Curl","arms",null,1,"rir","bb"],["Zottman Curl","arms",null,1,"rir","db"],
+  ["Machine Curl","arms",null,1,"rir","mc"],["21s","arms",null,1,"rir","bb"],
+  ["Drag Curl","arms",null,1,"rir","bb"],["Band Curl","arms",null,1,"rir","bd"],
+  // ============================ LEGS (ISOLATION) =========================
+  ["Leg Extension","legs",null,1,"rir","mc"],["Single-Leg Extension","legs",null,1,"rir","mc"],
+  ["Lying Leg Curl","legs",null,1,"rir","mc"],["Seated Leg Curl","legs",null,1,"rir","mc"],
+  ["Standing Leg Curl","legs",null,1,"rir","mc"],["Single-Leg Curl","legs",null,1,"rir","mc"],
+  ["Standing Calf Raise","legs",null,1,"rir","mc"],["Seated Calf Raise","legs",null,1,"rir","mc"],
+  ["Leg Press Calf Raise","legs",null,1,"rir","mc"],["Donkey Calf Raise","legs",null,1,"rir","mc"],
+  ["Single-Leg Calf Raise","legs",null,1,"rir","bw"],["Smith Calf Raise","legs",null,1,"rir","sm"],
+  ["Hip Adduction","legs",null,1,"rir","mc"],["Hip Abduction","legs",null,1,"rir","mc"],
+  ["Cable Kickback","legs",null,1,"rir","cb"],["Copenhagen Plank","legs",null,1,"rir","bw"],
+  ["Tibialis Raise","legs",null,1,"rir","bw"],["Banded Monster Walk","legs",null,1,"rir","bd"],
+  ["Banded Clamshell","legs",null,1,"rir","bd"],["Frog Pump","legs",null,1,"rir","bw"],
+  // ================================ TRUNK ================================
+  ["Plank","core",null,1,"rir","bw"],["Side Plank","core",null,1,"rir","bw"],
+  ["RKC Plank","core",null,1,"rir","bw"],["Hanging Leg Raise","core",null,1,"rir","bw"],
+  ["Hanging Knee Raise","core",null,1,"rir","bw"],["Toes-to-Bar","core",null,1,"rir","bw"],
+  ["Ab Wheel","core",null,1,"rir","bw"],["Cable Crunch","core",null,1,"rir","cb"],
+  ["Machine Crunch","core",null,1,"rir","mc"],["Weighted Sit-Up","core",null,1,"rir","bw"],
+  ["GHD Sit-Up","core",null,1,"rir","bw"],["Decline Sit-Up","core",null,1,"rir","bw"],
+  ["Pallof Press","core",null,1,"rir","cb"],["Landmine Twist","core",null,1,"rir","bb"],
+  ["Russian Twist","core",null,1,"rir","bw"],["Hollow Hold","core",null,1,"rir","bw"],
+  ["Dead Bug","core",null,1,"rir","bw"],["Bird Dog","core",null,1,"rir","bw"],
+  ["Dragon Flag","core",null,1,"rir","bw"],["L-Sit","core",null,1,"rir","bw"],
+  ["Stir the Pot","core",null,1,"rir","bw"],["Band Anti-Rotation","core",null,1,"rir","bd"],
+  ["Reverse Crunch","core",null,1,"rir","bw"],["Jackknife","core",null,1,"rir","bw"],
+  // ============================== OLYMPIC ================================
+  ["Power Clean","oly",null,1,"rpe","bb"],["Hang Power Clean","oly",null,1,"rpe","bb"],
+  ["Squat Clean","oly",null,1,"rpe","bb"],["Hang Squat Clean","oly",null,1,"rpe","bb"],
+  ["Clean Pull","oly",null,1,"rpe","bb"],["Clean High Pull","oly",null,1,"rpe","bb"],
+  ["Clean Deadlift","oly",null,1,"rpe","bb"],["Power Snatch","oly",null,1,"rpe","bb"],
+  ["Hang Power Snatch","oly",null,1,"rpe","bb"],["Squat Snatch","oly",null,1,"rpe","bb"],
+  ["Snatch Pull","oly",null,1,"rpe","bb"],["Snatch High Pull","oly",null,1,"rpe","bb"],
+  ["Muscle Snatch","oly",null,1,"rpe","bb"],["Clean & Jerk","oly",null,1,"rpe","bb"],
+  ["Jerk from Rack","oly",null,1,"rpe","bb"],["Snatch Balance","oly",null,1,"rpe","bb"],
+  ["Overhead Squat (Snatch)","oly",null,1,"rpe","bb"],["Dumbbell Snatch","oly",null,1,"rir","db"],
+  // =========================== CARRY / STRONGMAN =========================
+  ["Farmer's Walk","carry",null,1,"rir","db"],["Trap Bar Carry","carry",null,1,"rir","sp"],
+  ["Suitcase Carry","carry",null,1,"rir","db"],["Front Rack Carry","carry",null,1,"rir","kb"],
+  ["Overhead Carry","carry",null,1,"rir","kb"],["Yoke Walk","carry",null,1,"rpe","sp"],
+  ["Sandbag Carry","carry",null,1,"rir","sp"],["Sandbag Load","carry",null,1,"rir","sp"],
+  ["Atlas Stone","carry",null,1,"rpe","sp"],["Keg Carry","carry",null,1,"rir","sp"],
+  ["Zercher Carry","carry",null,1,"rir","bb"],["Sled Pull","carry",null,1,"rir","sl"],
+  // ============================ GRIP / NECK ==============================
+  ["Wrist Curl","grip",null,1,"rir","bb"],["Reverse Wrist Curl","grip",null,1,"rir","bb"],
+  ["Plate Pinch","grip",null,1,"rir","bb"],["Captains of Crush","grip",null,1,"rir","bw"],
+  ["Fat Grip Hold","grip",null,1,"rir","bb"],["Wrist Roller","grip",null,1,"rir","bb"],
+  ["Neck Curl","grip",null,1,"rir","bw"],["Neck Extension","grip",null,1,"rir","bw"],
+  ["Neck Harness","grip",null,1,"rir","sp"],["Hex Hold","grip",null,1,"rir","db"],
+  // ============================= CONDITIONING ============================
+  ["Assault Bike","cond",null,1,"rir","mc"],["Rower","cond",null,1,"rir","mc"],
+  ["SkiErg","cond",null,1,"rir","mc"],["Treadmill Incline Walk","cond",null,1,"rir","mc"],
+  ["Stair Climber","cond",null,1,"rir","mc"],["Jump Rope","cond",null,1,"rir","bw"],
+  ["Prowler Sprint","cond",null,1,"rir","sl"],["Battle Ropes","cond",null,1,"rir","bw"],
+  ["Burpee","cond",null,1,"rir","bw"],["Bike Intervals","cond",null,1,"rir","mc"],
+  ["Incline Treadmill Run","cond",null,1,"rir","mc"],["Easy Walk","cond",null,1,"rir","bw"],
+].map(([n, c, m, r, d, e]) => ({ n, c, m, r, d, e }));
 
 const LIB_CATS = [
-  { k: "squat", t: "Squat" }, { k: "bench", t: "Bench" }, { k: "deadlift", t: "Deadlift" },
+  { k: "squat", t: "Squat" }, { k: "bench", t: "Bench" }, { k: "deadlift", t: "Hinge" },
   { k: "press", t: "Overhead" }, { k: "back", t: "Back" }, { k: "arms", t: "Arms" },
-  { k: "legs", t: "Legs" }, { k: "core", t: "Trunk" },
+  { k: "legs", t: "Legs" }, { k: "core", t: "Trunk" }, { k: "oly", t: "Olympic" },
+  { k: "carry", t: "Carry" }, { k: "grip", t: "Grip" }, { k: "cond", t: "Cardio" },
+];
+const LIB_EQUIP = [
+  { k: "bb", t: "Barbell" }, { k: "db", t: "Dumbbell" }, { k: "cb", t: "Cable" },
+  { k: "mc", t: "Machine" }, { k: "bw", t: "Bodyweight" }, { k: "kb", t: "Kettlebell" },
+  { k: "bd", t: "Band" }, { k: "sp", t: "Specialty" }, { k: "sm", t: "Smith" }, { k: "sl", t: "Sled" },
 ];
 const libFind = (name) => LIB.find((x) => x.n === name) || null;
 // A movement is "strength-tracked" when it rolls up to one of the big lifts; the
@@ -1981,36 +2111,53 @@ function CheckinCard({ state, setState, sel, dateStr }) {
 function ExercisePicker({ open, onClose, onPick, existing }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
+  const [eq, setEq] = useState(null);
   const query = q.trim().toLowerCase();
-  const hits = LIB.filter((x) => (!cat || x.c === cat) && (!query || x.n.toLowerCase().includes(query)));
+  // Search beats filters: if you typed "spoto" you want it whatever is selected.
+  const hits = LIB.filter((x) => (!query || x.n.toLowerCase().includes(query))
+    && (query || !cat || x.c === cat) && (query || !eq || x.e === eq));
   const own = (existing || []).filter((n) => !libFind(n) && (!query || n.toLowerCase().includes(query)));
   const canCustom = query.length > 1 && !LIB.some((x) => x.n.toLowerCase() === query) && !(existing || []).some((n) => n.toLowerCase() === query);
+  const eqName = (k) => { const E = LIB_EQUIP.find((x) => x.k === k); return E ? E.t : ""; };
   return (
     <Sheet open={open} onClose={onClose} title="Add movement">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search 119 movements…" autoFocus
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${LIB.length} movements…`} autoFocus
         style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line2}`, borderRadius: R.input,
-          padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15, outline: "none", marginBottom: 12 }} />
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        <Chip sm active={!cat} onClick={() => setCat(null)}>All</Chip>
-        {LIB_CATS.map((c) => <Chip key={c.k} sm active={cat === c.k} onClick={() => setCat(c.k)}>{c.t}</Chip>)}
-      </div>
+          padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15, outline: "none", marginBottom: 11 }} />
+      {!query && (
+        <>
+          <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 6, margin: "0 -4px 2px", padding: "0 4px 6px" }}>
+            <Chip sm active={!cat} onClick={() => setCat(null)}>All</Chip>
+            {LIB_CATS.map((c) => <Chip key={c.k} sm active={cat === c.k} onClick={() => setCat(c.k)}>{c.t}</Chip>)}
+          </div>
+          <div style={{ display: "flex", gap: 5, overflowX: "auto", margin: "0 -4px 10px", padding: "0 4px 6px" }}>
+            <Chip sm active={!eq} onClick={() => setEq(null)}>Any kit</Chip>
+            {LIB_EQUIP.map((c) => <Chip key={c.k} sm active={eq === c.k} onClick={() => setEq(c.k)}>{c.t}</Chip>)}
+          </div>
+        </>
+      )}
       {canCustom && (
         <Btn kind="solid" style={{ width: "100%", marginBottom: 12 }} onClick={() => { onPick(q.trim()); onClose(); }}>
           <Plus size={15} /> Add "{q.trim()}" as a custom movement
         </Btn>
       )}
-      <div style={{ maxHeight: "48vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+      <div style={{ ...label, fontSize: 9, marginBottom: 6 }}>
+        {own.length + hits.length} movement{own.length + hits.length === 1 ? "" : "s"}
+      </div>
+      <div style={{ maxHeight: "52vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
         {own.map((n) => (
           <button key={n} onClick={() => { onPick(n); onClose(); }} style={pickRow}>
-            <span style={{ fontWeight: 700, fontSize: 13.5 }}>{n}</span>
-            <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO }}>yours</span>
+            <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{n}</span>
+            <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO }}>yours</span>
           </button>
         ))}
         {hits.map((x) => (
           <button key={x.n} onClick={() => { onPick(x.n); onClose(); }} style={pickRow}>
-            <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{x.n}</span>
-            <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap" }}>
-              {x.m ? `→ ${x.m} · ${Math.round(x.r * 100)}%` : x.d.toUpperCase()}
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: "block", fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{x.n}</span>
+              <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 2, textAlign: "left" }}>
+                {eqName(x.e)}{x.m ? ` · feeds ${x.m} at ${Math.round(x.r * 100)}%` : ` · ${x.d === "rpe" ? "RPE" : x.d === "pct" ? "%" : "RIR"}`}
+              </span>
             </span>
           </button>
         ))}
