@@ -41,6 +41,7 @@ const ChevronDown = mkIcon(<polyline points="6 9 12 15 18 9"/>);
 const Info = mkIcon(<g><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g>);
 const Pencil = mkIcon(<g><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></g>);
 const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
+const Calendar = mkIcon(<g><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></g>);
 const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
 function loadState() {
   try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw); return { ...DEFAULT, ...p, settings: { ...DEFAULT.settings, ...(p.settings || {}) } }; } } catch (e) {}
@@ -220,7 +221,7 @@ function analyze(state, models, unit) {
   const ex = state.exercises;
   const U = unit || "lb";
   const names = Object.keys(ex);
-  const mains = names.filter((n) => !ex[n].parent);
+  const mains = names.filter((n) => !ex[n].parent && !isAccessory(n, state));
   const now = Date.now(), DAY = 864e5;
   const r1 = (x) => fmt(Math.round(x));
   const valueAt = (pts, t) => { let v = null; for (const p of pts) { if (p.ts <= t) v = p.value; else break; } return v; };
@@ -1034,6 +1035,7 @@ function App() {
   const tabs = [
     { id: "dash", label: "Dashboard", icon: Gauge },
     { id: "train", label: "Train", icon: Activity },
+    { id: "plan", label: "Plan", icon: Calendar },
     { id: "insights", label: "Insights", icon: Zap },
     { id: "history", label: "History", icon: TrendingUp },
   ];
@@ -1064,7 +1066,10 @@ function App() {
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
-            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true) }} />
+            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab }} />
+          )}
+          {tab === "plan" && (
+            <ProgramTab {...{ state, setState, setTab, setSel }} />
           )}
           {tab === "insights" && (
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
@@ -1078,14 +1083,14 @@ function App() {
       {/* floating tab bar */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 30, display: "flex",
         justifyContent: "center", padding: "0 12px calc(12px + env(safe-area-inset-bottom, 0px))", pointerEvents: "none" }}>
-        <div style={{ display: "flex", gap: 2, background: "rgba(14,17,25,0.92)", backdropFilter: "blur(22px)",
+        <div style={{ display: "flex", gap: 1, background: "rgba(14,17,25,0.92)", backdropFilter: "blur(22px)",
           WebkitBackdropFilter: "blur(22px)", border: `1px solid ${C.line2}`, borderRadius: R.pill, padding: 6,
           pointerEvents: "auto", boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
           {tabs.map((t) => {
             const a = t.id === tab; const I = t.icon;
             return (
               <button key={t.id} onClick={() => setTab(t.id)} style={{ display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 3, padding: "8px 15px", borderRadius: R.pill, border: "none",
+                alignItems: "center", gap: 3, padding: "8px 10px", borderRadius: R.pill, border: "none",
                 background: a ? C.surface2 : "transparent", cursor: "pointer",
                 WebkitTapHighlightColor: "transparent", transition: "background .16s ease" }}>
                 <I size={18} style={{ color: a ? C.red : C.faint }} />
@@ -1280,6 +1285,139 @@ function conditionWhy(ck, cls) {
   return bits.join(" · ");
 }
 const checkinOn = (state, dateStr) => (state.checkins || {})[dateStr] || null;
+
+/* ----------------------------------------------------------------------------
+   EXERCISE LIBRARY + PROGRAMMING
+
+   The engine above answers "how much today". This answers "what today". A program
+   is weeks of days of slots; a slot names a movement, a set scheme and an intensity
+   — and intensity is per slot, because a top single runs on RPE while the leg
+   extensions after it run on reps in reserve and the speed work runs on a percent.
+   Nothing here is required: with no program the app behaves exactly as it always
+   has, and every load still comes from the same estimator.
+---------------------------------------------------------------------------- */
+
+// m: the main lift this feeds (variations inherit its strength model via ratio r).
+// r: starting ratio to that main lift — the app re-learns it from your own sets.
+// d: the default intensity language for this kind of work.
+const LIB = [
+  // ---- squat pattern ----
+  ["Low-Bar Squat","squat","Squat",1,"rpe"],["High-Bar Squat","squat","Squat",0.95,"rpe"],
+  ["Front Squat","squat","Squat",0.82,"rpe"],["Safety Bar Squat","squat","Squat",0.88,"rpe"],
+  ["Pause Squat","squat","Squat",0.9,"rpe"],["Tempo Squat","squat","Squat",0.88,"rpe"],
+  ["Box Squat","squat","Squat",0.95,"rpe"],["Pin Squat","squat","Squat",0.9,"rpe"],
+  ["Anderson Squat","squat","Squat",0.9,"rpe"],["1.5 Rep Squat","squat","Squat",0.8,"rpe"],
+  ["Belt Squat","squat",null,1,"rir"],["Hack Squat","squat",null,1,"rir"],
+  ["Leg Press","squat",null,1,"rir"],["Bulgarian Split Squat","squat",null,1,"rir"],
+  ["Walking Lunge","squat",null,1,"rir"],["Step-Up","squat",null,1,"rir"],
+  ["Goblet Squat","squat",null,1,"rir"],["Zercher Squat","squat","Squat",0.8,"rpe"],
+  ["Banded Squat","squat","Squat",0.9,"pct"],["Chain Squat","squat","Squat",0.9,"pct"],
+  // ---- bench pattern ----
+  ["Competition Bench","bench","Bench Press",1,"rpe"],["Close-Grip Bench","bench","Bench Press",0.93,"rpe"],
+  ["Wide-Grip Bench","bench","Bench Press",0.97,"rpe"],["Pause Bench","bench","Bench Press",0.95,"rpe"],
+  ["Spoto Press","bench","Bench Press",0.93,"rpe"],["Larsen Press","bench","Bench Press",0.93,"rpe"],
+  ["1-Board Press","bench","Bench Press",1.04,"rpe"],["2-Board Press","bench","Bench Press",1.08,"rpe"],
+  ["3-Board Press","bench","Bench Press",1.12,"rpe"],["Pin Press","bench","Bench Press",0.95,"rpe"],
+  ["Floor Press","bench","Bench Press",0.95,"rpe"],["Incline Bench","bench",null,1,"rpe"],
+  ["Decline Bench","bench",null,1,"rir"],["Dumbbell Bench","bench",null,1,"rir"],
+  ["Dumbbell Incline","bench",null,1,"rir"],["Feet-Up Bench","bench","Bench Press",0.95,"rpe"],
+  ["Slingshot Bench","bench","Bench Press",1.1,"rpe"],["Tempo Bench","bench","Bench Press",0.9,"rpe"],
+  ["Machine Chest Press","bench",null,1,"rir"],["Cable Fly","bench",null,1,"rir"],
+  ["Dumbbell Fly","bench",null,1,"rir"],["Push-Up","bench",null,1,"rir"],
+  // ---- deadlift pattern ----
+  ["Conventional Deadlift","deadlift","Deadlift",1,"rpe"],["Sumo Deadlift","deadlift","Deadlift",1,"rpe"],
+  ["Deficit Deadlift","deadlift","Deadlift",0.92,"rpe"],["Block Pull","deadlift","Deadlift",1.08,"rpe"],
+  ["Rack Pull","deadlift","Deadlift",1.15,"rpe"],["Pause Deadlift","deadlift","Deadlift",0.9,"rpe"],
+  ["Tempo Deadlift","deadlift","Deadlift",0.88,"rpe"],["Snatch-Grip Deadlift","deadlift","Deadlift",0.85,"rpe"],
+  ["Trap Bar Deadlift","deadlift",null,1,"rpe"],["Romanian Deadlift","deadlift",null,1,"rir"],
+  ["Stiff-Leg Deadlift","deadlift",null,1,"rir"],["Good Morning","deadlift",null,1,"rir"],
+  ["Back Extension","deadlift",null,1,"rir"],["Reverse Hyper","deadlift",null,1,"rir"],
+  ["Glute Ham Raise","deadlift",null,1,"rir"],["Hip Thrust","deadlift",null,1,"rir"],
+  ["Banded Deadlift","deadlift","Deadlift",0.9,"pct"],["Speed Deadlift","deadlift","Deadlift",1,"pct"],
+  // ---- overhead press ----
+  ["Overhead Press","press","Overhead Press",1,"rpe"],["Push Press","press",null,1,"rpe"],
+  ["Seated Overhead Press","press","Overhead Press",0.93,"rpe"],["Z Press","press","Overhead Press",0.8,"rpe"],
+  ["Dumbbell Shoulder Press","press",null,1,"rir"],["Landmine Press","press",null,1,"rir"],
+  ["Lateral Raise","press",null,1,"rir"],["Front Raise","press",null,1,"rir"],
+  ["Rear Delt Fly","press",null,1,"rir"],["Face Pull","press",null,1,"rir"],
+  ["Upright Row","press",null,1,"rir"],
+  // ---- back / pulling ----
+  ["Barbell Row","back",null,1,"rir"],["Pendlay Row","back",null,1,"rpe"],
+  ["Chest-Supported Row","back",null,1,"rir"],["Dumbbell Row","back",null,1,"rir"],
+  ["Seated Cable Row","back",null,1,"rir"],["T-Bar Row","back",null,1,"rir"],
+  ["Lat Pulldown","back",null,1,"rir"],["Pull-Up","back",null,1,"rir"],
+  ["Chin-Up","back",null,1,"rir"],["Straight-Arm Pulldown","back",null,1,"rir"],
+  ["Meadows Row","back",null,1,"rir"],["Barbell Shrug","back",null,1,"rir"],
+  ["Dumbbell Shrug","back",null,1,"rir"],["Rack Pull Shrug","back",null,1,"rir"],
+  // ---- arms ----
+  ["Triceps Pushdown","arms",null,1,"rir"],["Overhead Triceps Extension","arms",null,1,"rir"],
+  ["Skullcrusher","arms",null,1,"rir"],["JM Press","arms",null,1,"rir"],
+  ["Dip","arms",null,1,"rir"],["Barbell Curl","arms",null,1,"rir"],
+  ["Dumbbell Curl","arms",null,1,"rir"],["Hammer Curl","arms",null,1,"rir"],
+  ["Preacher Curl","arms",null,1,"rir"],["Cable Curl","arms",null,1,"rir"],
+  ["Incline Dumbbell Curl","arms",null,1,"rir"],["Reverse Curl","arms",null,1,"rir"],
+  ["Triceps Kickback","arms",null,1,"rir"],["Close-Grip Push-Up","arms",null,1,"rir"],
+  // ---- legs (isolation) ----
+  ["Leg Extension","legs",null,1,"rir"],["Lying Leg Curl","legs",null,1,"rir"],
+  ["Seated Leg Curl","legs",null,1,"rir"],["Nordic Curl","legs",null,1,"rir"],
+  ["Standing Calf Raise","legs",null,1,"rir"],["Seated Calf Raise","legs",null,1,"rir"],
+  ["Hip Adduction","legs",null,1,"rir"],["Hip Abduction","legs",null,1,"rir"],
+  ["Sissy Squat","legs",null,1,"rir"],["Tibialis Raise","legs",null,1,"rir"],
+  // ---- trunk ----
+  ["Plank","core",null,1,"rir"],["Hanging Leg Raise","core",null,1,"rir"],
+  ["Ab Wheel","core",null,1,"rir"],["Cable Crunch","core",null,1,"rir"],
+  ["Pallof Press","core",null,1,"rir"],["Side Plank","core",null,1,"rir"],
+  ["Weighted Sit-Up","core",null,1,"rir"],["Copenhagen Plank","core",null,1,"rir"],
+  ["Suitcase Carry","core",null,1,"rir"],["Farmer's Walk","core",null,1,"rir"],
+].map(([n, c, m, r, d]) => ({ n, c, m, r, d }));
+
+const LIB_CATS = [
+  { k: "squat", t: "Squat" }, { k: "bench", t: "Bench" }, { k: "deadlift", t: "Deadlift" },
+  { k: "press", t: "Overhead" }, { k: "back", t: "Back" }, { k: "arms", t: "Arms" },
+  { k: "legs", t: "Legs" }, { k: "core", t: "Trunk" },
+];
+const libFind = (name) => LIB.find((x) => x.n === name) || null;
+// A movement is "strength-tracked" when it rolls up to one of the big lifts; the
+// rest are logged and charted but kept out of your competition total.
+const isAccessory = (name, state) => {
+  const ex = state && state.exercises && state.exercises[name];
+  if (ex && typeof ex.accessory === "boolean") return ex.accessory;
+  const L = libFind(name);
+  return L ? !L.m && L.d !== "rpe" : false;
+};
+
+/* ------------------------------- program --------------------------------- */
+const DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MODES = [{ v: "rpe", t: "RPE" }, { v: "rir", t: "RIR" }, { v: "pct", t: "%" }];
+const emptyWeek = (label) => ({ id: uid(), label, days: DAY_KEYS.reduce((a, d) => (a[d] = [], a), {}) });
+const newProgram = () => ({ name: "My program", startDate: todayStr(), active: true, weeks: [emptyWeek("Week 1")] });
+const newSlot = (name) => {
+  const L = libFind(name);
+  const mode = L ? L.d : "rpe";
+  return { id: uid(), ex: name, role: L && L.m ? "main" : (L && L.d === "rpe" ? "main" : "accessory"),
+    sets: 1, reps: mode === "rpe" ? 3 : 8, mode, val: mode === "rpe" ? 8 : mode === "rir" ? 2 : 75, bo: null, note: "" };
+};
+// Which week of the block today falls in. Blocks repeat, so a 4-week plan keeps
+// running rather than falling off the end mid-prep.
+function weekIndexFor(program, dateStr) {
+  if (!program || !program.weeks || !program.weeks.length) return 0;
+  const start = tsFromDateStr(program.startDate || todayStr());
+  const d0 = new Date(start); d0.setHours(0, 0, 0, 0);
+  const d1 = new Date(tsFromDateStr(dateStr)); d1.setHours(0, 0, 0, 0);
+  const days = Math.floor((d1 - d0) / 86400000);
+  if (days < 0) return 0;
+  return Math.floor(days / 7) % program.weeks.length;
+}
+const dayKeyFor = (dateStr) => DAY_KEYS[(new Date(tsFromDateStr(dateStr)).getDay() + 6) % 7];
+function slotsFor(program, dateStr) {
+  if (!program || !program.active || !program.weeks || !program.weeks.length) return [];
+  const w = program.weeks[weekIndexFor(program, dateStr)];
+  return (w && w.days && w.days[dayKeyFor(dateStr)]) || [];
+}
+// Target effort in RPE terms, whatever language the slot was written in.
+const slotRpe = (slot) => slot.mode === "rir" ? Math.max(5, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
+const slotLabel = (slot) => slot.mode === "pct" ? `${fmt(slot.val)}%` : slot.mode === "rir" ? `${fmt(slot.val)} RIR` : `RPE ${fmt(slot.val)}`;
+const slotSummary = (slot) => `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
 
 function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
@@ -1541,7 +1679,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
   const [showTotal, setShowTotal] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
   const now = Date.now();
-  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
+  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && !isAccessory(n, state));
   const fresh = mains.map(([name, ex]) => {
     const rr = residualFatigue(ex.sets, now, true), sc = learnRecoveryScale(ex.sets);
     return { name, pct: readinessFor(rr.raw, sc), trim: trimFor(rr.raw, sc), peak: rr.peak, days: rr.days };
@@ -1587,7 +1725,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
     return { tonnage: Math.round(tonnage), sets, days: days.size };
   })();
   const liftCards = Object.entries(state.exercises)
-    .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null)
+    .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state))
     .map(([n]) => ({ name: n, e1rm: models[n].e1rm, points: models[n].points }))
     .sort((a2, b2) => b2.e1rm - a2.e1rm);
   const bwKg = state.bodyweight && state.bodyweight.length ? state.bodyweight[state.bodyweight.length - 1].kg : null;
@@ -1837,9 +1975,298 @@ function CheckinCard({ state, setState, sel, dateStr }) {
   );
 }
 
+/* ============================== PROGRAM TAB ============================== */
+// Pick a movement out of the library (or name your own). Search first, because by
+// the time you know you want a Spoto press you do not want to scroll for it.
+function ExercisePicker({ open, onClose, onPick, existing }) {
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState(null);
+  const query = q.trim().toLowerCase();
+  const hits = LIB.filter((x) => (!cat || x.c === cat) && (!query || x.n.toLowerCase().includes(query)));
+  const own = (existing || []).filter((n) => !libFind(n) && (!query || n.toLowerCase().includes(query)));
+  const canCustom = query.length > 1 && !LIB.some((x) => x.n.toLowerCase() === query) && !(existing || []).some((n) => n.toLowerCase() === query);
+  return (
+    <Sheet open={open} onClose={onClose} title="Add movement">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search 119 movements…" autoFocus
+        style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line2}`, borderRadius: R.input,
+          padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15, outline: "none", marginBottom: 12 }} />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        <Chip sm active={!cat} onClick={() => setCat(null)}>All</Chip>
+        {LIB_CATS.map((c) => <Chip key={c.k} sm active={cat === c.k} onClick={() => setCat(c.k)}>{c.t}</Chip>)}
+      </div>
+      {canCustom && (
+        <Btn kind="solid" style={{ width: "100%", marginBottom: 12 }} onClick={() => { onPick(q.trim()); onClose(); }}>
+          <Plus size={15} /> Add "{q.trim()}" as a custom movement
+        </Btn>
+      )}
+      <div style={{ maxHeight: "48vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+        {own.map((n) => (
+          <button key={n} onClick={() => { onPick(n); onClose(); }} style={pickRow}>
+            <span style={{ fontWeight: 700, fontSize: 13.5 }}>{n}</span>
+            <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO }}>yours</span>
+          </button>
+        ))}
+        {hits.map((x) => (
+          <button key={x.n} onClick={() => { onPick(x.n); onClose(); }} style={pickRow}>
+            <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{x.n}</span>
+            <span style={{ fontSize: 11, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap" }}>
+              {x.m ? `→ ${x.m} · ${Math.round(x.r * 100)}%` : x.d.toUpperCase()}
+            </span>
+          </button>
+        ))}
+        {!hits.length && !own.length && !canCustom && (
+          <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "22px 0" }}>Nothing matches that.</div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+const pickRow = { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+  background: "none", border: "none", borderBottom: `1px solid ${C.line}`, color: C.text, padding: "12px 2px",
+  cursor: "pointer", fontFamily: SANS, WebkitTapHighlightColor: "transparent" };
+
+// One movement in one day. Collapsed it is a single readable line; a day of eight
+// movements should fit on a screen, not demand eight cards of steppers.
+function SlotCard({ slot, onChange, onDelete, onRename }) {
+  const [open, setOpen] = useState(false);
+  const up = (patch) => onChange({ ...slot, ...patch });
+  const modeVal = { rpe: { step: 0.5, min: 5, max: 10 }, rir: { step: 0.5, min: 0, max: 6 }, pct: { step: 2.5, min: 30, max: 105 } }[slot.mode];
+  return (
+    <Card style={{ padding: 0, marginBottom: 9, overflow: "hidden" }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", background: "none", border: "none",
+        padding: "13px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+        color: C.text, WebkitTapHighlightColor: "transparent" }}>
+        <span style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0,
+          background: slot.role === "main" ? C.red : C.blue, boxShadow: `0 0 10px ${slot.role === "main" ? C.red : C.blue}66` }} />
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
+            overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
+          <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
+            {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}` : ""}
+          </span>
+        </span>
+        <ChevronDown size={16} style={{ color: C.faint, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: ".2s" }} />
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "13px 0" }}>
+            <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Counts toward strength</Chip>
+            <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Accessory</Chip>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
+              <Stepper compact value={slot.sets} min={1} max={12} onChange={(v) => up({ sets: v })} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+              <Stepper compact value={slot.reps} min={1} max={30} onChange={(v) => up({ reps: v })} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
+              <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max} onChange={(v) => up({ val: v })} />
+            </div>
+          </div>
+          <div style={{ marginTop: 13 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Prescribe this one in</div>
+            <Segmented value={slot.mode} onChange={(m) => up({ mode: m, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })} options={MODES.map((m) => ({ value: m.v, label: m.t }))} />
+          </div>
+          <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
+            <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
+              style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+              {slot.bo ? "Remove" : "+ Add"}
+            </button>
+          </div>
+          {slot.bo && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10, alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
+                <Stepper compact value={slot.bo.sets} min={1} max={8} onChange={(v) => up({ bo: { ...slot.bo, sets: v } })} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+                <Stepper compact value={slot.bo.reps} min={1} max={30} onChange={(v) => up({ bo: { ...slot.bo, reps: v } })} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()}</div>
+                <Stepper compact value={slot.bo.val} step={slot.bo.mode === "pct" ? 2.5 : 0.5}
+                  min={slot.bo.mode === "pct" ? 30 : slot.bo.mode === "rir" ? 0 : 5} max={slot.bo.mode === "pct" ? 105 : slot.bo.mode === "rir" ? 6 : 10}
+                  onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
+            <Btn kind="ghost" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onRename}>Swap movement</Btn>
+            <Btn kind="danger" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onDelete}>Remove</Btn>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Most weeks of a block are the previous week with the top sets nudged. Cloning is
+// therefore the primary way a week gets built, not a convenience bolted on after.
+function CloneSheet({ open, onClose, onClone, fromLabel }) {
+  const RULES = [
+    { k: "same", t: "Repeat exactly", d: "Same movements, same targets." },
+    { k: "rpe", t: "+0.5 RPE on main work", d: "Same loads asked harder — the usual way a block tightens." },
+    { k: "pct", t: "+2.5% on anything by percent", d: "Moves percentage-based slots up a notch." },
+    { k: "rep", t: "−1 rep on main work", d: "Same effort, heavier bar — intensification." },
+  ];
+  return (
+    <Sheet open={open} onClose={onClose} title={`Clone ${fromLabel || "week"}`}>
+      <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 14, lineHeight: 1.55 }}>
+        Copies every day into a new week, then applies one progression rule to the slots you marked as counting toward strength. Accessories are copied untouched.
+      </div>
+      {RULES.map((r) => (
+        <button key={r.k} onClick={() => { onClone(r.k); onClose(); }} style={{ width: "100%", textAlign: "left",
+          background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "14px 15px",
+          cursor: "pointer", color: C.text, marginBottom: 9, WebkitTapHighlightColor: "transparent" }}>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>{r.t}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{r.d}</div>
+        </button>
+      ))}
+    </Sheet>
+  );
+}
+
+function ProgramTab({ state, setState, setTab, setSel }) {
+  const program = state.program || null;
+  const [wi, setWi] = useState(() => (state.program ? weekIndexFor(state.program, todayStr()) : 0));
+  const [day, setDay] = useState(dayKeyFor(todayStr()));
+  const [picking, setPicking] = useState(null);   // null | {mode:"add"} | {mode:"swap", id}
+  const [cloning, setCloning] = useState(false);
+  const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
+
+  if (!program) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Card style={{ textAlign: "center", padding: "30px 20px" }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 24, letterSpacing: "0.04em" }}>BUILD A PROGRAM</div>
+          <div style={{ fontSize: 13.5, color: C.muted, marginTop: 10, lineHeight: 1.6 }}>
+            Lay out your week once — main work, variations, accessories — and Train opens each day already loaded.
+            Every load still comes from your own estimator; the program only decides what you&rsquo;re doing, never how heavy.
+          </div>
+          <Btn kind="primary" style={{ width: "100%", marginTop: 20 }} onClick={() => setProgram(newProgram())}>Start building</Btn>
+        </Card>
+        <div style={{ fontSize: 11.5, color: C.faint, textAlign: "center", lineHeight: 1.6 }}>
+          Nothing here is required. Skip it and the app works exactly as it does now.
+        </div>
+      </div>
+    );
+  }
+
+  const weeks = program.weeks || [];
+  const week = weeks[Math.min(wi, weeks.length - 1)] || weeks[0];
+  const slots = (week && week.days && week.days[day]) || [];
+  const liveWeek = weekIndexFor(program, todayStr());
+
+  const writeSlots = (next) => setProgram((pr) => ({
+    ...pr, weeks: pr.weeks.map((w, i) => i !== wi ? w : { ...w, days: { ...w.days, [day]: next } }) }));
+  const addSlot = (name) => writeSlots([...slots, newSlot(name)]);
+  const swapSlot = (id, name) => writeSlots(slots.map((s) => s.id === id ? { ...newSlot(name), id: s.id, sets: s.sets, reps: s.reps, mode: s.mode, val: s.val, bo: s.bo } : s));
+  const cloneWeek = (rule) => setProgram((pr) => {
+    const src = pr.weeks[wi];
+    const bump = (sl) => {
+      if (sl.role !== "main") return { ...sl, id: uid() };
+      if (rule === "rpe" && sl.mode === "rpe") return { ...sl, id: uid(), val: Math.min(10, sl.val + 0.5) };
+      if (rule === "rpe" && sl.mode === "rir") return { ...sl, id: uid(), val: Math.max(0, sl.val - 0.5) };
+      if (rule === "pct" && sl.mode === "pct") return { ...sl, id: uid(), val: Math.min(105, sl.val + 2.5) };
+      if (rule === "rep") return { ...sl, id: uid(), reps: Math.max(1, sl.reps - 1) };
+      return { ...sl, id: uid() };
+    };
+    const days = DAY_KEYS.reduce((a, d) => (a[d] = (src.days[d] || []).map(bump), a), {});
+    const next = { id: uid(), label: "Week " + (pr.weeks.length + 1), days };
+    return { ...pr, weeks: [...pr.weeks, next] };
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card accent={C.red}>
+        <input value={program.name} onChange={(e) => setProgram((pr) => ({ ...pr, name: e.target.value }))}
+          style={{ width: "100%", background: "none", border: "none", outline: "none", color: C.text,
+            fontFamily: SANS, fontWeight: 800, fontSize: 21, letterSpacing: "-0.02em", padding: 0 }} />
+        <div style={{ display: "flex", gap: 12, marginTop: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 150px" }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Block starts</div>
+            <input type="date" value={program.startDate} onChange={(e) => setProgram((pr) => ({ ...pr, startDate: e.target.value || todayStr() }))}
+              style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`, borderRadius: R.input,
+                padding: "0 13px", height: 44, color: C.text, fontFamily: MONO, fontSize: 14.5, fontWeight: 700,
+                outline: "none", colorScheme: "dark" }} />
+          </div>
+          <Btn kind={program.active ? "solid" : "ghost"} style={{ minHeight: 44, fontSize: 12.5 }}
+            onClick={() => setProgram((pr) => ({ ...pr, active: !pr.active }))}>
+            {program.active ? <><Check size={15} /> Running</> : "Paused"}
+          </Btn>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.faint, marginTop: 11, lineHeight: 1.5 }}>
+          {program.active
+            ? <>Today is <b style={{ color: C.text }}>{(weeks[liveWeek] || {}).label}</b>, {dayKeyFor(todayStr())}. The block repeats once it runs out.</>
+            : "Paused — Train won't pre-load anything until you start it again."}
+        </div>
+      </Card>
+
+      <div>
+        <SectionHead accent={C.blue} right={
+          <button onClick={() => setCloning(true)} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Clone week</button>
+        }>Weeks</SectionHead>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {weeks.map((w, i) => (
+            <Chip key={w.id} active={i === wi} onClick={() => setWi(i)}>
+              {w.label}{i === liveWeek && program.active ? " ·now" : ""}
+            </Chip>
+          ))}
+          {weeks.length > 1 && (
+            <Chip sm onClick={() => { if (weeks.length <= 1) return; setProgram((pr) => ({ ...pr, weeks: pr.weeks.filter((_, i) => i !== wi) })); setWi(0); }}>
+              <Trash2 size={13} />
+            </Chip>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 13 }}>
+          {DAY_KEYS.map((d) => {
+            const n = ((week && week.days && week.days[d]) || []).length;
+            return <Chip key={d} sm active={d === day} onClick={() => setDay(d)}>{d}{n ? ` ·${n}` : ""}</Chip>;
+          })}
+        </div>
+        {slots.map((sl, i) => (
+          <SlotCard key={sl.id} slot={sl}
+            onChange={(next) => writeSlots(slots.map((x) => x.id === sl.id ? next : x))}
+            onDelete={() => writeSlots(slots.filter((x) => x.id !== sl.id))}
+            onRename={() => setPicking({ mode: "swap", id: sl.id })} />
+        ))}
+        {!slots.length && (
+          <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "24px 16px", lineHeight: 1.6 }}>
+            Nothing on {day} in {week ? week.label : "this week"}. A rest day is a perfectly good answer.
+          </Card>
+        )}
+        <Btn kind="solid" style={{ width: "100%", marginTop: 10 }} onClick={() => setPicking({ mode: "add" })}>
+          <Plus size={16} /> Add movement to {day}
+        </Btn>
+      </div>
+
+      <ExercisePicker open={!!picking} onClose={() => setPicking(null)} existing={Object.keys(state.exercises)}
+        onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
+      <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={week ? week.label : "week"}
+        onClone={(rule) => { cloneWeek(rule); setWi(weeks.length); }} />
+    </div>
+  );
+}
+
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan }) {
-  const { unit, round, bar, inputMode } = settings;
+function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab }) {
+  const { unit, round, bar } = settings;
+  // A programmed slot carries its own intensity language, so the tab's mode is an
+  // override on top of the global setting rather than the setting itself: the top
+  // single can be RPE while the leg extensions after it are reps in reserve.
+  const [modeOverride, setModeOverride] = useState(null);
+  const inputMode = modeOverride === "rir" ? "rir" : modeOverride === "rpe" ? "rpe" : settings.inputMode;
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
   const [adding, setAdding] = useState(false);
@@ -1865,6 +2292,40 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const selEx = sel ? state.exercises[sel] : null;
   const DAYK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const todayPlan = (plan || {})[DAYK[(new Date(tsFromDateStr(logDate)).getDay() + 6) % 7]] || [];
+  // Today's session, straight off the block. The program decides WHAT; every load
+  // on this screen still comes from the estimator, so a programmed day and a
+  // freestyle day are the same machinery with a different starting point.
+  const sessionSlots = slotsFor(state.program, logDate);
+  const progWeek = state.program && state.program.weeks
+    ? (state.program.weeks[weekIndexFor(state.program, logDate)] || {}).label : null;
+  const doneSlots = useMemo(() => {
+    const dk = new Date(tsFromDateStr(logDate)).toDateString();
+    const done = {};
+    for (const sl of sessionSlots) {
+      const ex = state.exercises[sl.ex];
+      done[sl.id] = !!(ex && ex.sets.some((x) => !x.backoff && new Date(x.ts).toDateString() === dk));
+    }
+    return done;
+  }, [sessionSlots, state.exercises, logDate]);
+  const loadSlot = (sl) => {
+    // A movement programmed but never trained yet gets created on first tap, wired
+    // to its main lift so a paused squat still feeds the squat model.
+    if (!state.exercises[sl.ex]) {
+      const L = libFind(sl.ex);
+      const parent = L && L.m && state.exercises[L.m] ? L.m : null;
+      addExercise(sl.ex, parent, L ? L.r : undefined);
+      if (sl.role === "accessory") updateExercise(sl.ex, { accessory: true });
+    } else setSel(sl.ex);
+    setModeOverride(sl.mode);
+    setTReps(sl.reps);
+    if (sl.mode === "pct") setTopPct(sl.val); else setTInt(sl.val);
+    if (sl.bo && setSetting) {
+      const b = sl.bo;
+      setSetting("backoff", { ...(settings.backoff || {}), sets: b.sets, reps: b.reps,
+        rpe: b.mode === "rir" ? Math.max(5, 10 - b.val) : b.mode === "rpe" ? b.val : 7,
+        pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct, steps: [] });
+    }
+  };
   const loadPlanned = (it) => {
     if (state.exercises[it.name]) setSel(it.name);
     setTReps(it.reps);
@@ -1875,7 +2336,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const parentName = selEx && selEx.parent && state.exercises[selEx.parent] ? selEx.parent : null;
   const ratioPct = Math.round((model.ratio || 1) * 100);
   // training mode + reference max that percentages run off
-  const percentMode = settings.trainingMode === "percent";
+  const percentMode = modeOverride ? modeOverride === "pct" : settings.trainingMode === "percent";
   const locked = percentMode && settings.maxMode === "locked";
   const tmax = selEx ? selEx.tmax : null;
   const setTmax = (val) => { if (sel) updateExercise(sel, { tmax: val }); };
@@ -2124,14 +2585,51 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       <CheckinCard state={state} setState={setState} sel={sel} dateStr={logDate} />
 
       {/* TOP SET widget — prescribe, see the load, log it, all in one */}
+      {sessionSlots.length > 0 ? (
+      <Card accent={C.amber} style={{ padding: "14px 15px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
+            <span style={{ ...label, fontSize: 9.5 }}>{progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"}</span>
+          </span>
+          <button onClick={() => setTab && setTab("plan")} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit block</button>
+        </div>
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+          {sessionSlots.map((sl) => {
+            const on = sl.ex === sel;
+            const done = doneSlots[sl.id];
+            return (
+              <button key={sl.id} onClick={() => loadSlot(sl)} style={{ display: "flex", alignItems: "center", gap: 10,
+                background: on ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)",
+                border: `1px solid ${on ? C.line2 : C.line}`, borderRadius: 12, padding: "10px 12px",
+                cursor: "pointer", textAlign: "left", color: C.text, WebkitTapHighlightColor: "transparent" }}>
+                <span style={{ width: 18, height: 18, borderRadius: 99, flexShrink: 0, display: "grid", placeItems: "center",
+                  background: done ? C.good : "transparent", border: done ? "none" : `1px solid ${C.line2}` }}>
+                  {done ? <Check size={11} style={{ color: "#07100B" }} /> : null}
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: "block", fontWeight: 800, fontSize: 13, whiteSpace: "nowrap",
+                    overflow: "hidden", textOverflow: "ellipsis", opacity: done ? 0.55 : 1 }}>{sl.ex}</span>
+                  <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>
+                    {slotSummary(sl)}{sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : ""}
+                  </span>
+                </span>
+                {sl.role === "accessory" && <span style={{ fontSize: 9.5, color: C.faint, fontFamily: MONO, letterSpacing: "0.08em" }}>ACC</span>}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+      ) : (
       <Card accent={C.amber} style={{ padding: "14px 15px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
             <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
             <span style={{ ...label, fontSize: 9.5 }}>Today's plan</span>
           </span>
-          <button onClick={onEditPlan} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{todayPlan.length ? "Edit" : "Set up"}</button>
+          <button onClick={() => (state.program ? (setTab && setTab("plan")) : onEditPlan())} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{state.program ? "Open block" : (todayPlan.length ? "Edit" : "Set up")}</button>
         </div>
         {todayPlan.length ? (
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
@@ -2146,10 +2644,11 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         ) : (
           <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
-            No lifts planned for today. Set a weekly plan and Train opens ready to go.
+            {state.program ? "Nothing programmed for today — a rest day, or train whatever you like below." : "No lifts planned for today. Build a block in Plan and Train opens ready to go."}
           </div>
         )}
       </Card>
+      )}
 
       <Card accent={C.red} glow="none">
         <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
