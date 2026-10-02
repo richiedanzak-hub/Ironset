@@ -1545,6 +1545,30 @@ function slotsFor(program, dateStr) {
   return (w && w.days && w.days[dayKeyFor(dateStr)]) || [];
 }
 // Target effort in RPE terms, whatever language the slot was written in.
+// A superset is expressed as "paired with the movement above", not as a group id.
+// That is the only model that survives reordering: move a slot and the grouping
+// follows the list instead of pointing at something stale. Contiguous runs of
+// linked slots form one superset, so three in a row is a circuit.
+function groupSlots(slots) {
+  const out = [];
+  (slots || []).forEach((sl, i) => {
+    if (i === 0 || !sl.link || !out.length) out.push([sl]); else out[out.length - 1].push(sl);
+  });
+  return out;
+}
+// Standard programming notation: A, B, C for the order; A1/A2 only once something
+// is actually paired, because a lone movement needs no label.
+function decorateSlots(slots) {
+  const out = []; let gi = 0;
+  for (const grp of groupSlots(slots)) {
+    const same = grp.every((x) => x.sets === grp[0].sets);
+    grp.forEach((sl, j) => out.push({ sl, idx: out.length, grouped: grp.length > 1,
+      tag: String.fromCharCode(65 + gi) + (grp.length > 1 ? String(j + 1) : ""),
+      first: j === 0, last: j === grp.length - 1, rounds: same ? grp[0].sets : null, size: grp.length }));
+    gi++;
+  }
+  return out;
+}
 const slotRpe = (slot) => slot.mode === "rir" ? Math.max(5, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
 const slotLabel = (slot) => slot.mode === "pct" ? `${fmt(slot.val)}%` : slot.mode === "rir" ? `${fmt(slot.val)} RIR` : `RPE ${fmt(slot.val)}`;
 const slotSummary = (slot) => `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
@@ -2181,86 +2205,110 @@ const pickRow = { width: "100%", display: "flex", justifyContent: "space-between
 
 // One movement in one day. Collapsed it is a single readable line; a day of eight
 // movements should fit on a screen, not demand eight cards of steppers.
-function SlotCard({ slot, onChange, onDelete, onRename }) {
+function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst, groupLast, rounds,
+                   canUp, canDown, onUp, onDown, canLink, onToggleLink }) {
   const [open, setOpen] = useState(false);
   const up = (patch) => onChange({ ...slot, ...patch });
   const modeVal = { rpe: { step: 0.5, min: 5, max: 10 }, rir: { step: 0.5, min: 0, max: 6 }, pct: { step: 2.5, min: 30, max: 105 } }[slot.mode];
+  const mvBtn = (enabled) => ({ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "grid",
+    placeItems: "center", border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)",
+    color: enabled ? C.muted : "rgba(255,255,255,0.13)", cursor: enabled ? "pointer" : "default",
+    padding: 0, WebkitTapHighlightColor: "transparent" });
   return (
-    <Card style={{ padding: 0, marginBottom: 9, overflow: "hidden" }}>
-      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", background: "none", border: "none",
-        padding: "13px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left",
-        color: C.text, WebkitTapHighlightColor: "transparent" }}>
-        <span style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0,
-          background: slot.role === "main" ? C.red : C.blue, boxShadow: `0 0 10px ${slot.role === "main" ? C.red : C.blue}66` }} />
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
-            overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
-          <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-            {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}` : ""}
-          </span>
-        </span>
-        <ChevronDown size={16} style={{ color: C.faint, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: ".2s" }} />
-      </button>
-      {open && (
-        <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "13px 0" }}>
-            <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Counts toward strength</Chip>
-            <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Accessory</Chip>
-          </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div>
-              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
-              <Stepper compact value={slot.sets} min={1} max={12} onChange={(v) => up({ sets: v })} />
+    <>
+      {grouped && groupFirst && (
+        <div style={{ ...label, fontSize: 9, color: C.blue, margin: "2px 0 6px 2px" }}>
+          Superset {tag.charAt(0)}{rounds ? ` · ${rounds} round${rounds > 1 ? "s" : ""}` : ""}
+        </div>
+      )}
+      <Card style={{ padding: 0, marginBottom: grouped && !groupLast ? 4 : 9, overflow: "hidden",
+        borderLeft: grouped ? `3px solid ${C.blue}` : undefined }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 12px 11px 13px" }}>
+          {!grouped && <span style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0,
+            background: slot.role === "main" ? C.red : C.blue, boxShadow: `0 0 10px ${slot.role === "main" ? C.red : C.blue}66` }} />}
+          {grouped && <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: C.blue, flexShrink: 0, width: 20 }}>{tag}</span>}
+          <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, flex: 1, background: "none", border: "none",
+            padding: 0, textAlign: "left", color: C.text, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+            <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
+              overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
+            <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
+              {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}` : ""}
+            </span>
+          </button>
+          <button aria-label="Move up" disabled={!canUp} onClick={() => canUp && onUp()} style={mvBtn(canUp)}>
+            <ChevronDown size={14} style={{ transform: "rotate(180deg)" }} />
+          </button>
+          <button aria-label="Move down" disabled={!canDown} onClick={() => canDown && onDown()} style={mvBtn(canDown)}>
+            <ChevronDown size={14} />
+          </button>
+        </div>
+        {open && (
+          <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "13px 0" }}>
+              <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Counts toward strength</Chip>
+              <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Accessory</Chip>
             </div>
-            <div>
-              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
-              <Stepper compact value={slot.reps} min={1} max={30} onChange={(v) => up({ reps: v })} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
-              <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max} onChange={(v) => up({ val: v })} />
-            </div>
-          </div>
-          <div style={{ marginTop: 13 }}>
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Prescribe this one in</div>
-            <Segmented value={slot.mode} onChange={(m) => up({ mode: m, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })} options={MODES.map((m) => ({ value: m.v, label: m.t }))} />
-          </div>
-          <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
-            <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
-              style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
-              {slot.bo ? "Remove" : "+ Add"}
-            </button>
-          </div>
-          {slot.bo && (
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10, alignItems: "flex-end" }}>
+            {canLink && (
+              <div style={{ marginBottom: 14 }}>
+                <Chip sm active={!!slot.link} onClick={onToggleLink}>
+                  {slot.link ? "✓ Superset with the one above" : "Superset with the one above"}
+                </Chip>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
               <div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
-                <Stepper compact value={slot.bo.sets} min={1} max={8} onChange={(v) => up({ bo: { ...slot.bo, sets: v } })} />
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{grouped ? "Rounds" : "Sets"}</div>
+                <Stepper compact value={slot.sets} min={1} max={12} onChange={(v) => up({ sets: v })} />
               </div>
               <div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
-                <Stepper compact value={slot.bo.reps} min={1} max={30} onChange={(v) => up({ bo: { ...slot.bo, reps: v } })} />
+                <Stepper compact value={slot.reps} min={1} max={30} onChange={(v) => up({ reps: v })} />
               </div>
               <div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()}</div>
-                <Stepper compact value={slot.bo.val} step={slot.bo.mode === "pct" ? 2.5 : 0.5}
-                  min={slot.bo.mode === "pct" ? 30 : slot.bo.mode === "rir" ? 0 : 5} max={slot.bo.mode === "pct" ? 105 : slot.bo.mode === "rir" ? 6 : 10}
-                  onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
+                <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max} onChange={(v) => up({ val: v })} />
               </div>
             </div>
-          )}
-          <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
-            <Btn kind="ghost" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onRename}>Swap movement</Btn>
-            <Btn kind="danger" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onDelete}>Remove</Btn>
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Prescribe this one in</div>
+              <Segmented value={slot.mode} onChange={(m) => up({ mode: m, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })} options={MODES.map((m) => ({ value: m.v, label: m.t }))} />
+            </div>
+            <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
+              <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
+                style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+                {slot.bo ? "Remove" : "+ Add"}
+              </button>
+            </div>
+            {slot.bo && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10, alignItems: "flex-end" }}>
+                <div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
+                  <Stepper compact value={slot.bo.sets} min={1} max={8} onChange={(v) => up({ bo: { ...slot.bo, sets: v } })} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+                  <Stepper compact value={slot.bo.reps} min={1} max={30} onChange={(v) => up({ bo: { ...slot.bo, reps: v } })} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()}</div>
+                  <Stepper compact value={slot.bo.val} step={slot.bo.mode === "pct" ? 2.5 : 0.5}
+                    min={slot.bo.mode === "pct" ? 30 : slot.bo.mode === "rir" ? 0 : 5} max={slot.bo.mode === "pct" ? 105 : slot.bo.mode === "rir" ? 6 : 10}
+                    onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
+              <Btn kind="ghost" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onRename}>Swap movement</Btn>
+              <Btn kind="danger" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onDelete}>Remove</Btn>
+            </div>
           </div>
-        </div>
-      )}
-    </Card>
+        )}
+      </Card>
+    </>
   );
 }
-
 // Most weeks of a block are the previous week with the top sets nudged. Cloning is
 // therefore the primary way a week gets built, not a convenience bolted on after.
 function CloneSheet({ open, onClose, onClone, fromLabel }) {
@@ -2321,6 +2369,18 @@ function ProgramTab({ state, setState, setTab, setSel }) {
   const writeSlots = (next) => setProgram((pr) => ({
     ...pr, weeks: pr.weeks.map((w, i) => i !== wi ? w : { ...w, days: { ...w.days, [day]: next } }) }));
   const addSlot = (name) => writeSlots([...slots, newSlot(name)]);
+  // Reordering keeps the superset links positional: whatever ends up first in the
+  // day cannot be "paired with the one above", so that flag is cleared on the move.
+  const moveSlot = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= slots.length) return;
+    const next = slots.slice();
+    const [x] = next.splice(i, 1);
+    next.splice(j, 0, x);
+    if (next.length) next[0] = { ...next[0], link: false };
+    writeSlots(next);
+  };
+  const toggleLink = (i) => { if (i > 0) writeSlots(slots.map((x, j) => j === i ? { ...x, link: !x.link } : x)); };
   const swapSlot = (id, name) => writeSlots(slots.map((s) => s.id === id ? { ...newSlot(name), id: s.id, sets: s.sets, reps: s.reps, mode: s.mode, val: s.val, bo: s.bo } : s));
   const cloneWeek = (rule) => setProgram((pr) => {
     const src = pr.weeks[wi];
@@ -2389,11 +2449,15 @@ function ProgramTab({ state, setState, setTab, setSel }) {
             return <Chip key={d} sm active={d === day} onClick={() => setDay(d)}>{d}{n ? ` ·${n}` : ""}</Chip>;
           })}
         </div>
-        {slots.map((sl, i) => (
-          <SlotCard key={sl.id} slot={sl}
-            onChange={(next) => writeSlots(slots.map((x) => x.id === sl.id ? next : x))}
-            onDelete={() => writeSlots(slots.filter((x) => x.id !== sl.id))}
-            onRename={() => setPicking({ mode: "swap", id: sl.id })} />
+        {decorateSlots(slots).map((d) => (
+          <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+            groupLast={d.last} rounds={d.rounds}
+            canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
+            onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
+            canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
+            onChange={(next) => writeSlots(slots.map((x) => x.id === d.sl.id ? next : x))}
+            onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
+            onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
         ))}
         {!slots.length && (
           <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "24px 16px", lineHeight: 1.6 }}>
@@ -2654,6 +2718,40 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     setTimeout(() => setJustLogged(false), 1400);
   };
 
+  // A programmed session IS a list of lifts to start from, so someone who built a
+  // block before ever logging a set should land on their session rather than on a
+  // blank "add your first lift" — tapping a movement creates it anyway.
+  if (names.length === 0 && sessionSlots.length > 0)
+    return (
+      <Card accent={C.amber}>
+        <SectionHead accent={C.amber} sub="Tap a movement to start it — IRONSET creates the lift and calibrates from your first set.">
+          {progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"}
+        </SectionHead>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {decorateSlots(sessionSlots).map((d) => (
+            <React.Fragment key={d.sl.id}>
+              {d.grouped && d.first && (
+                <div style={{ ...label, fontSize: 9, color: C.blue, margin: "4px 0 -2px 2px" }}>
+                  Superset {d.tag.charAt(0)}{d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""}
+                </div>
+              )}
+              <button onClick={() => loadSlot(d.sl)} style={{ display: "flex", alignItems: "center", gap: 10,
+                marginLeft: d.grouped ? 10 : 0, borderLeft: d.grouped ? `2px solid ${C.blue}` : undefined,
+                background: "rgba(255,255,255,0.02)", border: `1px solid ${C.line}`, borderRadius: 12,
+                padding: "11px 13px", cursor: "pointer", textAlign: "left", color: C.text,
+                WebkitTapHighlightColor: "transparent" }}>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: "block", fontWeight: 800, fontSize: 13 }}>
+                    {d.grouped ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.blue, marginRight: 6 }}>{d.tag}</span> : null}{d.sl.ex}</span>
+                  <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>{slotSummary(d.sl)}</span>
+                </span>
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+      </Card>
+    );
+
   if (names.length === 0)
     return (
       <Card style={{ textAlign: "center", padding: "26px 18px" }}>
@@ -2750,11 +2848,19 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit block</button>
         </div>
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
-          {sessionSlots.map((sl) => {
+          {decorateSlots(sessionSlots).map((d) => {
+            const sl = d.sl;
             const on = sl.ex === sel;
             const done = doneSlots[sl.id];
             return (
-              <button key={sl.id} onClick={() => loadSlot(sl)} style={{ display: "flex", alignItems: "center", gap: 10,
+              <React.Fragment key={sl.id}>
+              {d.grouped && d.first && (
+                <div style={{ ...label, fontSize: 9, color: C.blue, margin: "4px 0 -2px 2px" }}>
+                  Superset {d.tag.charAt(0)}{d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""}
+                </div>
+              )}
+              <button onClick={() => loadSlot(sl)} style={{ display: "flex", alignItems: "center", gap: 10,
+                marginLeft: d.grouped ? 10 : 0, borderLeft: d.grouped ? `2px solid ${C.blue}` : undefined,
                 background: on ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)",
                 border: `1px solid ${on ? C.line2 : C.line}`, borderRadius: 12, padding: "10px 12px",
                 cursor: "pointer", textAlign: "left", color: C.text, WebkitTapHighlightColor: "transparent" }}>
@@ -2764,13 +2870,15 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: "block", fontWeight: 800, fontSize: 13, whiteSpace: "nowrap",
-                    overflow: "hidden", textOverflow: "ellipsis", opacity: done ? 0.55 : 1 }}>{sl.ex}</span>
+                    overflow: "hidden", textOverflow: "ellipsis", opacity: done ? 0.55 : 1 }}>
+                    {d.grouped ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.blue, marginRight: 6 }}>{d.tag}</span> : null}{sl.ex}</span>
                   <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>
                     {slotSummary(sl)}{sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : ""}
                   </span>
                 </span>
                 {sl.role === "accessory" && <span style={{ fontSize: 9.5, color: C.faint, fontFamily: MONO, letterSpacing: "0.08em" }}>ACC</span>}
               </button>
+              </React.Fragment>
             );
           })}
         </div>
