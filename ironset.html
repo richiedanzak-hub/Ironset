@@ -924,7 +924,7 @@ function App() {
   const models = useMemo(() => {
     const ex = state.exercises;
     const own = {};
-    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff), e.sets);
+    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff && s.secs == null), e.sets.filter((s) => s.secs == null));
     // ratio of a variation's strength to its parent: learned from own numbers, else default
     const ratioOf = (name) => {
       const x = ex[name];
@@ -1506,12 +1506,41 @@ const LIB_EQUIP = [
   { k: "mc", t: "Machine" }, { k: "bw", t: "Bodyweight" }, { k: "kb", t: "Kettlebell" },
   { k: "bd", t: "Band" }, { k: "sp", t: "Specialty" }, { k: "sm", t: "Smith" }, { k: "sl", t: "Sled" },
 ];
+// Some work is measured on a clock, not in reps: holds, carries, sleds, cardio.
+// Listed by name rather than matched by pattern, because "Walking Lunge" contains
+// "walk" and "Rope Pushdown" contains "rope" — a regex here would be quietly wrong.
+const TIME_MOVES = new Set([
+  "Plank","Side Plank","RKC Plank","Copenhagen Plank","Hollow Hold","L-Sit","Dead Hang","Wall Sit",
+  "Stir the Pot","Hyperextension Hold","Farmer's Walk","Trap Bar Carry","Suitcase Carry","Front Rack Carry",
+  "Overhead Carry","Yoke Walk","Sandbag Carry","Keg Carry","Zercher Carry","Sled Push","Sled Drag","Sled Pull",
+  "Prowler Sprint","Belt Squat March","Assault Bike","Rower","SkiErg","Treadmill Incline Walk","Stair Climber",
+  "Jump Rope","Battle Ropes","Bike Intervals","Incline Treadmill Run","Easy Walk","Fat Grip Hold","Hex Hold",
+  "Plate Pinch","Wrist Roller",
+]);
+// An exercise's own setting wins, so a movement you added yourself can be switched
+// to the clock and a library default can be overridden.
+const isTimed = (name, state) => {
+  const ex = state && state.exercises && state.exercises[name];
+  if (ex && ex.metric) return ex.metric === "time";
+  return TIME_MOVES.has(name);
+};
+const fmtDur = (sec) => {
+  const v = Math.max(0, Math.round(sec || 0));
+  return v >= 60 ? `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}` : `${v}s`;
+};
+// One logged set, written the way that movement is actually measured.
+function setLine(st, state) {
+  const u = (state && state.settings && state.settings.unit) || "lb";
+  if (st.secs != null) return (st.weight ? fmt(st.weight) + u + " · " : "") + fmtDur(st.secs);
+  return `${fmt(st.weight)}${u} × ${st.reps} @ ${fmt(st.rpe)}`;
+}
 const libFind = (name) => LIB.find((x) => x.n === name) || null;
 // A movement is "strength-tracked" when it rolls up to one of the big lifts; the
 // rest are logged and charted but kept out of your competition total.
 const isAccessory = (name, state) => {
   const ex = state && state.exercises && state.exercises[name];
   if (ex && typeof ex.accessory === "boolean") return ex.accessory;
+  if (TIME_MOVES.has(name)) return true;
   const L = libFind(name);
   return L ? !L.m && L.d !== "rpe" : false;
 };
@@ -1524,9 +1553,13 @@ const newProgram = () => ({ name: "My program", startDate: todayStr(), active: t
 const newSlot = (name) => {
   const L = libFind(name);
   const mode = L ? L.d : "rpe";
-  return { id: uid(), ex: name, role: L && L.m ? "main" : (L && L.d === "rpe" ? "main" : "accessory"),
-    sets: 1, reps: mode === "rpe" ? 3 : 8, mode, val: mode === "rpe" ? 8 : mode === "rir" ? 2 : 75, bo: null, note: "" };
+  const timed = TIME_MOVES.has(name);
+  return { id: uid(), ex: name, metric: timed ? "time" : "reps",
+    role: L && L.m ? "main" : (L && L.d === "rpe" ? "main" : "accessory"),
+    sets: timed ? 3 : 1, reps: timed ? 45 : (mode === "rpe" ? 3 : 8), mode,
+    val: mode === "rpe" ? 8 : mode === "rir" ? 2 : 75, bo: null, note: "" };
 };
+const slotTimed = (sl) => sl.metric === "time";
 // Which week of the block today falls in. Blocks repeat, so a 4-week plan keeps
 // running rather than falling off the end mid-prep.
 function weekIndexFor(program, dateStr) {
@@ -1571,7 +1604,9 @@ function decorateSlots(slots) {
 }
 const slotRpe = (slot) => slot.mode === "rir" ? Math.max(5, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
 const slotLabel = (slot) => slot.mode === "pct" ? `${fmt(slot.val)}%` : slot.mode === "rir" ? `${fmt(slot.val)} RIR` : `RPE ${fmt(slot.val)}`;
-const slotSummary = (slot) => `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
+const slotSummary = (slot) => slotTimed(slot)
+  ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
+  : `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
 
 function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
@@ -2209,7 +2244,8 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                    canUp, canDown, onUp, onDown, canLink, onToggleLink }) {
   const [open, setOpen] = useState(false);
   const up = (patch) => onChange({ ...slot, ...patch });
-  const modeVal = { rpe: { step: 0.5, min: 5, max: 10 }, rir: { step: 0.5, min: 0, max: 6 }, pct: { step: 2.5, min: 30, max: 105 } }[slot.mode];
+  const modeVal = { rpe: { step: 0.5, min: 5, max: 10 }, rir: { step: 0.5, min: 0, max: 6 }, pct: { step: 2.5, min: 30, max: 105 } }[slot.mode] || { step: 1, min: 1, max: 10 };
+  const timed = slotTimed(slot);
   const mvBtn = (enabled) => ({ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "grid",
     placeItems: "center", border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)",
     color: enabled ? C.muted : "rgba(255,255,255,0.13)", cursor: enabled ? "pointer" : "default",
@@ -2261,20 +2297,24 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                 <Stepper compact value={slot.sets} min={1} max={12} onChange={(v) => up({ sets: v })} />
               </div>
               <div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
-                <Stepper compact value={slot.reps} min={1} max={30} onChange={(v) => up({ reps: v })} />
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{timed ? "Seconds" : "Reps"}</div>
+                <Stepper compact value={slot.reps} step={timed ? 5 : 1} min={timed ? 5 : 1} max={timed ? 900 : 30} onChange={(v) => up({ reps: v })} />
               </div>
-              <div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
-                <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max} onChange={(v) => up({ val: v })} />
-              </div>
+              {!timed && (
+                <div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
+                  <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max} onChange={(v) => up({ val: v })} />
+                </div>
+              )}
             </div>
             <div style={{ marginTop: 13 }}>
-              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Prescribe this one in</div>
-              <Segmented value={slot.mode} onChange={(m) => up({ mode: m, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })} options={MODES.map((m) => ({ value: m.v, label: m.t }))} />
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Measured in</div>
+              <Segmented value={timed ? "time" : slot.mode}
+                onChange={(m) => up(m === "time" ? { metric: "time", reps: 45 } : { metric: "reps", mode: m, reps: slot.metric === "time" ? 8 : slot.reps, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })}
+                options={MODES.map((m) => ({ value: m.v, label: m.t })).concat([{ value: "time", label: "Time" }])} />
             </div>
-            <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            {!timed && <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />}
+            <div style={{ display: timed ? "none" : "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
               <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
                 style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
@@ -2335,13 +2375,141 @@ function CloneSheet({ open, onClose, onClone, fromLabel }) {
   );
 }
 
+/* ------------------------------ calendar --------------------------------- */
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW = ["M", "T", "W", "T", "F", "S", "S"];
+// Mon-first grid, padded to whole weeks so the rows line up.
+function monthGrid(y, m) {
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() + 6) % 7;
+  const n = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= n; d++) cells.push(new Date(y, m, d));
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+// Where a real date falls in the block. The template repeats once it runs out, so
+// the cycle number is reported too rather than silently showing "Week 1" forever.
+function blockPos(program, dateStr) {
+  if (!program || !program.weeks || !program.weeks.length) return { wi: 0, cycle: 1, before: true };
+  const before = dateStr < (program.startDate || todayStr());
+  const d0 = new Date(tsFromDateStr(program.startDate || todayStr())); d0.setHours(0, 0, 0, 0);
+  const d1 = new Date(tsFromDateStr(dateStr)); d1.setHours(0, 0, 0, 0);
+  const wk = Math.floor(Math.max(0, (d1 - d0) / 86400000) / 7);
+  return { wi: wk % program.weeks.length, cycle: Math.floor(wk / program.weeks.length) + 1, before };
+}
+// Everything logged on one calendar day, newest lifts grouped, for looking back.
+function loggedOn(state, dateStr) {
+  const dk = new Date(tsFromDateStr(dateStr)).toDateString();
+  const out = [];
+  for (const [name, ex] of Object.entries(state.exercises || {}))
+    for (const s of ex.sets) if (new Date(s.ts).toDateString() === dk) out.push({ ...s, ex: name });
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
+function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
+  const cells = monthGrid(y, m);
+  const todayS = todayStr();
+  const navBtn = { width: 34, height: 34, borderRadius: R.pill, border: `1px solid ${C.line}`,
+    background: "rgba(255,255,255,0.03)", color: C.muted, cursor: "pointer", display: "grid",
+    placeItems: "center", WebkitTapHighlightColor: "transparent", padding: 0 };
+  return (
+    <Card accent={C.blue}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <button onClick={() => onShift(-1)} style={navBtn} aria-label="Previous month">
+          <ChevronDown size={16} style={{ transform: "rotate(90deg)" }} />
+        </button>
+        <span style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em" }}>
+          {MONTHS[m]} {y}
+        </span>
+        <button onClick={() => onShift(1)} style={navBtn} aria-label="Next month">
+          <ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} />
+        </button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+        {DOW.map((d, i) => (
+          <div key={i} style={{ textAlign: "center", fontFamily: MONO, fontSize: 9.5, color: C.faint,
+            fontWeight: 700, paddingBottom: 5 }}>{d}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const ds = dateStrFromTs(d.getTime());
+          const isToday = ds === todayS;
+          const isSel = ds === sel;
+          const pos = blockPos(program, ds);
+          const planned = !pos.before && slotsFor(program, ds).length;
+          const did = loggedDays[ds] || 0;
+          return (
+            <button key={i} onClick={() => onSel(ds)} style={{
+              aspectRatio: "1", borderRadius: 10, cursor: "pointer", padding: 0, position: "relative",
+              border: isToday && !isSel ? `1px solid ${C.red}` : `1px solid ${isSel ? "transparent" : "rgba(255,255,255,0.05)"}`,
+              background: isSel ? G.red : (did ? "rgba(255,255,255,0.07)" : "transparent"),
+              color: isSel ? "#fff" : (did || planned ? C.text : C.faint),
+              fontFamily: MONO, fontSize: 12.5, fontWeight: isSel ? 700 : 500,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+              WebkitTapHighlightColor: "transparent", transition: "background .12s ease" }}>
+              <span>{d.getDate()}</span>
+              <span style={{ display: "flex", gap: 2, height: 4, alignItems: "center" }}>
+                {did ? <span style={{ width: 4, height: 4, borderRadius: 99, background: isSel ? "#fff" : C.good }} /> : null}
+                {planned && !did ? <span style={{ width: 4, height: 4, borderRadius: 99, background: isSel ? "#fff" : C.blue }} /> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 14, marginTop: 13, justifyContent: "center", flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: C.faint }}>
+          <span style={{ width: 5, height: 5, borderRadius: 99, background: C.good }} /> trained
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: C.faint }}>
+          <span style={{ width: 5, height: 5, borderRadius: 99, background: C.blue }} /> planned
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+// Destructive actions live together, behind one door, so none of them is a
+// mis-tap away while you are editing a session.
+function ResetSheet({ open, onClose, weekLabel, onClearDay, onClearWeek, onTrimAfter, onStartOver }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!open) setArmed(false); }, [open]);
+  const row = (title, desc, onClick, danger) => (
+    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: G.card,
+      border: `1px solid ${danger ? C.redLine : C.line2}`, borderRadius: R.surface, padding: "14px 15px",
+      cursor: "pointer", color: C.text, marginBottom: 9, WebkitTapHighlightColor: "transparent" }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: danger ? C.red : C.text }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{desc}</div>
+    </button>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title="Reset">
+      {row("Clear this day", "Empties the selected day in " + (weekLabel || "this week") + ".", () => { onClearDay(); onClose(); })}
+      {row("Clear " + (weekLabel || "this week"), "Empties all seven days of this week of the block.", () => { onClearWeek(); onClose(); })}
+      {row("Delete every week after this one", "Keeps the block up to and including " + (weekLabel || "this week") + ".", () => { onTrimAfter(); onClose(); })}
+      {row(armed ? "Tap again to delete the program" : "Start over",
+        armed ? "This removes the whole block. Your training history is not touched." : "Deletes the whole program and starts from an empty one. Your logged sets are kept.",
+        () => { if (armed) { onStartOver(); onClose(); } else setArmed(true); }, true)}
+    </Sheet>
+  );
+}
+
 function ProgramTab({ state, setState, setTab, setSel }) {
   const program = state.program || null;
-  const [wi, setWi] = useState(() => (state.program ? weekIndexFor(state.program, todayStr()) : 0));
-  const [day, setDay] = useState(dayKeyFor(todayStr()));
-  const [picking, setPicking] = useState(null);   // null | {mode:"add"} | {mode:"swap", id}
+  const [sel, setSelDate] = useState(todayStr());
+  const [cur, setCur] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [picking, setPicking] = useState(null);
   const [cloning, setCloning] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [showWeeks, setShowWeeks] = useState(false);
   const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
+  const loggedDays = useMemo(() => {
+    const m = {};
+    for (const ex of Object.values(state.exercises || {}))
+      for (const s of ex.sets) { const k = dateStrFromTs(s.ts); m[k] = (m[k] || 0) + 1; }
+    return m;
+  }, [state.exercises]);
 
   if (!program) {
     return (
@@ -2362,15 +2530,17 @@ function ProgramTab({ state, setState, setTab, setSel }) {
   }
 
   const weeks = program.weeks || [];
-  const week = weeks[Math.min(wi, weeks.length - 1)] || weeks[0];
-  const slots = (week && week.days && week.days[day]) || [];
-  const liveWeek = weekIndexFor(program, todayStr());
+  const pos = blockPos(program, sel);
+  const week = weeks[pos.wi] || weeks[0];
+  const dayK = dayKeyFor(sel);
+  const slots = (!pos.before && week && week.days && week.days[dayK]) || [];
+  const did = loggedOn(state, sel);
+  const selDate = new Date(tsFromDateStr(sel));
+  const isPast = sel < todayStr();
 
   const writeSlots = (next) => setProgram((pr) => ({
-    ...pr, weeks: pr.weeks.map((w, i) => i !== wi ? w : { ...w, days: { ...w.days, [day]: next } }) }));
+    ...pr, weeks: pr.weeks.map((w, i) => i !== pos.wi ? w : { ...w, days: { ...w.days, [dayK]: next } }) }));
   const addSlot = (name) => writeSlots([...slots, newSlot(name)]);
-  // Reordering keeps the superset links positional: whatever ends up first in the
-  // day cannot be "paired with the one above", so that flag is cleared on the move.
   const moveSlot = (i, d) => {
     const j = i + d;
     if (j < 0 || j >= slots.length) return;
@@ -2381,9 +2551,9 @@ function ProgramTab({ state, setState, setTab, setSel }) {
     writeSlots(next);
   };
   const toggleLink = (i) => { if (i > 0) writeSlots(slots.map((x, j) => j === i ? { ...x, link: !x.link } : x)); };
-  const swapSlot = (id, name) => writeSlots(slots.map((s) => s.id === id ? { ...newSlot(name), id: s.id, sets: s.sets, reps: s.reps, mode: s.mode, val: s.val, bo: s.bo } : s));
+  const swapSlot = (id, name) => writeSlots(slots.map((s) => s.id === id ? { ...newSlot(name), id: s.id, sets: s.sets, reps: s.reps, mode: s.mode, val: s.val, bo: s.bo, link: s.link } : s));
   const cloneWeek = (rule) => setProgram((pr) => {
-    const src = pr.weeks[wi];
+    const src = pr.weeks[pos.wi];
     const bump = (sl) => {
       if (sl.role !== "main") return { ...sl, id: uid() };
       if (rule === "rpe" && sl.mode === "rpe") return { ...sl, id: uid(), val: Math.min(10, sl.val + 0.5) };
@@ -2393,9 +2563,12 @@ function ProgramTab({ state, setState, setTab, setSel }) {
       return { ...sl, id: uid() };
     };
     const days = DAY_KEYS.reduce((a, d) => (a[d] = (src.days[d] || []).map(bump), a), {});
-    const next = { id: uid(), label: "Week " + (pr.weeks.length + 1), days };
-    return { ...pr, weeks: [...pr.weeks, next] };
+    return { ...pr, weeks: [...pr.weeks, { id: uid(), label: "Week " + (pr.weeks.length + 1), days }] };
   });
+  const emptyDays = () => DAY_KEYS.reduce((a, d) => (a[d] = [], a), {});
+
+  const shift = (d) => setCur((c) => { const n = new Date(c.y, c.m + d, 1); return { y: n.getFullYear(), m: n.getMonth() }; });
+  const jumpToday = () => { const d = new Date(); setCur({ y: d.getFullYear(), m: d.getMonth() }); setSelDate(todayStr()); };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2416,64 +2589,166 @@ function ProgramTab({ state, setState, setTab, setSel }) {
             {program.active ? <><Check size={15} /> Running</> : "Paused"}
           </Btn>
         </div>
-        <div style={{ fontSize: 11.5, color: C.faint, marginTop: 11, lineHeight: 1.5 }}>
-          {program.active
-            ? <>Today is <b style={{ color: C.text }}>{(weeks[liveWeek] || {}).label}</b>, {dayKeyFor(todayStr())}. The block repeats once it runs out.</>
-            : "Paused — Train won't pre-load anything until you start it again."}
+        <div style={{ display: "flex", gap: 14, marginTop: 13, flexWrap: "wrap" }}>
+          <button onClick={() => setShowWeeks((v) => !v)} style={{ background: "none", border: "none", color: C.text,
+            fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0, display: "inline-flex",
+            alignItems: "center", gap: 5 }}>
+            {weeks.length} week{weeks.length === 1 ? "" : "s"} in the block
+            <ChevronDown size={13} style={{ color: C.faint, transform: showWeeks ? "rotate(180deg)" : "none", transition: ".2s" }} />
+          </button>
+          <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>Reset</button>
         </div>
+        {showWeeks && (
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 10 }}>
+              Weeks run in order from the start date and repeat once the block runs out. Editing a day edits that week of the block, so it applies every time the block comes round.
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {weeks.map((w, i) => (
+                <Chip key={w.id} sm active={i === pos.wi} onClick={() => {
+                  // jump the calendar to the first date that falls in this week
+                  const d0 = new Date(tsFromDateStr(program.startDate)); d0.setDate(d0.getDate() + i * 7);
+                  setSelDate(dateStrFromTs(d0.getTime())); setCur({ y: d0.getFullYear(), m: d0.getMonth() });
+                }}>{w.label}</Chip>
+              ))}
+            </div>
+            <Btn kind="solid" style={{ width: "100%", marginTop: 11, minHeight: 42, fontSize: 12.5 }}
+              onClick={() => setCloning(true)}>Clone {week ? week.label : "week"} →</Btn>
+          </div>
+        )}
       </Card>
 
-      <div>
-        <SectionHead accent={C.blue} right={
-          <button onClick={() => setCloning(true)} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Clone week</button>
-        }>Weeks</SectionHead>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {weeks.map((w, i) => (
-            <Chip key={w.id} active={i === wi} onClick={() => setWi(i)}>
-              {w.label}{i === liveWeek && program.active ? " ·now" : ""}
-            </Chip>
-          ))}
-          {weeks.length > 1 && (
-            <Chip sm onClick={() => { if (weeks.length <= 1) return; setProgram((pr) => ({ ...pr, weeks: pr.weeks.filter((_, i) => i !== wi) })); setWi(0); }}>
-              <Trash2 size={13} />
-            </Chip>
-          )}
-        </div>
-      </div>
+      <MonthCalendar y={cur.y} m={cur.m} sel={sel} onSel={setSelDate} onShift={shift}
+        program={program} loggedDays={loggedDays} />
 
       <div>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 13 }}>
-          {DAY_KEYS.map((d) => {
-            const n = ((week && week.days && week.days[d]) || []).length;
-            return <Chip key={d} sm active={d === day} onClick={() => setDay(d)}>{d}{n ? ` ·${n}` : ""}</Chip>;
-          })}
-        </div>
-        {decorateSlots(slots).map((d) => (
-          <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
-            groupLast={d.last} rounds={d.rounds}
-            canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
-            onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
-            canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
-            onChange={(next) => writeSlots(slots.map((x) => x.id === d.sl.id ? next : x))}
-            onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
-            onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
-        ))}
-        {!slots.length && (
-          <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "24px 16px", lineHeight: 1.6 }}>
-            Nothing on {day} in {week ? week.label : "this week"}. A rest day is a perfectly good answer.
+        <SectionHead accent={C.amber} right={sel !== todayStr() ? (
+          <button onClick={jumpToday} style={{ background: "none", border: "none", color: C.red,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Today</button>
+        ) : null}>
+          {selDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+          {!pos.before && week ? ` · ${week.label}${pos.cycle > 1 ? ` (round ${pos.cycle})` : ""}` : ""}
+        </SectionHead>
+
+        {did.length > 0 && (
+          <Card style={{ marginBottom: 12 }}>
+            <div style={{ ...label, fontSize: 9.5, marginBottom: 10 }}>What you did</div>
+            {did.map((s) => (
+              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0",
+                fontSize: 12.5, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {s.ex}{s.backoff ? <span style={{ color: C.faint, fontWeight: 500 }}> · back-off</span> : null}
+                </span>
+                <span style={{ fontFamily: MONO, color: C.muted, whiteSpace: "nowrap" }}>{setLine(s, state)}</span>
+              </div>
+            ))}
           </Card>
         )}
-        <Btn kind="solid" style={{ width: "100%", marginTop: 10 }} onClick={() => setPicking({ mode: "add" })}>
-          <Plus size={16} /> Add movement to {day}
-        </Btn>
+
+        {pos.before ? (
+          <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "22px 16px", lineHeight: 1.6 }}>
+            This is before the block starts{did.length ? " — only what you logged is shown." : "."}
+          </Card>
+        ) : (
+          <>
+            {decorateSlots(slots).map((d) => (
+              <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+                groupLast={d.last} rounds={d.rounds}
+                canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
+                onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
+                canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
+                onChange={(next) => writeSlots(slots.map((x) => x.id === d.sl.id ? next : x))}
+                onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
+                onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
+            ))}
+            {!slots.length && (
+              <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "22px 16px", lineHeight: 1.6 }}>
+                Nothing planned{isPast ? " was" : ""} on this day. A rest day is a perfectly good answer.
+              </Card>
+            )}
+            <Btn kind="solid" style={{ width: "100%", marginTop: 10 }} onClick={() => setPicking({ mode: "add" })}>
+              <Plus size={16} /> Add movement
+            </Btn>
+          </>
+        )}
       </div>
 
       <ExercisePicker open={!!picking} onClose={() => setPicking(null)} existing={Object.keys(state.exercises)}
         onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
       <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={week ? week.label : "week"}
-        onClone={(rule) => { cloneWeek(rule); setWi(weeks.length); }} />
+        onClone={(rule) => cloneWeek(rule)} />
+      <ResetSheet open={resetting} onClose={() => setResetting(false)} weekLabel={week ? week.label : "this week"}
+        onClearDay={() => writeSlots([])}
+        onClearWeek={() => setProgram((pr) => ({ ...pr, weeks: pr.weeks.map((w, i) => i !== pos.wi ? w : { ...w, days: emptyDays() }) }))}
+        onTrimAfter={() => setProgram((pr) => ({ ...pr, weeks: pr.weeks.slice(0, pos.wi + 1) }))}
+        onStartOver={() => setProgram(newProgram())} />
     </div>
+  );
+}
+
+
+// Clock-based logger: weight is optional (a weighted plank, a loaded carry), the
+// target comes from the programmed slot when there is one, and nothing here feeds
+// the one-rep-max estimator.
+function TimedLogger({ state, sel, logSet, logDate, setLogDate, unit, slot }) {
+  const [secs, setSecs] = useState(slot ? slot.reps : 45);
+  const [wt, setWt] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => { setSecs(slot ? slot.reps : 45); setWt(""); }, [sel, slot && slot.id]);
+  const dk = new Date(tsFromDateStr(logDate)).toDateString();
+  const today = ((state.exercises[sel] || {}).sets || []).filter((x) => new Date(x.ts).toDateString() === dk);
+  const target = slot ? slot.sets : null;
+  const log = () => {
+    if (!sel || !secs) return;
+    const w = parseFloat(wt);
+    logSet(sel, { weight: isFinite(w) && w > 0 ? w : 0, reps: 1, rpe: 7, secs: Math.round(secs),
+      ts: tsFromDateStr(logDate), timed: true });
+    setDone(true); setTimeout(() => setDone(false), 1400);
+  };
+  return (
+    <Card accent={C.blue}>
+      <SectionHead accent={C.blue} sub={target ? `Programmed: ${target} × ${fmtDur(slot.reps)}.` : "Logged on the clock — this one doesn't feed your 1RM."}>
+        {sel}
+      </SectionHead>
+      {today.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
+          {today.map((x, i) => (
+            <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 10, background: C.bg2,
+              border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px" }}>
+              <Check size={14} style={{ color: C.good, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
+                Set {i + 1} · <span style={{ fontFamily: MONO, color: C.text }}>{fmtDur(x.secs)}</span>
+                {x.weight ? <span style={{ fontFamily: MONO, color: C.text }}> · {fmt(x.weight)}{unit}</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ textAlign: "center", padding: "6px 0 14px" }}>
+        <div style={{ ...label, fontSize: 9.5 }}>Duration</div>
+        <div style={{ fontFamily: MONO, fontSize: 46, fontWeight: 700, letterSpacing: "-0.04em", marginTop: 8,
+          color: C.text }}>{fmtDur(secs)}</div>
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap", marginBottom: 14 }}>
+        {[-30, -10, -5, 5, 10, 30].map((d) => (
+          <Chip key={d} sm onClick={() => setSecs((v) => Math.max(5, Math.min(3600, v + d)))}>{d > 0 ? "+" : ""}{d}s</Chip>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div style={{ flex: "1 1 110px" }}>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Added weight (optional)</div>
+          <NumField value={wt} onChange={setWt} suffix={unit} />
+        </div>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Date</div>
+        <DateField value={logDate} onChange={setLogDate} />
+      </div>
+      <Btn kind="primary" onClick={log} style={{ width: "100%", marginTop: 14 }}>
+        {done ? <><Check size={17} /> Logged</> : `Log ${fmtDur(secs)}`}
+      </Btn>
+    </Card>
   );
 }
 
@@ -2514,6 +2789,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // on this screen still comes from the estimator, so a programmed day and a
   // freestyle day are the same machinery with a different starting point.
   const sessionSlots = slotsFor(state.program, logDate);
+  const timedSel = !!sel && isTimed(sel, state);
+  const timedSlot = sessionSlots.find((x) => x.ex === sel && slotTimed(x)) || null;
   const progWeek = state.program && state.program.weeks
     ? (state.program.weeks[weekIndexFor(state.program, logDate)] || {}).label : null;
   const doneSlots = useMemo(() => {
@@ -2532,7 +2809,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       const L = libFind(sl.ex);
       const parent = L && L.m && state.exercises[L.m] ? L.m : null;
       addExercise(sl.ex, parent, L ? L.r : undefined);
-      if (sl.role === "accessory") updateExercise(sl.ex, { accessory: true });
+      const patch = {};
+      if (sl.role === "accessory") patch.accessory = true;
+      if (slotTimed(sl)) { patch.metric = "time"; patch.accessory = true; }
+      if (Object.keys(patch).length) updateExercise(sl.ex, patch);
     } else setSel(sl.ex);
     setModeOverride(sl.mode);
     setTReps(sl.reps);
@@ -2790,7 +3070,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </div>
       )}
 
-      {/* strength readout */}
+      {/* strength readout — a plank has no one-rep max, so it does not get one */}
+      {!timedSel && (
       <Card accent={C.blue}>
         {locked ? (
           <div>
@@ -2833,10 +3114,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         )}
       </Card>
+      )}
 
       <CheckinCard state={state} setState={setState} sel={sel} dateStr={logDate} />
 
-      {/* TOP SET widget — prescribe, see the load, log it, all in one */}
       {sessionSlots.length > 0 ? (
       <Card accent={C.amber} style={{ padding: "14px 15px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2912,6 +3193,12 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       </Card>
       )}
 
+      {/* A hold, a carry or a bike interval has no one-rep max, so the whole
+          prescribe-and-estimate apparatus is replaced by a plain clock logger
+          rather than shown with meaningless numbers in it. The session list and
+          the day's check-in stay put — both are about the day, not the lift. */}
+      {timedSel ? <TimedLogger {...{ state, sel, logSet, logDate, setLogDate, unit, slot: timedSlot }} /> : (<>
+      {/* TOP SET widget — prescribe, see the load, log it, all in one */}
       <Card accent={C.red} glow="none">
         <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -3132,6 +3419,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </Card>
       )}
 
+      </>)}
+
       <button onClick={() => setShowHow((v) => !v)} style={{ background: "none", border: "none", color: C.faint,
         fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, alignSelf: "center" }}>
         <Info size={14} /> How the numbers work
@@ -3277,12 +3566,14 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600 }}>
-                {fmt(s.weight)}{unit} × {s.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
+                {s.secs != null
+                  ? <>{fmtDur(s.secs)}{s.weight ? <span style={{ color: C.muted }}> · {fmt(s.weight)}{unit}</span> : null}</>
+                  : <>{fmt(s.weight)}{unit} × {s.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span></>}
                 {s.backoff && <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 800, color: C.muted,
                   border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 6px", marginLeft: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>Back-off</span>}
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
-                {dshort(s.ts)}{s.backoff ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
+                {dshort(s.ts)}{s.backoff || s.secs != null ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
                 {s.cond != null && s.cond < 1
                   ? <span style={{ color: C.gold }}> · −{fmt(Math.round((1 - s.cond) * 1000) / 10)}% conditions</span>
                   : null}
