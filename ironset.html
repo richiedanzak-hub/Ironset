@@ -42,6 +42,7 @@ const Info = mkIcon(<g><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2=
 const Pencil = mkIcon(<g><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></g>);
 const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
 const Calendar = mkIcon(<g><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></g>);
+const Play = mkIcon(<polygon points="5 3 19 12 5 21 5 3"/>);
 const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
 function loadState() {
   try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw);
@@ -792,6 +793,59 @@ function Sheet({ open, onClose, title, children }) {
         {children}
       </div>
     </div>
+  );
+}
+
+/* ------------------------------ how-to search ----------------------------- */
+// A movement you don't know is one tap from someone demonstrating it. This searches
+// rather than shipping footage, which is what makes it cover everything: all 360
+// catalogue movements and anything you named yourself, including the variations a
+// stock exercise database has never heard of — there is plenty of Spoto Press and
+// Pendlay Row on lifting YouTube. It also adds nothing to the file and needs no API
+// key, which matters because IRONSET is a static page: a key in it would be readable
+// by anyone with the link.
+//
+// Most names are specific enough to search for as they are. These few mean something
+// else on their own — a French Press is coffee and "21s" is nothing — so they look
+// for something findable instead.
+const SEARCH_AS = {
+  "21s": "21s biceps curl",
+  "Dip": "triceps dip",
+  "Weighted Dip": "weighted triceps dip",
+  "Machine Dip": "machine triceps dip",
+  "Bench Dip": "bench triceps dip",
+  "French Press": "french press triceps extension",
+  "Rower": "rowing machine technique",
+  "Jackknife": "jackknife abs exercise",
+  "Hex Hold": "hex dumbbell hold grip",
+  "Stir the Pot": "stir the pot ab exercise",
+  "Dead Bug": "dead bug core exercise",
+  "Bird Dog": "bird dog core exercise",
+  "Y Raise": "y raise shoulder exercise",
+  "Easy Walk": "zone 2 walking",
+  "Press": "overhead press",
+  "Clean": "power clean",
+  "Snatch": "snatch weightlifting",
+  "Bench": "bench press",
+  "Squat": "barbell back squat",
+  "Deadlift": "conventional deadlift",
+};
+const howToUrl = (name) =>
+  "https://www.youtube.com/results?search_query=" + encodeURIComponent(SEARCH_AS[name] || name + " form");
+// An anchor rather than a button: in a home-screen app a real link opens the browser,
+// where window.open can be swallowed. target="_blank" keeps IRONSET itself loaded, so
+// coming back is one swipe and nothing in the session is lost.
+function HowTo({ name, size = 28, style }) {
+  if (!name) return null;
+  return (
+    <a href={howToUrl(name)} target="_blank" rel="noopener noreferrer"
+      aria-label={`Watch how to do ${name}`} onClick={(e) => e.stopPropagation()}
+      style={{ flexShrink: 0, width: size, height: size, borderRadius: 999, background: "rgba(255,255,255,0.05)",
+        border: `1px solid ${C.line2}`, color: C.muted, display: "flex", alignItems: "center",
+        justifyContent: "center", cursor: "pointer", textDecoration: "none",
+        WebkitTapHighlightColor: "transparent", ...style }}>
+      <Play size={Math.round(size * 0.42)} />
+    </a>
   );
 }
 
@@ -2241,20 +2295,26 @@ function ExercisePicker({ open, onClose, onPick, existing }) {
       )}
       <div style={{ maxHeight: "52vh", overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", margin: "0 -4px", padding: "0 4px" }}>
         {own.map((n) => (
-          <button key={n} onClick={() => { onPick(n); onClose(); }} style={pickRow}>
-            <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{n}</span>
-            <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO }}>yours</span>
-          </button>
+          <div key={n} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${C.line}` }}>
+            <button onClick={() => { onPick(n); onClose(); }} style={{ ...pickRow, borderBottom: "none", flex: 1, minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{n}</span>
+              <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO }}>yours</span>
+            </button>
+            <HowTo name={n} />
+          </div>
         ))}
         {hits.map((x) => (
-          <button key={x.n} onClick={() => { onPick(x.n); onClose(); }} style={pickRow}>
-            <span style={{ minWidth: 0, flex: 1 }}>
-              <span style={{ display: "block", fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{x.n}</span>
-              <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 2, textAlign: "left" }}>
-                {eqName(x.e)}{x.m ? ` · feeds ${x.m} at ${Math.round(x.r * 100)}%` : ` · ${x.d === "rpe" ? "RPE" : x.d === "pct" ? "%" : "RIR"}`}
+          <div key={x.n} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${C.line}` }}>
+            <button onClick={() => { onPick(x.n); onClose(); }} style={{ ...pickRow, borderBottom: "none", flex: 1, minWidth: 0 }}>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{x.n}</span>
+                <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 2, textAlign: "left" }}>
+                  {eqName(x.e)}{x.m ? ` · feeds ${x.m} at ${Math.round(x.r * 100)}%` : ` · ${x.d === "rpe" ? "RPE" : x.d === "pct" ? "%" : "RIR"}`}
+                </span>
               </span>
-            </span>
-          </button>
+            </button>
+            <HowTo name={x.n} />
+          </div>
         ))}
         {canCustom && (
           <Btn kind="ghost" style={{ width: "100%", margin: "10px 0 2px" }} onClick={() => { onPick(q.trim()); onClose(); }}>
@@ -2729,11 +2789,15 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
   const fromLib = LIB.filter((x) => query && x.n.toLowerCase().includes(query) && names.indexOf(x.n) < 0).slice(0, 40);
   const custom = query.length > 1 && !names.some((n) => n.toLowerCase() === query) && !LIB.some((x) => x.n.toLowerCase() === query);
   const row = (n, right, onClick) => (
-    <button key={n} onClick={onClick} style={{ ...pickRow, background: n === sel ? "rgba(255,255,255,0.05)" : "none" }}>
-      <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left", minWidth: 0,
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</span>
-      <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap", marginLeft: 10 }}>{right}</span>
-    </button>
+    <div key={n} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${C.line}`,
+      background: n === sel ? "rgba(255,255,255,0.05)" : "none" }}>
+      <button onClick={onClick} style={{ ...pickRow, borderBottom: "none", background: "none", flex: 1, minWidth: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left", minWidth: 0,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</span>
+        <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap", marginLeft: 10 }}>{right}</span>
+      </button>
+      <HowTo name={n} />
+    </div>
   );
   const hint = (n) => {
     if (isTimed(n, state)) return "time";
@@ -3141,7 +3205,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* exercise selector */}
-      <button onClick={() => setPickingLift(true)} style={{ width: "100%", display: "flex", alignItems: "center",
+      <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+      <button onClick={() => setPickingLift(true)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
         gap: 10, background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "13px 15px",
         cursor: "pointer", color: C.text, textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
         <span style={{ minWidth: 0, flex: 1 }}>
@@ -3151,6 +3216,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </span>
         <ChevronDown size={18} style={{ color: C.faint, flexShrink: 0 }} />
       </button>
+      {/* Standing in front of the bar is exactly when you want to see the movement. */}
+      {sel && <HowTo name={sel} size={56}
+        style={{ height: "auto", borderRadius: R.surface, background: G.card, color: C.text }} />}
+      </div>
       {sel && (
         <button onClick={() => setLinking(true)} style={{ alignSelf: "flex-start", background: "none", border: "none",
           color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 6, marginTop: -4 }}>
