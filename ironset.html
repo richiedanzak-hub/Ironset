@@ -749,13 +749,39 @@ function Tag({ color, children, onClick, active }) {
     </span>
   );
 }
+// Pinning the page while a sheet is up. iOS will happily scroll whatever is behind
+// an overlay once the overlay's own list hits its end, which is why reaching for a
+// movement would drag the screen underneath instead. Fixing the body is the only
+// thing Safari reliably respects; the scroll offset is parked in `top` and put back
+// on close so the page does not jump.
+function useScrollLock(open) {
+  useEffect(() => {
+    if (!open) return;
+    const b = document.body, y = window.scrollY || window.pageYOffset || 0;
+    const prev = { position: b.style.position, top: b.style.top, left: b.style.left,
+      right: b.style.right, width: b.style.width, overflow: b.style.overflow };
+    b.style.position = "fixed"; b.style.top = `-${y}px`; b.style.left = "0";
+    b.style.right = "0"; b.style.width = "100%"; b.style.overflow = "hidden";
+    return () => {
+      b.style.position = prev.position; b.style.top = prev.top; b.style.left = prev.left;
+      b.style.right = prev.right; b.style.width = prev.width; b.style.overflow = prev.overflow;
+      // The document is only viewport-high while the body is fixed, so scrolling
+      // back before layout recovers clamps to the top. Read a layout property to
+      // force the reflow, then restore the offset.
+      void b.offsetHeight;
+      window.scrollTo(0, y);
+    };
+  }, [open]);
+}
 function Sheet({ open, onClose, title, children }) {
+  useScrollLock(open);
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 50,
+    <div onClick={onClose} onTouchMove={(e) => e.stopPropagation()} style={{ position: "fixed", inset: 0,
+      background: "rgba(0,0,0,.62)", zIndex: 50, overscrollBehavior: "contain", touchAction: "none",
       display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480,
-        background: C.bg2, borderTop: `1px solid ${C.line2}`,
+        background: C.bg2, borderTop: `1px solid ${C.line2}`, overscrollBehavior: "contain", touchAction: "pan-y",
         borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, padding: 18, maxHeight: "85vh", overflowY: "auto",
         boxShadow: "0 -20px 50px -20px rgba(0,0,0,0.8)" }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.line2, margin: "-4px auto 14px" }} />
@@ -1979,7 +2005,6 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
             <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
               Checked in <b style={{ color: C.text }}>{ckToday.score} · {readyInfo(ckToday.score).t}</b>
-              {(ckToday.gear || []).length ? <span style={{ color: C.faint }}> · {(ckToday.gear || []).length} kit note{(ckToday.gear || []).length > 1 ? "s" : ""}</span> : null}
             </span>
             <span style={{ fontFamily: MONO, fontSize: 11, color: C.faint, fontWeight: 700 }}>edit</span>
           </div>
@@ -2118,13 +2143,9 @@ function CheckinCard({ state, setState, sel, dateStr }) {
   const [open, setOpen] = useState(false);
   const cls = liftClass(sel);
   const write = (patch) => setState((st) => {
-    const cur = (st.checkins || {})[day] || { score: READY_DEFAULT, gear: [] };
+    const cur = (st.checkins || {})[day] || { score: READY_DEFAULT };
     return { ...st, checkins: { ...(st.checkins || {}), [day]: { ...cur, ...patch, ts: Date.now() } } };
   });
-  const toggleGear = (g) => {
-    const cur = (ck && ck.gear) || [];
-    write({ gear: cur.indexOf(g) >= 0 ? cur.filter((x) => x !== g) : cur.concat([g]) });
-  };
   const factor = conditionFactor(ck, cls);
   const trim = Math.round((1 - factor) * 1000) / 10;
   const editing = open || !ck;
@@ -2147,16 +2168,11 @@ function CheckinCard({ state, setState, sel, dateStr }) {
           {trim > 0
             ? <span style={{ fontFamily: MONO, fontSize: 11.5, color: C.gold, fontWeight: 700 }}>loads −{trim}%</span>
             : <span style={{ fontFamily: MONO, fontSize: 11.5, color: C.faint, fontWeight: 700 }}>loads as normal</span>}
-          {(ck.gear || []).length > 0 && (
-            <span style={{ fontSize: 11.5, color: C.faint, width: "100%" }}>
-              {(ck.gear || []).map((g) => GEAR[g] && GEAR[g].label).filter(Boolean).join(" · ")}
-            </span>
-          )}
         </div>
       ) : (
         <>
           <div style={{ fontSize: 12, color: C.faint, marginTop: 5, lineHeight: 1.5 }}>
-            Sleep, stress, illness, food, life outside the gym. 8 is an ordinary day.
+One number for everything outside the gym — sleep, stress, illness, food, how the week has gone. 8 is an ordinary day.
           </div>
           {/* Setting the number must not snap the card shut — kit and the explanation
               live below it, and the first tap is exactly when they matter most. */}
@@ -2166,16 +2182,10 @@ function CheckinCard({ state, setState, sel, dateStr }) {
               <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginTop: 11 }}>
                 {ck.score} · {info.t}
               </div>
-              <div style={{ ...label, fontSize: 9, marginTop: 15, marginBottom: 8 }}>Kit &amp; venue</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {GEAR_KEYS.map((g) => (
-                  <Chip key={g} sm active={(ck.gear || []).indexOf(g) >= 0} onClick={() => toggleGear(g)}>{GEAR[g].label}</Chip>
-                ))}
-              </div>
-              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 13, lineHeight: 1.55,
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 15, lineHeight: 1.55,
                 borderTop: `1px solid ${C.line}`, paddingTop: 11 }}>
                 {trim > 0
-                  ? <>Today&rsquo;s suggested loads drop <b style={{ color: C.gold }}>{trim}%</b>{sel ? <> for {sel}</> : null}. Your estimated max is left exactly where it is — a rough day changes what you&rsquo;re asked to lift, never what you&rsquo;re capable of.</>
+                  ? <>Today&rsquo;s suggested loads drop <b style={{ color: C.gold }}>{trim}%</b>. Your estimated max is left exactly where it is — a rough day changes what you&rsquo;re asked to lift, never what you&rsquo;re capable of.</>
                   : <>Loads run as normal. Drop the number on a day sleep, stress or illness has caught up with you and the suggestions follow, without touching your estimated max.</>}
               </div>
             </>
@@ -2224,15 +2234,12 @@ function ExercisePicker({ open, onClose, onPick, existing }) {
           </div>
         </>
       )}
-      {canCustom && (
-        <Btn kind="solid" style={{ width: "100%", marginBottom: 12 }} onClick={() => { onPick(q.trim()); onClose(); }}>
-          <Plus size={15} /> Add "{q.trim()}" as a custom movement
-        </Btn>
+      {!query && (
+        <div style={{ ...label, fontSize: 9, marginBottom: 6 }}>
+          {own.length + hits.length} movement{own.length + hits.length === 1 ? "" : "s"}
+        </div>
       )}
-      <div style={{ ...label, fontSize: 9, marginBottom: 6 }}>
-        {own.length + hits.length} movement{own.length + hits.length === 1 ? "" : "s"}
-      </div>
-      <div style={{ maxHeight: "52vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+      <div style={{ maxHeight: "52vh", overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", margin: "0 -4px", padding: "0 4px" }}>
         {own.map((n) => (
           <button key={n} onClick={() => { onPick(n); onClose(); }} style={pickRow}>
             <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left" }}>{n}</span>
@@ -2249,6 +2256,11 @@ function ExercisePicker({ open, onClose, onPick, existing }) {
             </span>
           </button>
         ))}
+        {canCustom && (
+          <Btn kind="ghost" style={{ width: "100%", margin: "10px 0 2px" }} onClick={() => { onPick(q.trim()); onClose(); }}>
+            <Plus size={15} /> Add "{q.trim()}" as a custom movement
+          </Btn>
+        )}
         {!hits.length && !own.length && !canCustom && (
           <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "22px 0" }}>Nothing matches that.</div>
         )}
@@ -2735,21 +2747,30 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your lifts and the library…" autoFocus
         style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line2}`, borderRadius: R.input,
           padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15, outline: "none" }} />
-      <div style={{ maxHeight: "56vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+      <div style={{ maxHeight: "56vh", overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", margin: "0 -4px", padding: "0 4px" }}>
+        {/* While searching the matches sit immediately under the box — the point of
+            typing is to see the hit, not to scroll past three headings to reach it. */}
+        {query ? (
+          <>
+            {todays.concat(tracked, acc).map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+            {fromLib.map((x) => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find((e) => e.k === x.e) || {}).t || "",
+              () => { onCreate(x.n); onClose(); }))}
+          </>
+        ) : (
+          <>
+            {todays.length > 0 && head("Today's session")}
+            {todays.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+            {tracked.length > 0 && head("Your lifts")}
+            {tracked.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+            {acc.length > 0 && head("Accessories")}
+            {acc.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+          </>
+        )}
         {custom && (
-          <Btn kind="solid" style={{ width: "100%", margin: "12px 0 2px" }} onClick={() => { onCreate(q.trim()); onClose(); }}>
-            <Plus size={15} /> Add "{q.trim()}"
+          <Btn kind="ghost" style={{ width: "100%", margin: "10px 0 2px" }} onClick={() => { onCreate(q.trim()); onClose(); }}>
+            <Plus size={15} /> Add "{q.trim()}" as a new movement
           </Btn>
         )}
-        {todays.length > 0 && head("Today's session")}
-        {todays.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
-        {tracked.length > 0 && head("Your lifts")}
-        {tracked.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
-        {acc.length > 0 && head("Accessories")}
-        {acc.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
-        {fromLib.length > 0 && head("From the library")}
-        {fromLib.map((x) => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find((e) => e.k === x.e) || {}).t || "",
-          () => { onCreate(x.n); onClose(); }))}
         {!todays.length && !mine.length && !fromLib.length && !custom && (
           <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "22px 0" }}>Nothing matches that.</div>
         )}
@@ -3601,6 +3622,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
     </Card>;
   const cur = sel && state.exercises[sel] ? sel : names[0];
   const [armName, setArmName] = useState(null);
+  const [pickingLift, setPickingLift] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [editing, setEditing] = useState(null);
   const iconBtn = { background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4 };
@@ -3615,9 +3637,18 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-        {names.map((n) => <Chip key={n} active={n === cur} onClick={() => setSel(n)}>{n}</Chip>)}
-      </div>
+      <button onClick={() => setPickingLift(true)} style={{ width: "100%", display: "flex", alignItems: "center",
+        gap: 10, background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "13px 15px",
+        cursor: "pointer", color: C.text, textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ ...label, fontSize: 9, display: "block", marginBottom: 3 }}>History for</span>
+          <span style={{ display: "block", fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cur}</span>
+        </span>
+        <ChevronDown size={18} style={{ color: C.faint, flexShrink: 0 }} />
+      </button>
+      <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
+        sel={cur} unit={unit} todaySlots={[]} onPick={setSel} onCreate={setSel} />
 
       <Card glow={`radial-gradient(120% 90% at 50% -10%, ${C.blue}1F, transparent 70%)`}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
