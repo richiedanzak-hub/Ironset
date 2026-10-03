@@ -2186,6 +2186,298 @@ function CheckinCard({ state, setState, sel, dateStr }) {
   );
 }
 
+/* ----------------------------------------------------------------------------
+   PLAIN-LANGUAGE EDITS
+
+   Speak or type a change and the app works out what you meant. This runs entirely
+   on the phone — no network, no key, no cost — which is why it understands edits
+   ("add three sets of twelve leg curls on Thursday") rather than open briefs
+   ("build me a peaking block"). Everything it understands is shown back to you
+   before a single thing changes.
+---------------------------------------------------------------------------- */
+const NUMWORD = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, sixty: 60 };
+const DAYWORD = { mon: "Mon", monday: "Mon", tue: "Tue", tues: "Tue", tuesday: "Tue", wed: "Wed", weds: "Wed",
+  wednesday: "Wed", thu: "Thu", thur: "Thu", thurs: "Thu", thursday: "Thu", fri: "Fri", friday: "Fri",
+  sat: "Sat", saturday: "Sat", sun: "Sun", sunday: "Sun" };
+const DAYRE = "mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday";
+const nlNorm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9%.\s]/g, " ").replace(/\s+/g, " ").trim();
+const nlNum = (w) => (NUMWORD[w] != null ? NUMWORD[w] : (/^\d+(\.\d+)?$/.test(w) ? parseFloat(w) : null));
+const deplural = (s) => s.split(" ").map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w)).join(" ");
+
+// Fuzzy-match a spoken phrase to a movement. What you already train outranks the
+// library, because "bench" from someone with a Bench Press means their bench.
+function matchMovement(phrase, state) {
+  const q = deplural(nlNorm(phrase));
+  if (q.length < 2) return null;
+  const qw = q.split(" ").filter((w) => w.length > 1);
+  if (!qw.length) return null;
+  const cands = [];
+  for (const n of Object.keys((state && state.exercises) || {})) cands.push({ n, own: 1 });
+  for (const x of LIB) if (!((state && state.exercises) || {})[x.n]) cands.push({ n: x.n, own: 0 });
+  let best = null;
+  for (const c of cands) {
+    const t = deplural(nlNorm(c.n));
+    const tw = t.split(" ");
+    let sc = 0;
+    if (t === q) sc = 100;
+    else if (t.startsWith(q + " ") || t.endsWith(" " + q)) sc = 78;
+    else {
+      const hit = qw.filter((w) => tw.some((v) => v.startsWith(w) || w.startsWith(v))).length;
+      if (!hit) continue;
+      sc = hit === qw.length ? 58 + hit * 4 - Math.abs(tw.length - qw.length) * 2 : 18 + hit * 6;
+    }
+    sc += c.own * 8;
+    sc -= t.length * 0.03;
+    if (!best || sc > best.sc) best = { n: c.n, sc };
+  }
+  return best && best.sc >= 30 ? best.n : null;
+}
+
+function matchDate(t, base) {
+  if (/\btoday\b|\btonight\b/.test(t)) return base;
+  if (/\btomorrow\b/.test(t)) return addDays(base, 1);
+  if (/\byesterday\b/.test(t)) return addDays(base, -1);
+  const m = t.match(new RegExp("\\b(next\\s+|this\\s+)?(" + DAYRE + ")\\b"));
+  if (!m) return null;
+  const want = DAY_KEYS.indexOf(DAYWORD[m[2]]);
+  const cur = DAY_KEYS.indexOf(dayKeyFor(base));
+  let d = want - cur;
+  if (d < 0) d += 7;
+  if (/next/.test(m[1] || "")) d += 7;
+  return addDays(base, d);
+}
+function matchScheme(t) {
+  let m = t.match(/(\d+)\s*(?:x|by|\*)\s*(\d+)/);
+  if (m) return { sets: +m[1], reps: +m[2] };
+  m = t.match(/\b([a-z0-9.]+)\s+sets?\s+of\s+([a-z0-9.]+)/);
+  if (m) { const a = nlNum(m[1]), b = nlNum(m[2]); if (a && b) return { sets: a, reps: b }; }
+  let sets = null, reps = null;
+  m = t.match(/\b([a-z0-9.]+)\s+sets?\b/); if (m) sets = nlNum(m[1]);
+  m = t.match(/\b([a-z0-9.]+)\s+reps?\b/); if (m) reps = nlNum(m[1]);
+  return (sets || reps) ? { sets, reps } : null;
+}
+function matchIntensity(t) {
+  let m = t.match(/\brpe\s*(\d+(?:\.\d+)?)/); if (m) return { mode: "rpe", val: +m[1] };
+  m = t.match(/(\d+(?:\.\d+)?)\s*rir\b/); if (m) return { mode: "rir", val: +m[1] };
+  m = t.match(/\brir\s*(?:of\s*)?(\d+(?:\.\d+)?)/); if (m) return { mode: "rir", val: +m[1] };
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/); if (m) return { mode: "pct", val: +m[1] };
+  return null;
+}
+function matchDuration(t) {
+  let m = t.match(/(\d+(?:\.\d+)?)\s*(?:seconds?|secs?)\b/); if (m) return Math.round(+m[1]);
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?)\b/); if (m) return Math.round(+m[1] * 60);
+  m = t.match(/(\d+)s\b/); if (m) return +m[1];
+  return null;
+}
+// Strip everything already understood, and whatever survives is the movement name.
+function residual(t) {
+  return t
+    .replace(/\d+\s*(?:x|by|\*)\s*\d+/g, " ")
+    .replace(/\brpe\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*rir\b|\brir\s*(?:of\s*)?\d+|\d+(?:\.\d+)?\s*(?:%|percent)/g, " ")
+    .replace(/\b[a-z0-9.]+\s+sets?\s+of\s+[a-z0-9.]+/g, " ")
+    .replace(/\b[a-z0-9.]+\s+(?:sets?|reps?)\b/g, " ")
+    .replace(/\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?)\b|\d+s\b/g, " ")
+    .replace(new RegExp("\\b(next|this)?\\s*(" + DAYRE + ")\\b", "g"), " ")
+    .replace(/\b(today|tonight|tomorrow|yesterday)\b/g, " ")
+    .replace(/\b(add|put|include|remove|delete|drop|take|out|swap|replace|change|make|set|move|to|on|for|with|my|the|a|an|of|and|do|some|in|at|into|from|please|i|want|need|let|s)\b/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+// One sentence -> one intended change, or null if nothing was recognised.
+function parseOne(raw, state, base) {
+  const t = nlNorm(raw);
+  if (!t) return null;
+  const date = matchDate(t, base) || base;
+  const dated = !!matchDate(t, base);
+  const scheme = matchScheme(t);
+  const inten = matchIntensity(t);
+  const dur = matchDuration(t);
+  const isRemove = /^(remove|delete|drop|take out|get rid of|cut)\b/.test(t);
+  const swapM = t.match(/\b(?:swap|replace|change)\b(.+?)\b(?:for|with|to)\b(.+)$/);
+  if (swapM) {
+    const from = matchMovement(residual(swapM[1]), state);
+    const to = matchMovement(residual(swapM[2]), state);
+    if (from && to && from !== to) return { kind: "swap", date, dated, ex: from, to };
+    if (from && !to && (scheme || inten)) return { kind: "edit", date, dated, ex: from, scheme, inten };
+  }
+  const ex = matchMovement(residual(t), state);
+  if (!ex) return null;
+  if (isRemove) return { kind: "remove", date, dated, ex };
+  if (/^(change|set|make)\b/.test(t) && (scheme || inten || dur)) return { kind: "edit", date, dated, ex, scheme, inten, dur };
+  return { kind: "add", date, dated, ex, scheme, inten, dur };
+}
+function parseEdits(text, state, base) {
+  return String(text || "")
+    .split(/[.;\n]+|\band then\b|\balso\b|\bthen\b|[,\s]+and\s+(?=add|remove|delete|drop|swap|replace|change|make|set|put)|,\s*(?=add|remove|delete|drop|swap|replace|change|make|set|put)/i)
+    .map((s) => s.trim()).filter((s) => s.length > 2)
+    .map((s) => parseOne(s, state, base)).filter(Boolean);
+}
+// Human-readable summary of a parsed change, shown before anything is applied.
+function editLabel(e, state) {
+  const when = dayStart(e.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const timed = isTimed(e.ex, state) || e.dur != null;
+  const bits = [];
+  if (e.scheme && e.scheme.sets) bits.push(e.scheme.sets + " ×");
+  if (timed && e.dur != null) bits.push(fmtDur(e.dur));
+  else if (e.scheme && e.scheme.reps) bits.push(e.scheme.reps);
+  if (e.inten) bits.push("@ " + (e.inten.mode === "pct" ? fmt(e.inten.val) + "%" : e.inten.mode === "rir" ? fmt(e.inten.val) + " RIR" : "RPE " + fmt(e.inten.val)));
+  const spec = bits.join(" ");
+  if (e.kind === "remove") return { verb: "Remove", body: e.ex, when };
+  if (e.kind === "swap") return { verb: "Swap", body: e.ex + " → " + e.to, when };
+  if (e.kind === "edit") return { verb: "Change", body: e.ex + (spec ? " to " + spec : ""), when };
+  return { verb: "Add", body: e.ex + (spec ? " " + spec : ""), when };
+}
+// Fold a parsed change into the program's day map. Pure: takes days, returns days.
+function applyEdit(e, days, state) {
+  const out = { ...days };
+  const cur = (out[e.date] || []).slice();
+  const idx = cur.findIndex((s) => s.ex === e.ex);
+  if (e.kind === "remove") {
+    if (idx < 0) return out;
+    cur.splice(idx, 1);
+    if (cur.length) out[e.date] = cur; else delete out[e.date];
+    return out;
+  }
+  if (e.kind === "swap") {
+    if (idx < 0) return out;
+    cur[idx] = { ...newSlot(e.to), id: cur[idx].id, link: cur[idx].link };
+    out[e.date] = cur; return out;
+  }
+  const base = idx >= 0 && e.kind === "edit" ? cur[idx] : newSlot(e.ex);
+  const next = { ...base };
+  if (e.scheme && e.scheme.sets) next.sets = e.scheme.sets;
+  if (e.dur != null) { next.metric = "time"; next.reps = e.dur; }
+  else if (e.scheme && e.scheme.reps) next.reps = e.scheme.reps;
+  if (e.inten) { next.mode = e.inten.mode; next.val = e.inten.val; next.metric = next.metric === "time" && e.dur == null ? "time" : (e.dur != null ? "time" : "reps"); }
+  if (e.kind === "edit" && idx >= 0) cur[idx] = next; else cur.push({ ...next, id: uid() });
+  out[e.date] = cur;
+  return out;
+}
+
+const Mic = mkIcon(<g><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></g>);
+
+// Speak or type a change. Nothing is applied until you've seen what it understood,
+// because a mis-heard word should cost a glance, not a rebuilt session.
+function QuickEdit({ state, days, writeDays, baseDate }) {
+  const [text, setText] = useState("");
+  const [edits, setEdits] = useState(null);
+  const [off, setOff] = useState({});
+  const [listening, setListening] = useState(false);
+  const [done, setDone] = useState(false);
+  const recRef = useRef(null);
+  const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const read = (t) => {
+    const es = parseEdits(t != null ? t : text, state, baseDate);
+    setEdits(es); setOff({});
+  };
+  const mic = () => {
+    if (!SR) return;
+    if (listening) { try { recRef.current && recRef.current.stop(); } catch (e) {} return; }
+    const r = new SR();
+    r.lang = "en-US"; r.interimResults = true; r.continuous = true;
+    let fin = text ? text + " " : "";
+    r.onresult = (ev) => {
+      let interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const seg = ev.results[i][0].transcript;
+        if (ev.results[i].isFinal) fin += seg + " "; else interim += seg;
+      }
+      setText((fin + interim).replace(/\s+/g, " ").trim());
+    };
+    r.onend = () => { setListening(false); setEdits(parseEdits(fin, state, baseDate)); setOff({}); };
+    r.onerror = () => setListening(false);
+    recRef.current = r; setListening(true);
+    try { r.start(); } catch (e) { setListening(false); }
+  };
+  const apply = () => {
+    const keep = (edits || []).filter((_, i) => !off[i]);
+    if (!keep.length) return;
+    let next = days || {};
+    for (const e of keep) next = applyEdit(e, next, state);
+    writeDays(next);
+    setText(""); setEdits(null); setOff({});
+    setDone(true); setTimeout(() => setDone(false), 1600);
+  };
+
+  return (
+    <Card accent={C.blue}>
+      <SectionHead accent={C.blue} sub="Say or type what you want to change. Nothing moves until you've checked it.">
+        Quick edit
+      </SectionHead>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2}
+        placeholder={SR ? "Add three sets of twelve leg curls on Thursday" : "Add three sets of twelve leg curls on Thursday — tap the mic on your keyboard to dictate"}
+        style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${listening ? C.red : C.line2}`,
+          borderRadius: R.input, padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15,
+          outline: "none", resize: "vertical", lineHeight: 1.5 }} />
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        {SR && (
+          <Btn kind={listening ? "primary" : "ghost"} onClick={mic} style={{ flex: "0 0 auto", minHeight: 44, fontSize: 13 }}>
+            <Mic size={15} /> {listening ? "Stop" : "Speak"}
+          </Btn>
+        )}
+        <Btn kind="solid" onClick={() => read()} disabled={!text.trim()} style={{ flex: 1, minHeight: 44, fontSize: 13 }}>
+          Read it back
+        </Btn>
+      </div>
+
+      {edits && edits.length === 0 && (
+        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 14, lineHeight: 1.6,
+          borderTop: `1px solid ${C.line}`, paddingTop: 13 }}>
+          Couldn&rsquo;t pick anything out of that. This understands changes to a session — adding, removing,
+          swapping a movement, or changing its reps and intensity. It can&rsquo;t design a block for you;
+          that needs a model, and this app runs entirely on your phone with nothing behind it.
+        </div>
+      )}
+
+      {edits && edits.length > 0 && (
+        <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 13 }}>
+          <div style={{ ...label, fontSize: 9.5, marginBottom: 9 }}>Understood</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {edits.map((e, i) => {
+              const L = editLabel(e, state);
+              const on = !off[i];
+              return (
+                <button key={i} onClick={() => setOff((o) => ({ ...o, [i]: on }))} style={{ display: "flex",
+                  alignItems: "center", gap: 10, background: "rgba(255,255,255,0.02)",
+                  border: `1px solid ${on ? C.line2 : C.line}`, borderRadius: 12, padding: "10px 12px",
+                  cursor: "pointer", textAlign: "left", color: C.text, opacity: on ? 1 : 0.45,
+                  WebkitTapHighlightColor: "transparent" }}>
+                  <span style={{ width: 18, height: 18, borderRadius: 99, flexShrink: 0, display: "grid",
+                    placeItems: "center", background: on ? C.good : "transparent",
+                    border: on ? "none" : `1px solid ${C.line2}` }}>
+                    {on ? <Check size={11} style={{ color: "#07100B" }} /> : null}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontWeight: 800, fontSize: 13 }}>
+                      <span style={{ color: e.kind === "remove" ? C.red : C.blue }}>{L.verb}</span> {L.body}
+                    </span>
+                    <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>
+                      {L.when}{e.dated ? "" : " · the day you have open"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <Btn kind="ghost" onClick={() => { setEdits(null); setOff({}); }} style={{ flex: 1, minHeight: 42, fontSize: 12.5 }}>Discard</Btn>
+            <Btn kind="primary" onClick={apply} style={{ flex: 2, minHeight: 42, fontSize: 13 }}>
+              Apply {edits.filter((_, i) => !off[i]).length} change{edits.filter((_, i) => !off[i]).length === 1 ? "" : "s"}
+            </Btn>
+          </div>
+        </div>
+      )}
+      {done && (
+        <div style={{ fontSize: 12.5, color: C.good, marginTop: 12, fontWeight: 700, textAlign: "center" }}>
+          <Check size={13} /> Applied
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* ============================== PROGRAM TAB ============================== */
 // Pick a movement out of the library (or name your own). Search first, because by
 // the time you know you want a Spoto press you do not want to scroll for it.
@@ -2684,6 +2976,9 @@ function ProgramTab({ state, setState, setTab, setSel }) {
           </Btn>
         )}
       </div>
+
+      <QuickEdit state={state} days={days} baseDate={sel}
+        writeDays={(nd) => setProgram((pr) => ({ ...pr, days: nd }))} />
 
       <ExercisePicker open={!!picking} onClose={() => setPicking(null)} existing={Object.keys(state.exercises)}
         onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
