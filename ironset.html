@@ -44,7 +44,10 @@ const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
 const Calendar = mkIcon(<g><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></g>);
 const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
 function loadState() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw); return { ...DEFAULT, ...p, settings: { ...DEFAULT.settings, ...(p.settings || {}) } }; } } catch (e) {}
+  try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw);
+    const st = { ...DEFAULT, ...p, settings: { ...DEFAULT.settings, ...(p.settings || {}) } };
+    if (st.program) st.program = migrateProgram(st.program);
+    return st; } } catch (e) {}
   return DEFAULT;
 }
 
@@ -1548,8 +1551,36 @@ const isAccessory = (name, state) => {
 /* ------------------------------- program --------------------------------- */
 const DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MODES = [{ v: "rpe", t: "RPE" }, { v: "rir", t: "RIR" }, { v: "pct", t: "%" }];
-const emptyWeek = (label) => ({ id: uid(), label, days: DAY_KEYS.reduce((a, d) => (a[d] = [], a), {}) });
-const newProgram = () => ({ name: "My program", startDate: todayStr(), active: true, weeks: [emptyWeek("Week 1")] });
+// Sessions are stored against real dates. The earlier version kept template weeks
+// that the calendar resolved onto dates, which meant editing one Monday silently
+// edited every Monday the template came round to. Clone is how work propagates
+// forward now — explicitly, once, into dates you can see.
+const newProgram = () => ({ name: "My program", startDate: todayStr(), active: true, days: {} });
+// tsFromDateStr returns "now" for today, which is wrong for date arithmetic, so
+// calendar maths goes through a parser that always lands on local noon.
+const dayStart = (str) => { const [y, m, d] = String(str || todayStr()).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0); };
+const addDays = (str, n) => { const d = dayStart(str); d.setDate(d.getDate() + n); return dateStrFromTs(d.getTime()); };
+const weekStartOf = (str) => { const d = dayStart(str); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dateStrFromTs(d.getTime()); };
+const weekDates = (str) => { const a = weekStartOf(str); return DAY_KEYS.map((_, i) => addDays(a, i)); };
+function weekNoFor(program, dateStr) {
+  const a = dayStart(weekStartOf((program && program.startDate) || todayStr()));
+  const b = dayStart(weekStartOf(dateStr));
+  return Math.round((b - a) / (7 * 86400000)) + 1;
+}
+// One-time lift of an old template program onto the dates it would have produced,
+// so an existing block survives the change instead of vanishing.
+function migrateProgram(pr) {
+  if (!pr || pr.days || !pr.weeks) return pr;
+  const days = {};
+  const start = weekStartOf(pr.startDate || todayStr());
+  pr.weeks.forEach((w, i) => DAY_KEYS.forEach((dk, j) => {
+    const slots = (w.days && w.days[dk]) || [];
+    if (slots.length) days[addDays(start, i * 7 + j)] = slots.map((x) => ({ ...x }));
+  }));
+  const out = { ...pr, days };
+  delete out.weeks;
+  return out;
+}
 const newSlot = (name) => {
   const L = libFind(name);
   const mode = L ? L.d : "rpe";
@@ -1562,20 +1593,11 @@ const newSlot = (name) => {
 const slotTimed = (sl) => sl.metric === "time";
 // Which week of the block today falls in. Blocks repeat, so a 4-week plan keeps
 // running rather than falling off the end mid-prep.
-function weekIndexFor(program, dateStr) {
-  if (!program || !program.weeks || !program.weeks.length) return 0;
-  const start = tsFromDateStr(program.startDate || todayStr());
-  const d0 = new Date(start); d0.setHours(0, 0, 0, 0);
-  const d1 = new Date(tsFromDateStr(dateStr)); d1.setHours(0, 0, 0, 0);
-  const days = Math.floor((d1 - d0) / 86400000);
-  if (days < 0) return 0;
-  return Math.floor(days / 7) % program.weeks.length;
-}
-const dayKeyFor = (dateStr) => DAY_KEYS[(new Date(tsFromDateStr(dateStr)).getDay() + 6) % 7];
+
+const dayKeyFor = (dateStr) => DAY_KEYS[(dayStart(dateStr).getDay() + 6) % 7];
 function slotsFor(program, dateStr) {
-  if (!program || !program.active || !program.weeks || !program.weeks.length) return [];
-  const w = program.weeks[weekIndexFor(program, dateStr)];
-  return (w && w.days && w.days[dayKeyFor(dateStr)]) || [];
+  if (!program || !program.active || !program.days) return [];
+  return program.days[dateStr] || [];
 }
 // Target effort in RPE terms, whatever language the slot was written in.
 // A superset is expressed as "paired with the movement above", not as a group id.
@@ -2281,8 +2303,8 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
         {open && (
           <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "13px 0" }}>
-              <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Counts toward strength</Chip>
-              <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Accessory</Chip>
+              <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Track in 1RM</Chip>
+              <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Don&rsquo;t track</Chip>
             </div>
             {canLink && (
               <div style={{ marginBottom: 14 }}>
@@ -2389,15 +2411,11 @@ function monthGrid(y, m) {
   while (cells.length % 7) cells.push(null);
   return cells;
 }
-// Where a real date falls in the block. The template repeats once it runs out, so
-// the cycle number is reported too rather than silently showing "Week 1" forever.
+// Which week of the block a real date sits in. Purely a label now — nothing is
+// looked up by it, because every date owns its own session.
 function blockPos(program, dateStr) {
-  if (!program || !program.weeks || !program.weeks.length) return { wi: 0, cycle: 1, before: true };
-  const before = dateStr < (program.startDate || todayStr());
-  const d0 = new Date(tsFromDateStr(program.startDate || todayStr())); d0.setHours(0, 0, 0, 0);
-  const d1 = new Date(tsFromDateStr(dateStr)); d1.setHours(0, 0, 0, 0);
-  const wk = Math.floor(Math.max(0, (d1 - d0) / 86400000) / 7);
-  return { wi: wk % program.weeks.length, cycle: Math.floor(wk / program.weeks.length) + 1, before };
+  const n = weekNoFor(program, dateStr);
+  return { weekNo: n, before: n < 1 };
 }
 // Everything logged on one calendar day, newest lifts grouped, for looking back.
 function loggedOn(state, dateStr) {
@@ -2437,8 +2455,7 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
           const ds = dateStrFromTs(d.getTime());
           const isToday = ds === todayS;
           const isSel = ds === sel;
-          const pos = blockPos(program, ds);
-          const planned = !pos.before && slotsFor(program, ds).length;
+          const planned = ((program.days || {})[ds] || []).length;
           const did = loggedDays[ds] || 0;
           return (
             <button key={i} onClick={() => onSel(ds)} style={{
@@ -2486,8 +2503,8 @@ function ResetSheet({ open, onClose, weekLabel, onClearDay, onClearWeek, onTrimA
   return (
     <Sheet open={open} onClose={onClose} title="Reset">
       {row("Clear this day", "Empties the selected day in " + (weekLabel || "this week") + ".", () => { onClearDay(); onClose(); })}
-      {row("Clear " + (weekLabel || "this week"), "Empties all seven days of this week of the block.", () => { onClearWeek(); onClose(); })}
-      {row("Delete every week after this one", "Keeps the block up to and including " + (weekLabel || "this week") + ".", () => { onTrimAfter(); onClose(); })}
+      {row("Clear " + (weekLabel || "this week"), "Empties all seven days of the selected calendar week.", () => { onClearWeek(); onClose(); })}
+      {row("Delete everything after this week", "Keeps every planned day up to the end of " + (weekLabel || "this week") + ".", () => { onTrimAfter(); onClose(); })}
       {row(armed ? "Tap again to delete the program" : "Start over",
         armed ? "This removes the whole block. Your training history is not touched." : "Deletes the whole program and starts from an empty one. Your logged sets are kept.",
         () => { if (armed) { onStartOver(); onClose(); } else setArmed(true); }, true)}
@@ -2502,12 +2519,11 @@ function ProgramTab({ state, setState, setTab, setSel }) {
   const [picking, setPicking] = useState(null);
   const [cloning, setCloning] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [showWeeks, setShowWeeks] = useState(false);
   const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
   const loggedDays = useMemo(() => {
     const m = {};
     for (const ex of Object.values(state.exercises || {}))
-      for (const s of ex.sets) { const k = dateStrFromTs(s.ts); m[k] = (m[k] || 0) + 1; }
+      for (const st of ex.sets) { const k = dateStrFromTs(st.ts); m[k] = (m[k] || 0) + 1; }
     return m;
   }, [state.exercises]);
 
@@ -2517,7 +2533,7 @@ function ProgramTab({ state, setState, setTab, setSel }) {
         <Card style={{ textAlign: "center", padding: "30px 20px" }}>
           <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 24, letterSpacing: "0.04em" }}>BUILD A PROGRAM</div>
           <div style={{ fontSize: 13.5, color: C.muted, marginTop: 10, lineHeight: 1.6 }}>
-            Lay out your week once — main work, variations, accessories — and Train opens each day already loaded.
+            Lay your sessions out on the calendar — main work, variations, accessories — and Train opens each day already loaded.
             Every load still comes from your own estimator; the program only decides what you&rsquo;re doing, never how heavy.
           </div>
           <Btn kind="primary" style={{ width: "100%", marginTop: 20 }} onClick={() => setProgram(newProgram())}>Start building</Btn>
@@ -2529,17 +2545,21 @@ function ProgramTab({ state, setState, setTab, setSel }) {
     );
   }
 
-  const weeks = program.weeks || [];
-  const pos = blockPos(program, sel);
-  const week = weeks[pos.wi] || weeks[0];
-  const dayK = dayKeyFor(sel);
-  const slots = (!pos.before && week && week.days && week.days[dayK]) || [];
+  const days = program.days || {};
+  const slots = days[sel] || [];
   const did = loggedOn(state, sel);
-  const selDate = new Date(tsFromDateStr(sel));
+  const selDate = dayStart(sel);
+  const weekNo = weekNoFor(program, sel);
+  const thisWeek = weekDates(sel);
+  const weekCount = thisWeek.reduce((a, d) => a + ((days[d] || []).length), 0);
   const isPast = sel < todayStr();
 
-  const writeSlots = (next) => setProgram((pr) => ({
-    ...pr, weeks: pr.weeks.map((w, i) => i !== pos.wi ? w : { ...w, days: { ...w.days, [dayK]: next } }) }));
+  const writeDay = (dateStr, next) => setProgram((pr) => {
+    const nd = { ...(pr.days || {}) };
+    if (next && next.length) nd[dateStr] = next; else delete nd[dateStr];
+    return { ...pr, days: nd };
+  });
+  const writeSlots = (next) => writeDay(sel, next);
   const addSlot = (name) => writeSlots([...slots, newSlot(name)]);
   const moveSlot = (i, d) => {
     const j = i + d;
@@ -2551,21 +2571,36 @@ function ProgramTab({ state, setState, setTab, setSel }) {
     writeSlots(next);
   };
   const toggleLink = (i) => { if (i > 0) writeSlots(slots.map((x, j) => j === i ? { ...x, link: !x.link } : x)); };
-  const swapSlot = (id, name) => writeSlots(slots.map((s) => s.id === id ? { ...newSlot(name), id: s.id, sets: s.sets, reps: s.reps, mode: s.mode, val: s.val, bo: s.bo, link: s.link } : s));
+  const swapSlot = (id, name) => writeSlots(slots.map((x) => x.id === id ? { ...newSlot(name), id: x.id, sets: x.sets, reps: x.reps, mode: x.mode, val: x.val, bo: x.bo, link: x.link, metric: x.metric } : x));
+  // Writing a slot's tracked/untracked choice through to the exercise itself, so
+  // the decision holds wherever that movement shows up rather than only here.
+  const setSlot = (id, next) => {
+    writeSlots(slots.map((x) => x.id === id ? next : x));
+    const prev = slots.find((x) => x.id === id);
+    if (prev && next.role !== prev.role && state.exercises[next.ex])
+      setState((st) => ({ ...st, exercises: { ...st.exercises,
+        [next.ex]: { ...st.exercises[next.ex], accessory: next.role === "accessory" } } }));
+  };
+
+  // Clone copies this calendar week forward into the next one, once, into dates
+  // you can see — nothing repeats behind your back.
   const cloneWeek = (rule) => setProgram((pr) => {
-    const src = pr.weeks[pos.wi];
+    const nd = { ...(pr.days || {}) };
     const bump = (sl) => {
-      if (sl.role !== "main") return { ...sl, id: uid() };
-      if (rule === "rpe" && sl.mode === "rpe") return { ...sl, id: uid(), val: Math.min(10, sl.val + 0.5) };
-      if (rule === "rpe" && sl.mode === "rir") return { ...sl, id: uid(), val: Math.max(0, sl.val - 0.5) };
-      if (rule === "pct" && sl.mode === "pct") return { ...sl, id: uid(), val: Math.min(105, sl.val + 2.5) };
-      if (rule === "rep") return { ...sl, id: uid(), reps: Math.max(1, sl.reps - 1) };
-      return { ...sl, id: uid() };
+      const base = { ...sl, id: uid() };
+      if (sl.role !== "main") return base;
+      if (rule === "rpe" && sl.mode === "rpe") return { ...base, val: Math.min(10, sl.val + 0.5) };
+      if (rule === "rpe" && sl.mode === "rir") return { ...base, val: Math.max(0, sl.val - 0.5) };
+      if (rule === "pct" && sl.mode === "pct") return { ...base, val: Math.min(105, sl.val + 2.5) };
+      if (rule === "rep") return { ...base, reps: Math.max(1, sl.reps - 1) };
+      return base;
     };
-    const days = DAY_KEYS.reduce((a, d) => (a[d] = (src.days[d] || []).map(bump), a), {});
-    return { ...pr, weeks: [...pr.weeks, { id: uid(), label: "Week " + (pr.weeks.length + 1), days }] };
+    for (const d of weekDates(sel)) {
+      const src = (pr.days || {})[d] || [];
+      if (src.length) nd[addDays(d, 7)] = src.map(bump);
+    }
+    return { ...pr, days: nd };
   });
-  const emptyDays = () => DAY_KEYS.reduce((a, d) => (a[d] = [], a), {});
 
   const shift = (d) => setCur((c) => { const n = new Date(c.y, c.m + d, 1); return { y: n.getFullYear(), m: n.getMonth() }; });
   const jumpToday = () => { const d = new Date(); setCur({ y: d.getFullYear(), m: d.getMonth() }); setSelDate(todayStr()); };
@@ -2589,34 +2624,13 @@ function ProgramTab({ state, setState, setTab, setSel }) {
             {program.active ? <><Check size={15} /> Running</> : "Paused"}
           </Btn>
         </div>
-        <div style={{ display: "flex", gap: 14, marginTop: 13, flexWrap: "wrap" }}>
-          <button onClick={() => setShowWeeks((v) => !v)} style={{ background: "none", border: "none", color: C.text,
-            fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0, display: "inline-flex",
-            alignItems: "center", gap: 5 }}>
-            {weeks.length} week{weeks.length === 1 ? "" : "s"} in the block
-            <ChevronDown size={13} style={{ color: C.faint, transform: showWeeks ? "rotate(180deg)" : "none", transition: ".2s" }} />
-          </button>
+        <div style={{ display: "flex", gap: 14, marginTop: 13, alignItems: "center" }}>
+          <span style={{ fontSize: 11.5, color: C.faint }}>
+            {Object.keys(days).length} day{Object.keys(days).length === 1 ? "" : "s"} planned
+          </span>
           <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
             fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>Reset</button>
         </div>
-        {showWeeks && (
-          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 10 }}>
-              Weeks run in order from the start date and repeat once the block runs out. Editing a day edits that week of the block, so it applies every time the block comes round.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {weeks.map((w, i) => (
-                <Chip key={w.id} sm active={i === pos.wi} onClick={() => {
-                  // jump the calendar to the first date that falls in this week
-                  const d0 = new Date(tsFromDateStr(program.startDate)); d0.setDate(d0.getDate() + i * 7);
-                  setSelDate(dateStrFromTs(d0.getTime())); setCur({ y: d0.getFullYear(), m: d0.getMonth() });
-                }}>{w.label}</Chip>
-              ))}
-            </div>
-            <Btn kind="solid" style={{ width: "100%", marginTop: 11, minHeight: 42, fontSize: 12.5 }}
-              onClick={() => setCloning(true)}>Clone {week ? week.label : "week"} →</Btn>
-          </div>
-        )}
       </Card>
 
       <MonthCalendar y={cur.y} m={cur.m} sel={sel} onSel={setSelDate} onShift={shift}
@@ -2628,62 +2642,119 @@ function ProgramTab({ state, setState, setTab, setSel }) {
             fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Today</button>
         ) : null}>
           {selDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-          {!pos.before && week ? ` · ${week.label}${pos.cycle > 1 ? ` (round ${pos.cycle})` : ""}` : ""}
+          {weekNo >= 1 ? ` · week ${weekNo}` : ""}
         </SectionHead>
 
         {did.length > 0 && (
           <Card style={{ marginBottom: 12 }}>
             <div style={{ ...label, fontSize: 9.5, marginBottom: 10 }}>What you did</div>
-            {did.map((s) => (
-              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0",
+            {did.map((st) => (
+              <div key={st.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0",
                 fontSize: 12.5, borderBottom: `1px solid ${C.line}` }}>
                 <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {s.ex}{s.backoff ? <span style={{ color: C.faint, fontWeight: 500 }}> · back-off</span> : null}
+                  {st.ex}{st.backoff ? <span style={{ color: C.faint, fontWeight: 500 }}> · back-off</span> : null}
                 </span>
-                <span style={{ fontFamily: MONO, color: C.muted, whiteSpace: "nowrap" }}>{setLine(s, state)}</span>
+                <span style={{ fontFamily: MONO, color: C.muted, whiteSpace: "nowrap" }}>{setLine(st, state)}</span>
               </div>
             ))}
           </Card>
         )}
 
-        {pos.before ? (
+        {decorateSlots(slots).map((d) => (
+          <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+            groupLast={d.last} rounds={d.rounds}
+            canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
+            onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
+            canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
+            onChange={(next) => setSlot(d.sl.id, next)}
+            onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
+            onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
+        ))}
+        {!slots.length && (
           <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "22px 16px", lineHeight: 1.6 }}>
-            This is before the block starts{did.length ? " — only what you logged is shown." : "."}
+            Nothing planned{isPast ? " was" : ""} on this day. A rest day is a perfectly good answer.
           </Card>
-        ) : (
-          <>
-            {decorateSlots(slots).map((d) => (
-              <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
-                groupLast={d.last} rounds={d.rounds}
-                canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
-                onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
-                canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
-                onChange={(next) => writeSlots(slots.map((x) => x.id === d.sl.id ? next : x))}
-                onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
-                onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
-            ))}
-            {!slots.length && (
-              <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "22px 16px", lineHeight: 1.6 }}>
-                Nothing planned{isPast ? " was" : ""} on this day. A rest day is a perfectly good answer.
-              </Card>
-            )}
-            <Btn kind="solid" style={{ width: "100%", marginTop: 10 }} onClick={() => setPicking({ mode: "add" })}>
-              <Plus size={16} /> Add movement
-            </Btn>
-          </>
+        )}
+        <Btn kind="solid" style={{ width: "100%", marginTop: 10 }} onClick={() => setPicking({ mode: "add" })}>
+          <Plus size={16} /> Add movement
+        </Btn>
+        {weekCount > 0 && (
+          <Btn kind="ghost" style={{ width: "100%", marginTop: 9, fontSize: 13 }} onClick={() => setCloning(true)}>
+            Copy this week into next week
+          </Btn>
         )}
       </div>
 
       <ExercisePicker open={!!picking} onClose={() => setPicking(null)} existing={Object.keys(state.exercises)}
         onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
-      <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={week ? week.label : "week"}
-        onClone={(rule) => cloneWeek(rule)} />
-      <ResetSheet open={resetting} onClose={() => setResetting(false)} weekLabel={week ? week.label : "this week"}
-        onClearDay={() => writeSlots([])}
-        onClearWeek={() => setProgram((pr) => ({ ...pr, weeks: pr.weeks.map((w, i) => i !== pos.wi ? w : { ...w, days: emptyDays() }) }))}
-        onTrimAfter={() => setProgram((pr) => ({ ...pr, weeks: pr.weeks.slice(0, pos.wi + 1) }))}
+      <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={"week " + weekNo}
+        onClone={(rule) => { cloneWeek(rule); setSelDate(addDays(sel, 7)); }} />
+      <ResetSheet open={resetting} onClose={() => setResetting(false)} weekLabel={"week " + weekNo}
+        onClearDay={() => writeDay(sel, [])}
+        onClearWeek={() => setProgram((pr) => { const nd = { ...(pr.days || {}) }; for (const d of weekDates(sel)) delete nd[d]; return { ...pr, days: nd }; })}
+        onTrimAfter={() => setProgram((pr) => { const nd = {}; const cut = addDays(weekStartOf(sel), 7);
+          for (const k of Object.keys(pr.days || {})) if (k < cut) nd[k] = pr.days[k]; return { ...pr, days: nd }; })}
         onStartOver={() => setProgram(newProgram())} />
     </div>
+  );
+}
+
+
+// One picker for "what am I training". A horizontal strip of chips stopped working
+// the moment a real programme put twenty movements in the app, so this searches
+// what you already train first and falls through to the full library — picking a
+// library movement creates it, wired to its main lift, exactly as a slot does.
+function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, todaySlots }) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  useEffect(() => { if (open) setQ(""); }, [open]);
+  const names = Object.keys(state.exercises || {});
+  const match = (n) => !query || n.toLowerCase().includes(query);
+  const todays = (todaySlots || []).map((x) => x.ex).filter((n, i, a) => a.indexOf(n) === i).filter(match);
+  const mine = names.filter(match).filter((n) => todays.indexOf(n) < 0);
+  const tracked = mine.filter((n) => !isAccessory(n, state));
+  const acc = mine.filter((n) => isAccessory(n, state));
+  const fromLib = LIB.filter((x) => query && x.n.toLowerCase().includes(query) && names.indexOf(x.n) < 0).slice(0, 40);
+  const custom = query.length > 1 && !names.some((n) => n.toLowerCase() === query) && !LIB.some((x) => x.n.toLowerCase() === query);
+  const row = (n, right, onClick) => (
+    <button key={n} onClick={onClick} style={{ ...pickRow, background: n === sel ? "rgba(255,255,255,0.05)" : "none" }}>
+      <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left", minWidth: 0,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</span>
+      <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap", marginLeft: 10 }}>{right}</span>
+    </button>
+  );
+  const hint = (n) => {
+    if (isTimed(n, state)) return "time";
+    if (isAccessory(n, state)) return "accessory";
+    const m = models && models[n];
+    return m && m.e1rm != null ? fmt(Math.round(m.e1rm)) + unit : "—";
+  };
+  const head = (t) => <div style={{ ...label, fontSize: 9, margin: "14px 0 4px" }}>{t}</div>;
+  return (
+    <Sheet open={open} onClose={onClose} title="Choose a lift">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your lifts and the library…" autoFocus
+        style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line2}`, borderRadius: R.input,
+          padding: "12px 13px", color: C.text, fontFamily: SANS, fontSize: 15, outline: "none" }} />
+      <div style={{ maxHeight: "56vh", overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+        {custom && (
+          <Btn kind="solid" style={{ width: "100%", margin: "12px 0 2px" }} onClick={() => { onCreate(q.trim()); onClose(); }}>
+            <Plus size={15} /> Add "{q.trim()}"
+          </Btn>
+        )}
+        {todays.length > 0 && head("Today's session")}
+        {todays.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+        {tracked.length > 0 && head("Your lifts")}
+        {tracked.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+        {acc.length > 0 && head("Accessories")}
+        {acc.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+        {fromLib.length > 0 && head("From the library")}
+        {fromLib.map((x) => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find((e) => e.k === x.e) || {}).t || "",
+          () => { onCreate(x.n); onClose(); }))}
+        {!todays.length && !mine.length && !fromLib.length && !custom && (
+          <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "22px 0" }}>Nothing matches that.</div>
+        )}
+      </div>
+    </Sheet>
   );
 }
 
@@ -2763,6 +2834,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const names = Object.keys(state.exercises);
   const mains = names.filter((n) => !state.exercises[n].parent);
   const [adding, setAdding] = useState(false);
+  const [pickingLift, setPickingLift] = useState(false);
   const [newName, setNewName] = useState("");
   const [linking, setLinking] = useState(false);
 
@@ -2791,8 +2863,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const sessionSlots = slotsFor(state.program, logDate);
   const timedSel = !!sel && isTimed(sel, state);
   const timedSlot = sessionSlots.find((x) => x.ex === sel && slotTimed(x)) || null;
-  const progWeek = state.program && state.program.weeks
-    ? (state.program.weeks[weekIndexFor(state.program, logDate)] || {}).label : null;
+  const progWeek = state.program ? "Week " + weekNoFor(state.program, logDate) : null;
   const doneSlots = useMemo(() => {
     const dk = new Date(tsFromDateStr(logDate)).toDateString();
     const done = {};
@@ -3049,11 +3120,16 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* exercise selector */}
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-        {names.map((n) => <Chip key={n} active={n === sel} onClick={() => setSel(n)}>{n}</Chip>)}
-        <Chip onClick={() => setAdding((v) => !v)}><Plus size={15} style={{ marginTop: -1 }} /></Chip>
-      </div>
-      {adding && <Card style={{ padding: 12 }}><AddRow {...{ newName, setNewName, mains, addExercise: (n, p) => { addExercise(n, p); setAdding(false); } }} /></Card>}
+      <button onClick={() => setPickingLift(true)} style={{ width: "100%", display: "flex", alignItems: "center",
+        gap: 10, background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "13px 15px",
+        cursor: "pointer", color: C.text, textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ ...label, fontSize: 9, display: "block", marginBottom: 3 }}>Training</span>
+          <span style={{ display: "block", fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel || "Pick a lift"}</span>
+        </span>
+        <ChevronDown size={18} style={{ color: C.faint, flexShrink: 0 }} />
+      </button>
       {sel && (
         <button onClick={() => setLinking(true)} style={{ alignSelf: "flex-start", background: "none", border: "none",
           color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 6, marginTop: -4 }}>
@@ -3438,10 +3514,22 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </Card>
       )}
 
+      <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
+        sel={sel} unit={unit} todaySlots={sessionSlots} onPick={setSel}
+        onCreate={(name) => {
+          const L = libFind(name);
+          const parent = L && L.m && state.exercises[L.m] ? L.m : null;
+          addExercise(name, parent, L ? L.r : undefined);
+          const patch = {};
+          if (L && !L.m && L.d !== "rpe") patch.accessory = true;
+          if (TIME_MOVES.has(name)) { patch.metric = "time"; patch.accessory = true; }
+          if (Object.keys(patch).length) setTimeout(() => updateExercise(name, patch), 0);
+        }} />
+
       {linking && sel && (
         <LinkSheet
           name={sel} exercise={state.exercises[sel]} mains={mains} childNames={childNames}
-          effectiveRatio={model.ratio || 1}
+          effectiveRatio={model.ratio || 1} state={state}
           onClose={() => setLinking(false)}
           onSave={(patch) => { updateExercise(sel, patch); setLinking(false); }}
         />
@@ -4233,13 +4321,28 @@ function ShareSheet({ data, onClose }) {
 }
 
 /* ============================== LINK SHEET ============================== */
-function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose, onSave }) {
+function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose, onSave, state }) {
   const isMainWithKids = childNames.length > 0;
   const [parent, setParent] = useState(exercise.parent || "");
+  // Whether this movement belongs in the strength readouts at all. Some accessories
+  // are worth logging and charting without ever counting toward a total.
+  const tracked = !isAccessory(name, state);
   const [mode, setMode] = useState(typeof exercise.ratioManual === "number" ? "custom" : "auto");
   const [pct, setPct] = useState(String(Math.round((exercise.ratioManual ?? exercise.ratio ?? effectiveRatio ?? 0.9) * 100)));
   const fld = { fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 };
   const options = mains.filter((m) => m !== name);
+  const trackRow = (
+    <div style={{ marginBottom: 18, borderBottom: `1px solid ${C.line}`, paddingBottom: 16 }}>
+      <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>Strength tracking</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <Chip sm active={tracked} onClick={() => onSave({ accessory: false })}>Track in 1RM</Chip>
+        <Chip sm active={!tracked} onClick={() => onSave({ accessory: true })}>Don&rsquo;t track</Chip>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 9, lineHeight: 1.5 }}>
+        Untracked movements are still logged, charted and prescribed — they just stay out of your estimated maxes, your projected total and your readiness.
+      </div>
+    </div>
+  );
   const save = () => {
     if (!parent) { onSave({ parent: undefined, ratio: undefined, ratioManual: undefined }); return; }
     const patch = { parent };
@@ -4249,6 +4352,7 @@ function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose,
   };
   return (
     <Sheet open onClose={onClose} title="Link to a main lift">
+      {trackRow}
       {isMainWithKids ? (
         <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
           <b style={{ color: C.text }}>{name}</b> is a main lift and already pools: {childNames.join(", ")}. Relink those variations elsewhere first if you want to make this one a variation.
