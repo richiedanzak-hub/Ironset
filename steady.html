@@ -1,0 +1,2050 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Steady"/>
+<meta name="theme-color" content="#F3F6F1"/>
+<title>Steady Workouts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,600..800&display=swap"/>
+<style>
+  /* Layout: one phone-width column (max 34rem) that scrolls above a fixed three-tab bar;
+     onboarding and the workout player take the whole screen with no tabs. */
+  :root {
+    --bg: #F3F6F1;
+    --surface: #FFFFFF;
+    --ink: #13241B;
+    --ink-2: #4B5D53;
+    --line: #D6E0D8;
+    --pine: #1B5A42;
+    --on-pine: #FFFFFF;
+    --tint: #E2EDE5;
+    --sun: #F2B135;
+    --on-sun: #261A02;
+    --fig: #1B5A42;
+    --fig-far: #9CBFAA;
+    --prop: #8A988F;
+    --prop-fill: #E8EDE9;
+    --stage: #E5EEE7;
+    --warn: #A33D27;
+    --shade: rgba(10, 20, 15, 0.45);
+    --display: "Bricolage Grotesque", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+    --body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0D1612; --surface: #15211B; --ink: #E6EFE9; --ink-2: #A3B5AA; --line: #2A3B32;
+      --pine: #7DD3A8; --on-pine: #0B1A12; --tint: #1C2E25; --sun: #F5BD4F; --on-sun: #261A02;
+      --fig: #8EDDB4; --fig-far: #3F6B55; --prop: #6E8077; --prop-fill: #1D2B24; --stage: #18271F;
+      --warn: #F08C70; --shade: rgba(0, 0, 0, 0.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1612; --surface: #15211B; --ink: #E6EFE9; --ink-2: #A3B5AA; --line: #2A3B32;
+    --pine: #7DD3A8; --on-pine: #0B1A12; --tint: #1C2E25; --sun: #F5BD4F; --on-sun: #261A02;
+    --fig: #8EDDB4; --fig-far: #3F6B55; --prop: #6E8077; --prop-fill: #1D2B24; --stage: #18271F;
+    --warn: #F08C70; --shade: rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { font-size: 17px; height: 100%; -webkit-text-size-adjust: 100%; }
+  html.big { font-size: 20px; }
+  body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 1rem; line-height: 1.45; }
+  #root { min-height: 100%; }
+  button, input { font: inherit; color: inherit; }
+  a.btn { text-decoration: none; }
+  .btn svg { flex: none; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+  .boot { color: var(--ink-2); display: flex; min-height: 80vh; align-items: center; justify-content: center; font-size: 1.1rem; }
+
+  h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.12; text-wrap: balance; letter-spacing: -0.01em; }
+  h1 { font-size: 2rem; font-weight: 800; }
+  h2 { font-size: 1.45rem; font-weight: 800; }
+  h3 { font-size: 1.15rem; font-weight: 700; }
+  p { margin: 0; }
+  .muted { color: var(--ink-2); }
+  .eyebrow { font-size: 0.8rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-2); }
+  .stack { display: flex; flex-direction: column; gap: 1rem; }
+  .stack-s { display: flex; flex-direction: column; gap: 0.6rem; }
+  .row { display: flex; align-items: center; gap: 0.75rem; }
+  .wrap { max-width: 34rem; margin: 0 auto; padding-inline: 16px; padding-block: 1.25rem 7.5rem; }
+  .full { max-width: 34rem; margin: 0 auto; padding-inline: 16px; padding-block: 1rem 1.5rem; min-height: 100%; display: flex; flex-direction: column; }
+
+  /* Buttons */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 0.55rem; width: 100%; min-height: 3.5rem;
+    border-radius: 16px; font-weight: 800; font-size: 1.15rem; line-height: 1.15; border: 0; padding: 0.8rem 1.2rem; text-align: center; }
+  .btn-sun { background: var(--sun); color: var(--on-sun); }
+  .btn-pine { background: var(--pine); color: var(--on-pine); }
+  .btn-tint { background: var(--tint); color: var(--ink); }
+  .btn-line { background: transparent; color: var(--ink); border: 2px solid var(--line); }
+  .btn-big { min-height: 4.2rem; font-size: 1.3rem; border-radius: 20px; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .link { background: none; border: 0; padding: 0.4rem 0; color: var(--pine); font-weight: 700; font-size: 1rem; text-decoration: underline; text-underline-offset: 3px; }
+  .chip { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.9rem; padding: 0.5rem 1rem; border-radius: 999px;
+    border: 2px solid var(--line); background: var(--surface); font-weight: 700; font-size: 0.98rem; color: var(--ink); }
+  .chip[aria-pressed="true"] { border-color: var(--pine); background: var(--tint); }
+  .tag { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.65rem; border-radius: 999px; background: var(--tint);
+    font-size: 0.85rem; font-weight: 700; color: var(--ink); }
+  .icon-btn { width: 3rem; height: 3rem; display: grid; place-items: center; border-radius: 50%; border: 0; background: var(--tint); color: var(--ink); flex: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 1.1rem; }
+  .plain { padding: 0.25rem 0; }
+
+  /* Figure stage */
+  .stage { position: relative; background: var(--stage); border-radius: 22px; aspect-ratio: 200 / 190; width: 100%; overflow: hidden; }
+  .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .stage.sm { border-radius: 14px; }
+  .fig-near, .fig-far { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .fig-near { stroke: var(--fig); }
+  .fig-far { stroke: var(--fig-far); }
+  .fig-head { fill: var(--fig); }
+  .floor { stroke: var(--prop); stroke-width: 2; stroke-linecap: round; opacity: 0.6; }
+  .prop-l { stroke: var(--prop); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .prop-f { fill: var(--prop-fill); stroke: var(--prop); stroke-width: 2.2; stroke-linejoin: round; }
+  .band { stroke: var(--sun); stroke-width: 3.5; stroke-linecap: round; fill: none; }
+  .weight { stroke: var(--ink); stroke-width: 4.5; stroke-linecap: round; }
+  .weight-end { fill: var(--ink); }
+
+  /* Onboarding */
+  .ob-top { display: flex; align-items: center; gap: 0.75rem; min-height: 3.25rem; }
+  .progress { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .progress i { display: block; height: 100%; background: var(--pine); border-radius: 4px; transition: width 0.3s ease; }
+  .opts { display: flex; flex-direction: column; gap: 0.6rem; }
+  .opt { width: 100%; text-align: left; display: flex; align-items: center; gap: 0.85rem; padding: 0.95rem 1.05rem; min-height: 3.75rem;
+    border: 2px solid var(--line); background: var(--surface); border-radius: 18px; font-size: 1.1rem; font-weight: 700; color: var(--ink); }
+  .opt small { display: block; font-weight: 400; font-size: 0.92rem; color: var(--ink-2); margin-top: 0.1rem; }
+  .opt[aria-pressed="true"] { border-color: var(--pine); background: var(--tint); }
+  .opt .tick { margin-left: auto; width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; flex: none; }
+  .opt[aria-pressed="true"] .tick { background: var(--pine); border-color: var(--pine); color: var(--on-pine); }
+  .opt-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr)); gap: 0.6rem; }
+  .opt-row .opt { justify-content: center; text-align: center; padding-inline: 0.5rem; }
+  .text-in { width: 100%; min-height: 3.75rem; border-radius: 16px; border: 2px solid var(--line); background: var(--surface); padding: 0.75rem 1rem;
+    font-size: 1.25rem; font-weight: 700; color: var(--ink); }
+  .text-in:focus { border-color: var(--pine); outline: none; }
+  .spacer { flex: 1; min-height: 1.25rem; }
+
+  /* Today */
+  .greet h1 { font-size: 1.8rem; }
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.3rem; }
+  .day { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 800; color: var(--ink-2); }
+  .dot { width: 100%; max-width: 2.2rem; aspect-ratio: 1; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: var(--on-sun); }
+  .dot.done { background: var(--sun); border-color: var(--sun); }
+  .dot.today { border-color: var(--pine); border-width: 3px; }
+  .today { background: var(--surface); border: 1px solid var(--line); border-radius: 26px; overflow: hidden; }
+  .today .stage { border-radius: 0; aspect-ratio: auto; height: 30vh; min-height: 190px; max-height: 330px; }
+  .today-body { padding: 1.1rem; display: flex; flex-direction: column; gap: 0.9rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; color: var(--ink-2); font-weight: 700; font-size: 0.95rem; }
+  .meta span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .move-list { display: flex; flex-direction: column; }
+  .move-row { display: flex; align-items: center; gap: 0.85rem; padding: 0.55rem 0; border: 0; border-top: 1px solid var(--line); background: none; width: 100%; text-align: left; color: var(--ink); }
+  .move-row:first-child { border-top: 0; }
+  .move-row .stage { width: 4.4rem; flex: none; border-radius: 12px; }
+  .move-row b { display: block; font-size: 1.02rem; }
+  .move-row small { color: var(--ink-2); font-size: 0.88rem; }
+  .move-open { padding: 0.25rem 0 1rem; display: grid; gap: 0.75rem; }
+  .steps { margin: 0; padding-left: 1.4rem; display: grid; gap: 0.3rem; }
+  .steps li { padding-left: 0.2rem; }
+  .banner { border-radius: 18px; background: var(--tint); padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .done-badge { width: 4.5rem; height: 4.5rem; border-radius: 50%; background: var(--sun); color: var(--on-sun); display: grid; place-items: center; }
+
+  /* Tabs */
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0px); display: flex; justify-content: center; }
+  .tabs-in { width: 100%; max-width: 34rem; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tab { min-height: 4.1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
+    background: none; border: 0; color: var(--ink-2); font-weight: 800; font-size: 0.85rem; }
+  .tab[aria-current="page"] { color: var(--pine); }
+
+  /* Player */
+  .player { max-width: 34rem; margin: 0 auto; padding-inline: 16px; padding-block: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.6rem;
+    height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  .p-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 0.75rem;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent); }
+  .p-top { flex: none; display: flex; align-items: center; gap: 0.75rem; }
+  .p-top .label { flex: 1; text-align: center; font-weight: 800; color: var(--ink-2); font-size: 0.95rem; }
+  .segs { flex: none; display: flex; gap: 3px; }
+  .seg { flex: 1; height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .seg i { display: block; height: 100%; background: var(--pine); }
+  .p-stage { flex: none; width: 100%; max-width: min(100%, calc(32vh * 1.053)); margin: 0 auto; }
+  .p-info { display: flex; align-items: center; gap: 1rem; }
+  .p-info { flex: none; }
+  .p-info h2 { font-size: 1.45rem; }
+  .ring { position: relative; width: 5.2rem; height: 5.2rem; flex: none; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .num { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-weight: 700; font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+  .ring-bg { stroke: var(--line); }
+  .ring-fg { stroke: var(--pine); transition: stroke-dashoffset 0.2s linear; }
+  .rest .ring-fg { stroke: var(--sun); }
+  .p-controls { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.5rem; }
+  .ctl { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; background: none; border: 0; color: var(--ink); font-weight: 800; font-size: 0.85rem; padding: 0.3rem; min-height: 3.5rem; }
+  .ctl .icon-btn { width: 3rem; height: 3rem; }
+  .p-top .icon-btn { width: 2.75rem; height: 2.75rem; }
+  .ctl-main { width: 4.5rem; height: 4.5rem; border-radius: 50%; border: 0; background: var(--sun); color: var(--on-sun); display: grid; place-items: center; }
+  .side-pill { display: inline-flex; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--sun); color: var(--on-sun); font-weight: 800; font-size: 0.85rem; }
+  .paused-pill { display: inline-flex; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--ink); color: var(--bg); font-weight: 800; font-size: 0.85rem; }
+  .overlay { position: fixed; inset: 0; z-index: 40; background: var(--shade); display: flex; align-items: flex-end; justify-content: center; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); touch-action: none; }
+  .dialog { width: 100%; max-width: 30rem; background: var(--surface); border-radius: 24px; padding: 1.3rem; display: flex; flex-direction: column; gap: 0.75rem; }
+
+  /* Finish */
+  .burst { width: 7rem; height: 7rem; border-radius: 50%; background: var(--sun); color: var(--on-sun); display: grid; place-items: center; margin: 1.5rem auto 0.5rem; animation: pop 0.5s cubic-bezier(.2,1.6,.4,1) both; }
+  @keyframes pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .feel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+  .feel .opt { flex-direction: column; justify-content: center; text-align: center; gap: 0.3rem; padding: 0.8rem 0.4rem; font-size: 1rem; }
+
+  /* Progress */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 0.85rem 0.75rem; min-width: 0; }
+  .tile b { display: block; font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .tile span { font-size: 0.85rem; color: var(--ink-2); font-weight: 700; }
+  .weeks { display: flex; flex-direction: column; }
+  .wk { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+  .wk:first-child { border-top: 0; }
+  .wk-label { width: 6.5rem; flex: none; font-weight: 700; font-size: 0.95rem; }
+  .wk-dots { display: flex; gap: 0.3rem; flex-wrap: wrap; flex: 1; }
+  .wk-dots i { width: 1.05rem; height: 1.05rem; border-radius: 50%; border: 2px solid var(--line); }
+  .wk-dots i.on { background: var(--sun); border-color: var(--sun); }
+  .wk-dots i.extra { background: var(--pine); border-color: var(--pine); }
+  .wk-goal { font-size: 0.85rem; font-weight: 800; color: var(--pine); }
+  .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+  .badge { text-align: center; padding: 0.8rem 0.4rem; border-radius: 16px; border: 2px dashed var(--line); color: var(--ink-2); font-size: 0.85rem; font-weight: 700; }
+  .badge b { display: block; font-family: var(--display); font-size: 1.5rem; color: var(--ink-2); }
+  .badge.got { border-style: solid; border-color: var(--sun); background: var(--surface); color: var(--ink); }
+  .badge.got b { color: var(--ink); }
+  .counter { display: flex; align-items: center; justify-content: center; gap: 1.2rem; }
+  .counter output { font-family: var(--display); font-weight: 800; font-size: 3.4rem; min-width: 5rem; text-align: center; font-variant-numeric: tabular-nums; }
+  .counter .icon-btn { width: 4rem; height: 4rem; }
+  .chart text { fill: var(--ink-2); font-family: var(--body); font-size: 11px; }
+  .chart .bar { fill: var(--fig-far); }
+  .chart .bar.last { fill: var(--pine); }
+  .chart .val { fill: var(--ink); font-weight: 700; font-size: 12px; }
+
+  /* You */
+  .list { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
+  .li { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; min-height: 3.75rem; border: 0; border-top: 1px solid var(--line); background: none; width: 100%; text-align: left; color: var(--ink); }
+  .li:first-child { border-top: 0; }
+  .li .k { flex: none; width: 7.5rem; font-weight: 800; font-size: 0.95rem; }
+  .li .v { flex: 1; min-width: 0; color: var(--ink-2); }
+  .switch { width: 3.4rem; height: 2rem; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background 0.2s; }
+  .switch::after { content: ""; position: absolute; top: 0.2rem; left: 0.2rem; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--surface); transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+  .switch.on { background: var(--pine); }
+  .switch.on::after { transform: translateX(1.4rem); }
+  .days-pick { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.3rem; }
+  .days-pick button { min-height: 2.9rem; border-radius: 12px; border: 2px solid var(--line); background: var(--surface); font-weight: 800; color: var(--ink); }
+  .days-pick button[aria-pressed="true"] { background: var(--pine); border-color: var(--pine); color: var(--on-pine); }
+  .time-in { min-height: 3rem; border-radius: 12px; border: 2px solid var(--line); background: var(--surface); padding: 0.4rem 0.8rem; font-size: 1.1rem; font-weight: 700; color: var(--ink); }
+  .safety li { margin-bottom: 0.5rem; }
+  .welcome-stage { width: 100%; max-width: min(100%, calc(36vh * 1.053)); margin: 0 auto; }
+  .toast { position: fixed; left: 16px; right: 16px; margin-inline: auto; width: fit-content; max-width: 30rem; bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); z-index: 50;
+    background: var(--ink); color: var(--bg); padding: 0.75rem 1.1rem; border-radius: 14px; font-weight: 700; text-align: center; animation: pop 0.25s ease both; }
+  @media (prefers-reduced-motion: reduce) { .burst, .toast { animation: none; } .progress i, .switch, .switch::after, .ring-fg { transition: none; } }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" crossorigin></script>
+</head>
+<body>
+<div id="root"><div class="boot">Loading Steady…</div></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ----------------------------------------------------------------------------
+   SMALL HELPERS
+---------------------------------------------------------------------------- */
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, u) => a + (b - a) * u;
+// Angles take the short way round, so an arm swinging from "up" to "overhead on
+// the floor" goes past the head rather than down through the body.
+const lerpA = (a, b, u) => a + ((((b - a) % 360) + 540) % 360 - 180) * u;
+const ease = (u) => 0.5 - 0.5 * Math.cos(Math.PI * u);
+const pad = (n) => String(n).padStart(2, "0");
+const dkey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fromKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const daysBetween = (a, b) => Math.round((fromKey(b) - fromKey(a)) / 86400000);
+// A malformed language tag (some systems report "en-US@posix") makes every
+// toLocale* call throw, so check it before trusting it.
+const LANG = (() => {
+  const raw = (navigator.languages && navigator.languages[0]) || navigator.language || "en-US";
+  try { return Intl.DateTimeFormat.supportedLocalesOf([raw]).length ? raw : "en-US"; } catch (e) { return "en-US"; }
+})();
+const SUN_FIRST = /^(en-(US|CA|PH)|es-MX|pt-BR|ja|ko|he)/i.test(LANG);
+const startOfWeek = (d) => {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return addDays(x, -(SUN_FIRST ? x.getDay() : (x.getDay() + 6) % 7));
+};
+const DAY_ABBR = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const fmtDay = (d, o) => d.toLocaleDateString(LANG, o);
+function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed) {
+  let a = seed;
+  return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const fmtClock = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${pad(s % 60)}` : String(s));
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+function useReducedMotion() {
+  const [r, setR] = useState(() => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } });
+  useEffect(() => { try { const m = matchMedia("(prefers-reduced-motion: reduce)"); const f = () => setR(m.matches); m.addEventListener("change", f); return () => m.removeEventListener("change", f); } catch (e) {} }, []);
+  return r;
+}
+
+const mkIcon = (paths) => ({ size = 24, style }) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+    strokeLinecap="round" strokeLinejoin="round" style={style} aria-hidden="true">{paths}</svg>;
+const SunIcon = mkIcon(<g><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g>);
+const ChartIcon = mkIcon(<g><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></g>);
+const UserIcon = mkIcon(<g><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></g>);
+const Play = mkIcon(<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>);
+const Pause = mkIcon(<g><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></g>);
+const SkipNext = mkIcon(<g><path d="M5 5l10 7-10 7z" fill="currentColor"/><path d="M19 5v14"/></g>);
+const SkipBack = mkIcon(<g><path d="M19 5L9 12l10 7z" fill="currentColor"/><path d="M5 5v14"/></g>);
+const X = mkIcon(<g><path d="M18 6L6 18M6 6l12 12"/></g>);
+const Check = mkIcon(<polyline points="20 6 9 17 4 12"/>);
+const Back = mkIcon(<polyline points="15 18 9 12 15 6"/>);
+const Chevron = mkIcon(<polyline points="9 18 15 12 9 6"/>);
+const ChevronDown = mkIcon(<polyline points="6 9 12 15 18 9"/>);
+const Clock = mkIcon(<g><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g>);
+const Volume = mkIcon(<g><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></g>);
+const VolumeOff = mkIcon(<g><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></g>);
+const Minus = mkIcon(<path d="M5 12h14"/>);
+const PlusIcon = mkIcon(<path d="M12 5v14M5 12h14"/>);
+const Feather = mkIcon(<g><path d="M20 4c-6 0-12 4-13 13l-3 3"/><path d="M7 17c5 0 9-2 11-7"/></g>);
+const Shuffle = mkIcon(<g><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></g>);
+const Bolt = mkIcon(<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>);
+const Shorter = mkIcon(<g><circle cx="12" cy="13" r="8"/><path d="M12 9v4M9 2h6"/></g>);
+
+/* ----------------------------------------------------------------------------
+   FIGURE ENGINE
+   Every move is demonstrated by a stick figure drawn from a handful of joint
+   angles. Angles are absolute and measured from straight down: 0 points at the
+   floor, 90 points the way the figure faces, 180 points at the ceiling. A pose
+   names the angle of each segment; the engine walks the skeleton outwards from
+   the hip, then slides the whole body so one chosen joint (usually a planted
+   foot) stays put. Limbs that must touch something - hands on a chair back, a
+   foot on the floor - can instead name a target point and are solved with two-
+   bone IK, so they stay put however the rest of the body moves.
+---------------------------------------------------------------------------- */
+const FLOOR = 190, GY = FLOOR - 3;
+const SEG = { t: 23, neck: 19, ua: 27, fa: 25, th: 38, sh: 38, ft: 11 };
+const LIMBS = ["armN", "armF", "legN", "legF"];
+const DEF = { t1: 180, t2: 180, head: 180, footN: 90, footF: 90 };
+const ZERO = [0, 0];
+const sinD = (a) => Math.sin((a * Math.PI) / 180), cosD = (a) => Math.cos((a * Math.PI) / 180);
+const go = (p, a, len, s = 1) => [p[0] + s * sinD(a) * len, p[1] + cosD(a) * len];
+const angTo = (p, q, s = 1) => (Math.atan2(s * (q[0] - p[0]), q[1] - p[1]) * 180) / Math.PI;
+
+function skeleton(p, front) {
+  const J = { hip: [0, 0] };
+  J.mid = go(J.hip, p.t1 ?? 180, SEG.t);
+  J.sho = go(J.mid, p.t2 ?? 180, SEG.t);
+  J.head = go(J.sho, p.head ?? 180, SEG.neck);
+  for (const sd of ["N", "F"]) {
+    // Seen from the front, N is the limb on the right of the screen and F the
+    // left; s mirrors F so the same angle means "outwards" on both sides.
+    const s = front && sd === "F" ? -1 : 1;
+    const arm = p["arm" + sd] || ZERO, leg = p["leg" + sd] || ZERO;
+    J["sho" + sd] = front ? [J.sho[0] - s * 13 * cosD(p.t2 ?? 180), J.sho[1] + s * 13 * sinD(p.t2 ?? 180)] : J.sho;
+    J["hip" + sd] = front ? [J.hip[0] - s * 7 * cosD(p.t1 ?? 180), J.hip[1] + s * 7 * sinD(p.t1 ?? 180)] : J.hip;
+    J["elbow" + sd] = go(J["sho" + sd], arm[0], SEG.ua * (arm[2] ?? 1), s);
+    J["hand" + sd] = go(J["elbow" + sd], arm[1], SEG.fa * (arm[3] ?? 1), s);
+    J["knee" + sd] = go(J["hip" + sd], leg[0], SEG.th * (leg[2] ?? 1), s);
+    J["ankle" + sd] = go(J["knee" + sd], leg[1], SEG.sh * (leg[3] ?? 1), s);
+    J["toe" + sd] = go(J["ankle" + sd], p["foot" + sd] ?? 90, front ? 7 : SEG.ft, s);
+  }
+  return J;
+}
+
+function reach(root, target, a, b, bend) {
+  const dx = target[0] - root[0], dy = target[1] - root[1];
+  const d = Math.hypot(dx, dy) || 0.001;
+  const dd = clamp(d, Math.abs(a - b) + 0.01, a + b - 0.01);
+  const A = Math.acos(clamp((a * a + dd * dd - b * b) / (2 * a * dd), -1, 1));
+  const ang = Math.atan2(dx, dy) + bend * A;
+  return [[root[0] + Math.sin(ang) * a, root[1] + Math.cos(ang) * a], [root[0] + (dx / d) * dd, root[1] + (dy / d) * dd]];
+}
+
+function place(p, anim) {
+  const front = anim.view === "front";
+  const J = skeleton(p, front);
+  const an = anim.anchor || { j: "ankleN", x: 100, y: GY };
+  const ref = J[an.j];
+  const tx = an.x - ref[0];
+  const ty = anim.ground ? GY - Math.max(J.ankleN[1], J.ankleF[1], J.toeN[1], J.toeF[1]) : (an.y ?? GY) - ref[1];
+  for (const k in J) J[k] = [J[k][0] + tx, J[k][1] + ty];
+  if (p.ik) for (const limb of LIMBS) {
+    const tg = p.ik[limb];
+    if (!tg) continue;
+    const sd = limb.slice(-1), arm = limb[0] === "a";
+    const t = Array.isArray(tg) ? tg : [J[tg.j][0] + (tg.dx || 0), J[tg.j][1] + (tg.dy || 0), tg.bend];
+    const [m, e] = reach(J[(arm ? "sho" : "hip") + sd], t, arm ? SEG.ua : SEG.th, arm ? SEG.fa : SEG.sh, t[2] ?? (arm ? -1 : 1));
+    J[(arm ? "elbow" : "knee") + sd] = m;
+    J[(arm ? "hand" : "ankle") + sd] = e;
+    if (!arm) J["toe" + sd] = go(e, p["foot" + sd] ?? 90, front ? 7 : SEG.ft, front && sd === "F" ? -1 : 1);
+  }
+  return J;
+}
+
+// Resolve each keyframe once, so a limb that is IK-solved in one key and posed by
+// angle in the next can still be blended by angle.
+function prepare(anim) {
+  const front = anim.view === "front";
+  const keys = anim.keys;
+  const solved = keys.map((k) => {
+    if (!k.ik) return k;
+    const J = place(k, anim), out = { ...k };
+    for (const limb of LIMBS) if (k.ik[limb]) {
+      const sd = limb.slice(-1), arm = limb[0] === "a", s = front && sd === "F" ? -1 : 1;
+      const r = J[(arm ? "sho" : "hip") + sd], m = J[(arm ? "elbow" : "knee") + sd], e = J[(arm ? "hand" : "ankle") + sd];
+      out[limb] = [angTo(r, m, s), angTo(m, e, s)];
+    }
+    return out;
+  });
+  const idx = keys.map((_, i) => i);
+  const order = keys.length === 1 ? [0] : anim.loop === "cycle" ? idx : [...idx, ...idx.slice(1, -1).reverse()];
+  const J0 = place(keys[0], anim);
+  return { anim, keys, solved, order, J0 };
+}
+
+const sameTarget = (a, b) => (Array.isArray(a) && Array.isArray(b)) || (!Array.isArray(a) && !Array.isArray(b) && a.j === b.j);
+function mix(A, B, As, Bs, u) {
+  const o = { ik: {} };
+  for (const k in DEF) o[k] = lerpA(A[k] ?? DEF[k], B[k] ?? DEF[k], u);
+  for (const limb of LIMBS) {
+    const ta = A.ik && A.ik[limb], tb = B.ik && B.ik[limb];
+    o[limb] = (() => { const a = As[limb] || ZERO, b = Bs[limb] || ZERO;
+      return [lerpA(a[0], b[0], u), lerpA(a[1], b[1], u), lerp(a[2] ?? 1, b[2] ?? 1, u), lerp(a[3] ?? 1, b[3] ?? 1, u)]; })();
+    if (ta && tb && sameTarget(ta, tb)) {
+      o.ik[limb] = Array.isArray(ta) ? [lerp(ta[0], tb[0], u), lerp(ta[1], tb[1], u), ta[2]]
+        : { j: ta.j, dx: lerp(ta.dx || 0, tb.dx || 0, u), dy: lerp(ta.dy || 0, tb.dy || 0, u), bend: ta.bend };
+    }
+  }
+  return o;
+}
+
+function frameAt(prep, t) {
+  const { anim, keys, solved, order } = prep;
+  if (order.length === 1) return place(keys[0], anim);
+  const dur = anim.dur || 1.1, hold = anim.hold ?? 0.25;
+  const n = t / dur, seg = Math.floor(n) % order.length, local = n - Math.floor(n);
+  const u = local < hold ? 0 : ease((local - hold) / (1 - hold));
+  const a = order[seg], b = order[(seg + 1) % order.length];
+  return place(mix(keys[a], keys[b], solved[a], solved[b], u), anim);
+}
+
+const fx = (p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
+function chairShape(backX, backTop, seatY, seatEnd, key) {
+  const dir = seatEnd > backX ? 1 : -1;
+  return (
+    <g key={key}>
+      <path className="prop-l" d={`M${backX - dir * 3} ${backTop} L${backX} ${seatY} L${backX} ${FLOOR} M${seatEnd} ${seatY} L${seatEnd} ${FLOOR}`} />
+      <rect className="prop-f" x={Math.min(backX, seatEnd) - 2} y={seatY - 3} width={Math.abs(seatEnd - backX) + 4} height="7" rx="3" />
+    </g>
+  );
+}
+function Prop({ p, J0, i }) {
+  switch (p.type) {
+    case "chair": { const h = J0.hip; return chairShape(h[0] - 17, h[1] - 42, h[1] + 8, h[0] + 17, i); }
+    case "chairBack": return chairShape(p.top[0], p.top[1], FLOOR - 36, p.top[0] + 34, i);
+    case "chairSide": { const h = J0.handF; return chairShape(h[0], h[1] + 4, FLOOR - 36, h[0] - 34, i); }
+    case "chairFront": {
+      const h = J0.hip;
+      return (
+        <g key={i}>
+          <rect className="prop-f" x={h[0] - 19} y={h[1] - 52} width="38" height="58" rx="6" />
+          <path className="prop-l" d={`M${h[0] - 22} ${h[1] + 8} L${h[0] - 22} ${FLOOR} M${h[0] + 22} ${h[1] + 8} L${h[0] + 22} ${FLOOR}`} />
+          <rect className="prop-f" x={h[0] - 26} y={h[1] + 5} width="52" height="7" rx="3" />
+        </g>
+      );
+    }
+    case "wall": return <rect key={i} className="prop-f" x={p.x} y="14" width={p.w || 10} height={FLOOR - 14} />;
+    case "counter": return (
+      <g key={i}>
+        <rect className="prop-f" x={p.x + 3} y={p.y} width={210 - p.x} height={FLOOR - p.y} />
+        <rect className="prop-f" x={p.x - 2} y={p.y - 3} width={210 - p.x} height="7" rx="2" />
+      </g>
+    );
+    case "step": return <rect key={i} className="prop-f" x={p.x} y={FLOOR - p.h} width={p.w} height={p.h} rx="2" />;
+    case "mat": return <rect key={i} x="12" y={FLOOR - 2} width="176" height="5" rx="2.5" fill="var(--fig-far)" opacity="0.45" />;
+    case "door": return <rect key={i} className="prop-f" x={p.at[0]} y="14" width="12" height={FLOOR - 14} />;
+    default: return null;
+  }
+}
+
+function Dumbbell({ e, h }) {
+  const dx = h[0] - e[0], dy = h[1] - e[1], d = Math.hypot(dx, dy) || 1;
+  const px = (-dy / d) * 7.5, py = (dx / d) * 7.5;
+  return (
+    <g>
+      <line className="weight" x1={h[0] - px} y1={h[1] - py} x2={h[0] + px} y2={h[1] + py} />
+      <circle className="weight-end" cx={h[0] - px} cy={h[1] - py} r="4" />
+      <circle className="weight-end" cx={h[0] + px} cy={h[1] + py} r="4" />
+    </g>
+  );
+}
+
+function FigureSVG({ J, prep, mirror, label, weights }) {
+  const { anim, J0 } = prep;
+  const front = anim.view === "front";
+  const vb = anim.box || (anim.floor ? "10 30 180 171" : "0 4 200 190");
+  const limb = (sd, kind) => kind === "arm"
+    ? `M${fx(J["sho" + sd])} L${fx(J["elbow" + sd])} L${fx(J["hand" + sd])}`
+    : `M${fx(J["hip" + sd])} L${fx(J["knee" + sd])} L${fx(J["ankle" + sd])} L${fx(J["toe" + sd])}`;
+  // The spine is two segments drawn as one curve through the midpoint, so a
+  // rounded or arched back reads as a back rather than a broken stick.
+  const c = [2 * J.mid[0] - (J.hip[0] + J.sho[0]) / 2, 2 * J.mid[1] - (J.hip[1] + J.sho[1]) / 2];
+  const torso = `M${fx(J.hip)} Q${fx(c)} ${fx(J.sho)}`;
+  const props = anim.props || [];
+  const band = props.find((p) => p.type === "door");
+  const farCls = front ? "fig-near" : "fig-far";
+  return (
+    <svg viewBox={vb} role="img" aria-label={label} preserveAspectRatio="xMidYMid meet">
+      <g transform={mirror ? "matrix(-1 0 0 1 200 0)" : undefined}>
+        {props.map((p, i) => <Prop key={i} p={p} J0={J0} i={i} />)}
+        <line className="floor" x1="2" x2="198" y1={FLOOR + 1.5} y2={FLOOR + 1.5} />
+        {band && <path className="band" d={`M${band.at[0] + 4} ${band.at[1]} L${fx(J.handF)} M${band.at[0] + 4} ${band.at[1]} L${fx(J.handN)}`} />}
+        <path className={farCls} strokeWidth="9" d={limb("F", "leg")} />
+        <path className={farCls} strokeWidth="9" d={limb("F", "arm")} />
+        {weights && !front && <Dumbbell e={J.elbowF} h={J.handF} />}
+        {front && <path className="fig-near" strokeWidth="9" d={limb("N", "leg")} />}
+        <path className="fig-near" strokeWidth="12.5" d={torso} />
+        {front && <path className="fig-near" strokeWidth="9" d={`M${fx(J.shoN)} L${fx(J.shoF)}`} />}
+        <path className="fig-near" strokeWidth="6" d={`M${fx(J.sho)} L${fx(J.head)}`} />
+        <circle className="fig-head" cx={J.head[0]} cy={J.head[1]} r="11" />
+        {!front && <path className="fig-near" strokeWidth="9" d={limb("N", "leg")} />}
+        <path className="fig-near" strokeWidth="9" d={limb("N", "arm")} />
+        {weights && front && <Dumbbell e={J.elbowF} h={J.handF} />}
+        {weights && <Dumbbell e={J.elbowN} h={J.handN} />}
+      </g>
+    </svg>
+  );
+}
+
+const PREP = new Map();
+const prepFor = (m) => { let p = PREP.get(m.id); if (!p) { p = prepare(m.anim); PREP.set(m.id, p); } return p; };
+
+function Figure({ move, play = true, mirror = false, weights, className = "" }) {
+  const prep = prepFor(move);
+  const reduce = useReducedMotion();
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!play) return;
+    let raf, t0 = null;
+    const loop = (now) => { if (t0 == null) t0 = now; setT((now - t0) / 1000); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [play, move.id]);
+  const still = move.anim.still ?? Math.min(1, prep.keys.length - 1);
+  const J = play ? frameAt(prep, t * (reduce ? 0.65 : 1)) : place(prep.keys[still], move.anim);
+  const w = move.anim.weights === true || (move.anim.weights === "opt" && weights);
+  return (
+    <div className={"stage " + className}>
+      <FigureSVG J={J} prep={prep} mirror={mirror} label={`${move.name}, demonstrated by a stick figure`} weights={w} />
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   POSES AND THE MOVE LIBRARY
+   Each move carries plain-English steps, a one-line cue the voice coach reads
+   out, and the tags the workout builder filters on:
+     pat    what it trains   lvl  1 gentle/supported .. 4 challenging
+     kit    what it needs    sit  done sitting (fine for "I need to stay seated")
+     alt    a seated stand-in for a standing move; only offered to people who need it
+     floor  needs getting down on the floor     impact  any jumping
+     bal    balance demand: 1 holds support, 2 hands-free
+     avoid  limits that rule it out             sides  one side, then the other
+---------------------------------------------------------------------------- */
+const P = (base, o) => ({ ...base, ...o });
+const ST = { t1: 180, t2: 180, head: 180, armN: [6, 12], armF: [-4, 4], legN: [0, 0], legF: [-2, -2] };
+const SIT = { t1: 180, t2: 180, head: 180, armN: [14, 72], armF: [10, 72], legN: [90, -4], legF: [88, -6] };
+const FST = { t1: 180, t2: 180, head: 180, armN: [7, 3], armF: [7, 3], legN: [3, 1], legF: [3, 1] };
+const FSIT_LEGS = { legN: [90, 1, 0.28], legF: [90, 1, 0.28] };
+const FSIT = P(FST, FSIT_LEGS);
+const CROSS = { armN: [24, 194, 1, 0.75], armF: [20, 192, 1, 0.75] };
+const HIPS_IK = { armN: { j: "hip", dx: 5, dy: -5 }, armF: { j: "hip", dx: 1, dy: -5 } };
+const HOLD_IK = { armN: [125, 104], armF: [122, 104] };
+const CHAIR_AHEAD = { type: "chairBack", top: [127, 108] };
+const STAND = (x = 100) => ({ j: "ankleN", x, y: GY });
+const SEAT = { j: "hip", x: 92, y: GY - 38 };
+
+const standF = (keys, extra = {}) => ({ view: "front", anchor: { j: "hip", x: 100 }, ground: true, keys, ...extra });
+const seatedF = (keys, extra = {}, keepLegs) => ({
+  view: "front", anchor: { j: "hip", x: 100, y: GY - 38 }, props: [{ type: "chairFront" }],
+  keys: keepLegs ? keys : keys.map((k) => P(k, FSIT_LEGS)), ...extra,
+});
+const seated = (keys, extra = {}) => ({ view: "side", anchor: SEAT, props: [{ type: "chair" }], keys, ...extra });
+const mirrorFront = (k) => P(k, { armN: k.armF, armF: k.armN, legN: k.legF, legF: k.legN, t1: 360 - (k.t1 ?? 180), t2: 360 - (k.t2 ?? 180), head: 360 - (k.head ?? 180) });
+
+const HH_F = { armN: [38, -42], armF: [38, -42] };
+const SIDEBEND = [P(FST, HH_F), P(FST, { ...HH_F, t1: 183, t2: 194, head: 198, armN: [165, 208] })];
+const CIRCLES = [[86, 86], [92, 100], [98, 98], [92, 84]].map((a) => P(FST, { armN: a, armF: a }));
+const REACH = P(FST, { armN: [168, 178], armF: [14, 6], t2: 183, head: 182 });
+const PUNCH_A = { armN: [86, 90], armF: [28, 155], t2: 178 };
+const PUNCH_B = { armN: [28, 155], armF: [86, 90], t2: 182 };
+const SQUEEZE = [{ armN: [84, 90], armF: [82, 88] }, { armN: [-64, 66], armF: [-66, 64], t2: 183, head: 182 }];
+const WY = [{ armN: [98, 168], armF: [98, 168] }, { armN: [148, 158], armF: [148, 158] }];
+const PRESS = [{ armN: [16, 172], armF: [13, 170] }, { armN: [174, 178], armF: [172, 176] }];
+const BREATHE = [P(FST, { armN: [8, 4], armF: [8, 4] }), P(FST, { armN: [160, 172], armF: [160, 172] })];
+const ROUND = [{ armN: [86, 90], armF: [84, 88] }, { t1: 176, t2: 150, head: 128, armN: [98, 95], armF: [96, 93] }];
+const STS_SIT = P(SIT, { legN: [90, -12], legF: [88, -12] });
+const STS_LEAN = P(STS_SIT, { t1: 142, t2: 146, head: 158, legN: [80, -20], legF: [79, -20] });
+const SPLIT_LOW = P(ST, { legN: [82, -2], t1: 178, t2: 180, footF: 40, ik: { ...HIPS_IK, legF: [52, 181] } });
+const BRIDGE_DOWN = { t1: -90, t2: -90, head: -92, armN: [88, 90], armF: [88, 90], legN: [141, 20], legF: [143, 22] };
+const ALL_FOURS = { t1: 100, t2: 104, head: 108, legN: [0, -90], legF: [0, -90], footN: -90, footF: -90 };
+const HINGED = { t1: 122, t2: 124, head: 130, legN: [18, -10], legF: [17, -10] };
+const HEAD_HANDS = { armN: [150, -85, 1, 0.7], armF: [146, -88, 1, 0.7] };
+const DEADBUG = { t1: -90, t2: -90, head: -94, armN: [180, 180], armF: [176, 176], legN: [180, 90], legF: [176, 86], footN: 180, footF: 176 };
+
+const MOVES = [
+  /* --- Warm-up --- */
+  { id: "march", name: "March on the spot", pat: "warm", also: "cardio", lvl: 1, desk: 1,
+    steps: ["Stand tall and lift one knee, then the other.", "Swing your arms as you go.", "Rest a hand on a chair if you like."],
+    cue: "Nice easy rhythm.",
+    anim: { view: "side", anchor: { j: "hip", x: 100 }, ground: true, loop: "cycle", dur: 0.45, hold: 0.1,
+      keys: [ST, P(ST, { legN: [70, -4], armN: [-30, -10], armF: [38, 92] }), ST, P(ST, { legF: [70, -4], armF: [-30, -10], armN: [38, 92] })] } },
+  { id: "seated-march", name: "Seated marching", pat: "warm", also: "cardio", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall near the front of a sturdy chair.", "Lift one knee, then the other, like marching.", "Pump your arms if you can."],
+    cue: "Sit tall and keep it going.",
+    anim: seated([SIT, P(SIT, { legN: [112, -8], armN: [-20, 45], armF: [38, 125] }), SIT, P(SIT, { legF: [112, -8], armF: [-20, 45], armN: [38, 125] })], { loop: "cycle", dur: 0.5, hold: 0.1 }) },
+  { id: "step-touch", name: "Side step-touch", pat: "warm", also: "cardio", lvl: 1,
+    steps: ["Step one foot out to the side, then bring it back.", "Now the other side.", "Let your arms swing out as you step."],
+    cue: "Step out, step in.",
+    anim: standF([FST, P(FST, { legN: [17, 17], armN: [35, 60], armF: [35, 60] }), FST, P(FST, { legF: [17, 17], armN: [35, 60], armF: [35, 60] })], { loop: "cycle", dur: 0.45, hold: 0.1 }) },
+  { id: "arm-circles", name: "Arm circles", pat: "warm", lvl: 1, desk: 1,
+    steps: ["Lift your arms out to the sides.", "Draw small circles with your hands.", "Halfway through, circle the other way."],
+    cue: "Shoulders soft, away from your ears.",
+    anim: standF(CIRCLES, { loop: "cycle", dur: 0.3, hold: 0 }) },
+  { id: "seated-arm-circles", name: "Seated arm circles", pat: "warm", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall and lift your arms out to the sides.", "Draw small circles with your hands.", "Halfway through, circle the other way."],
+    cue: "Shoulders soft, away from your ears.",
+    anim: seatedF(CIRCLES, { loop: "cycle", dur: 0.3, hold: 0 }) },
+  { id: "reach-ups", name: "Reach for the sky", pat: "warm", lvl: 1, desk: 1,
+    steps: ["Stand tall with your feet apart.", "Reach one arm up high, then the other.", "Feel a stretch down your side."],
+    cue: "Reach up tall.",
+    anim: standF([REACH, mirrorFront(REACH)], { dur: 0.9, hold: 0.2 }) },
+  { id: "seated-reach-ups", name: "Seated reach-ups", pat: "warm", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall near the front of the chair.", "Reach one arm up high, then the other.", "Feel a stretch down your side."],
+    cue: "Reach up tall.",
+    anim: seatedF([REACH, mirrorFront(REACH)], { dur: 0.9, hold: 0.2 }) },
+  { id: "side-bends", name: "Side bends", pat: "warm", lvl: 1, desk: 1,
+    steps: ["Stand with your hands on your hips.", "Reach one arm over your head and lean gently to the side.", "Come back up and switch sides."],
+    cue: "Gentle and slow.",
+    anim: standF([SIDEBEND[0], SIDEBEND[1], SIDEBEND[0], mirrorFront(SIDEBEND[1])], { loop: "cycle", dur: 1.1, hold: 0.3 }) },
+  { id: "seated-side-bends", name: "Seated side bends", pat: "warm", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall with your hands on your hips.", "Reach one arm over your head and lean gently to the side.", "Come back up and switch sides."],
+    cue: "Gentle and slow.",
+    anim: seatedF([SIDEBEND[0], SIDEBEND[1], SIDEBEND[0], mirrorFront(SIDEBEND[1])], { loop: "cycle", dur: 1.1, hold: 0.3 }) },
+
+  /* --- Legs --- */
+  { id: "sit-to-stand-hands", name: "Sit to stand, using your hands", pat: "legs", lvl: 1, kit: ["chair"], easier: "seated-leg-ext",
+    steps: ["Sit near the front of a sturdy chair, feet flat.", "Lean forward, push on your thighs and stand up.", "Slowly sit back down."],
+    cue: "Lean forward, then stand.",
+    anim: { view: "side", anchor: STAND(122), props: [{ type: "chair" }], still: 1, dur: 0.95, hold: 0.15,
+      keys: [P(STS_SIT, { ik: { armN: { j: "kneeN", dx: -12, dy: -6 }, armF: { j: "kneeN", dx: -16, dy: -6 } } }),
+        P(STS_LEAN, { ik: { armN: { j: "kneeN", dx: -10, dy: -6 }, armF: { j: "kneeN", dx: -14, dy: -6 } } }),
+        P(ST, { armN: [10, 25], armF: [6, 20] })] } },
+  { id: "sit-to-stand", name: "Sit to stand", pat: "legs", lvl: 2, kit: ["chair"], easier: "sit-to-stand-hands",
+    steps: ["Sit near the front of a sturdy chair, arms crossed.", "Lean forward and stand up tall.", "Sit back down slowly, nice and controlled."],
+    cue: "Slow on the way down.",
+    anim: { view: "side", anchor: STAND(122), props: [{ type: "chair" }], dur: 0.95, hold: 0.15,
+      keys: [P(STS_SIT, CROSS), P(STS_LEAN, CROSS), P(ST, CROSS)] } },
+  { id: "mini-squat", name: "Mini squats at a chair", pat: "legs", lvl: 1, kit: ["chair"], easier: "sit-to-stand-hands",
+    steps: ["Hold the back of a sturdy chair.", "Bend your knees a little and push your hips back.", "Stand back up tall."],
+    cue: "Small bend, stand tall.",
+    anim: { view: "side", anchor: STAND(96), props: [CHAIR_AHEAD], dur: 1.1,
+      keys: [P(ST, { ik: HOLD_IK }), P(ST, { t1: 160, t2: 164, head: 172, legN: [42, -22], legF: [41, -22], ik: HOLD_IK })] } },
+  { id: "squat", name: "Squats", pat: "legs", lvl: 3, avoid: ["knees"], easier: "sit-to-stand",
+    steps: ["Stand with your feet a little wider than your hips.", "Sit back as if into a chair, arms out in front.", "Push through your heels to stand."],
+    cue: "Chest up, sit back.",
+    anim: { view: "side", anchor: STAND(110), dur: 1,
+      keys: [P(ST, { armN: [8, 14] }), P(ST, { t1: 140, t2: 148, head: 165, legN: [84, -28], legF: [82, -28], armN: [84, 88], armF: [80, 86] })] } },
+  { id: "split-squat", name: "Split squats", pat: "legs", lvl: 3, bal: 1, avoid: ["knees"], sides: 1, easier: "squat",
+    steps: ["Stand with one foot well in front of the other.", "Bend both knees and lower straight down.", "Push back up. Switch legs halfway."],
+    cue: "Straight down, straight up.",
+    anim: { view: "side", anchor: STAND(132), dur: 1,
+      keys: [P(ST, { legN: [29, 29], footF: 40, ik: { ...HIPS_IK, legF: [52, 181] } }), SPLIT_LOW] } },
+  { id: "reverse-lunge", name: "Step-back lunges", pat: "legs", lvl: 4, bal: 1, avoid: ["knees"], sides: 1, easier: "split-squat",
+    steps: ["Stand tall with your hands on your hips.", "Step one foot back and bend both knees.", "Push off the back foot to stand. Switch legs halfway."],
+    cue: "Step back, then stand tall.",
+    anim: { view: "side", anchor: STAND(132), dur: 0.9, hold: 0.2, keys: [P(ST, { ik: HIPS_IK }), SPLIT_LOW] } },
+  { id: "wall-sit", name: "Wall sit", pat: "legs", lvl: 3, avoid: ["knees"], hold: 1, easier: "mini-squat",
+    steps: ["Lean your back flat against a wall.", "Slide down until your knees are bent, as if sitting.", "Hold it. Breathe."],
+    cue: "Hold it. Keep breathing.",
+    anim: { view: "side", anchor: STAND(128), props: [{ type: "wall", x: 69 }], dur: 1.6, hold: 0.3,
+      keys: [P(ST, { legN: [90, 0], legF: [88, 0], ...CROSS }), P(ST, { legN: [90, 0], legF: [88, 0], ...CROSS, t2: 177, head: 177 })] } },
+  { id: "step-ups", name: "Step-ups", pat: "legs", lvl: 3, kit: ["step"], bal: 1, avoid: ["knees"], sides: 1, easier: "sit-to-stand",
+    steps: ["Stand facing the bottom stair, holding the rail if there is one.", "Step up with one foot and stand up tall.", "Step back down. Switch legs halfway."],
+    cue: "Push through the top foot.",
+    anim: { view: "side", anchor: { j: "ankleN", x: 134, y: FLOOR - 27 }, props: [{ type: "step", x: 112, w: 70, h: 24 }], dur: 0.8, hold: 0.15,
+      keys: [P(ST, { t1: 166, t2: 168, head: 172, legN: [70, -20], armN: [30, 40], armF: [-25, -5], ik: { legF: [94, GY] } }),
+        P(ST, { t1: 172, t2: 174, legN: [38, -10], footF: 110, ik: { legF: [104, 156] } }),
+        P(ST, { legN: [0, 0], ik: { legF: [122, FLOOR - 27] } })] } },
+  { id: "heel-raises", name: "Heel raises", pat: "legs", lvl: 1, kit: ["chair"],
+    steps: ["Hold the back of a sturdy chair.", "Rise up onto your toes.", "Lower your heels slowly."],
+    cue: "Up tall, down slow.",
+    anim: { view: "side", anchor: { j: "toeN", x: 110, y: GY }, props: [CHAIR_AHEAD], dur: 0.9,
+      keys: [P(ST, { legF: [0, 0], ik: HOLD_IK }), P(ST, { legF: [0, 0], footN: 50, footF: 50, ik: HOLD_IK })] } },
+  { id: "seated-heel-toe", name: "Seated heel and toe raises", pat: "legs", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall with your feet flat.", "Lift your heels, then put them down.", "Lift your toes, then put them down."],
+    cue: "Heels up, toes up.",
+    anim: seated([SIT, P(SIT, { legN: [97, -4], legF: [95, -6], footN: 64, footF: 62 }), SIT, P(SIT, { footN: 118, footF: 116 })], { loop: "cycle", dur: 0.6, hold: 0.2 }) },
+  { id: "seated-leg-ext", name: "Seated knee straightens", pat: "legs", lvl: 1, sit: 1, alt: 1, sides: 1,
+    steps: ["Sit tall near the front of a chair.", "Straighten one knee until your leg is out in front.", "Lower it slowly. Switch legs halfway."],
+    cue: "Straighten, squeeze, lower.",
+    anim: seated([SIT, P(SIT, { legN: [92, 84], footN: 168 })], { dur: 1.1, hold: 0.3 }) },
+
+  /* --- Hips and back --- */
+  { id: "hip-hinge", name: "Hip hinge", pat: "hinge", lvl: 2, desk: 1, easier: "back-leg-raise",
+    steps: ["Stand with your hands on your hips, knees soft.", "Push your hips back and tip forward with a flat back.", "Squeeze your bottom to stand tall."],
+    cue: "Hips back, back flat.",
+    anim: { view: "side", anchor: STAND(96), dur: 1.2,
+      keys: [P(ST, { ik: HIPS_IK }), P(ST, { t1: 114, t2: 118, head: 124, legN: [14, -8], legF: [13, -8], ik: HIPS_IK })] } },
+  { id: "weighted-hinge", name: "Hip hinge with weights", pat: "hinge", lvl: 3, kit: ["weights"], avoid: ["back"], easier: "hip-hinge",
+    steps: ["Hold a weight in each hand, knees soft.", "Push your hips back and let the weights slide down your legs.", "Squeeze your bottom to stand tall."],
+    cue: "Hips back, back flat.",
+    anim: { view: "side", anchor: STAND(96), weights: true, dur: 1.2,
+      keys: [P(ST, { armN: [2, 2], armF: [0, 0] }), P(ST, { ...HINGED, t1: 112, t2: 116, head: 124, armN: [0, 0], armF: [-2, -2] })] } },
+  { id: "glute-bridge", name: "Bridges", pat: "hinge", lvl: 2, floor: 1, easier: "back-leg-raise",
+    steps: ["Lie on your back with knees bent and feet flat.", "Squeeze your bottom and lift your hips.", "Lower slowly."],
+    cue: "Squeeze and lift.",
+    anim: { view: "side", anchor: STAND(138), floor: 1, props: [{ type: "mat" }], dur: 1.1,
+      keys: [BRIDGE_DOWN, { ...BRIDGE_DOWN, t1: -69, t2: -69, head: -95, legN: [111, 20], legF: [113, 22] }] } },
+  { id: "side-leg-raise", name: "Side leg lifts", pat: "hinge", lvl: 1, kit: ["chair"], sides: 1,
+    steps: ["Stand side-on to a chair and hold it.", "Lift your outside leg out to the side.", "Lower it slowly. Switch sides halfway."],
+    cue: "Stand tall, toes forward.",
+    anim: standF([P(FST, { armF: [24, 12], armN: [8, 3] }), P(FST, { armF: [24, 12], armN: [8, 3], legN: [32, 32], t1: 184, t2: 184, head: 182 })],
+      { props: [{ type: "chairSide" }], dur: 1.2, hold: 0.3 }) },
+  { id: "back-leg-raise", name: "Back leg lifts", pat: "hinge", lvl: 1, kit: ["chair"], sides: 1,
+    steps: ["Hold the back of a sturdy chair.", "Keep your leg straight and move it back behind you.", "Bring it back slowly. Switch legs halfway."],
+    cue: "Squeeze your bottom.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 96, y: GY }, props: [CHAIR_AHEAD], dur: 1.1,
+      keys: [P(ST, { legF: [0, 0], ik: HOLD_IK }), P(ST, { legF: [0, 0], legN: [-30, -30], t1: 172, t2: 173, ik: HOLD_IK })] } },
+  { id: "bird-dog", name: "Bird dog", pat: "hinge", lvl: 3, floor: 1, avoid: ["knees", "wrists"], sides: 1, easier: "back-leg-raise",
+    steps: ["Kneel on all fours, hands under shoulders.", "Reach one arm forward and the opposite leg back.", "Return and repeat. Switch sides halfway."],
+    cue: "Long and steady.",
+    anim: { view: "side", anchor: { j: "kneeF", x: 92, y: GY - 2 }, box: "0 30 200 190", props: [{ type: "mat" }], dur: 1.2, hold: 0.3,
+      keys: [P(ALL_FOURS, { ik: { armN: [140, GY], armF: [137, GY] } }), P(ALL_FOURS, { legN: [-88, -90], armN: [96, 94], ik: { armF: [137, GY] } })] } },
+
+  /* --- Arms and chest --- */
+  { id: "wall-pushup", name: "Wall push-ups", pat: "push", lvl: 1, desk: 1,
+    steps: ["Stand an arm's length from a wall.", "Put your hands on the wall at shoulder height.", "Bend your elbows to bring your chest in, then push away."],
+    cue: "Body straight, push away.",
+    anim: { view: "side", anchor: STAND(66), props: [{ type: "wall", x: 166 }], dur: 1,
+      keys: [{ t1: 155, t2: 155, head: 160, legN: [-25, -25], legF: [-25, -25], armN: [90, 90], armF: [90, 90], ik: { armN: [164, 80], armF: [162, 80] } },
+        { t1: 148, t2: 148, head: 152, legN: [-32, -32], legF: [-32, -32], armN: [90, 90], armF: [90, 90], ik: { armN: [164, 80], armF: [162, 80] } }] } },
+  { id: "counter-pushup", name: "Counter push-ups", pat: "push", lvl: 2, easier: "wall-pushup",
+    steps: ["Put your hands on a kitchen counter or sturdy table.", "Walk your feet back until your body is straight.", "Bend your elbows to lower your chest, then push up."],
+    cue: "Body straight like a plank.",
+    anim: { view: "side", anchor: STAND(52), props: [{ type: "counter", x: 172, y: 121 }], dur: 1,
+      keys: [{ t1: 140, t2: 140, head: 146, legN: [-40, -40], legF: [-40, -40], armN: [90, 90], armF: [90, 90], ik: { armN: [170, 118], armF: [168, 118] } },
+        { t1: 130, t2: 130, head: 136, legN: [-50, -50], legF: [-50, -50], armN: [90, 90], armF: [90, 90], ik: { armN: [170, 118], armF: [168, 118] } }] } },
+  { id: "knee-pushup", name: "Push-ups on your knees", pat: "push", lvl: 3, floor: 1, avoid: ["wrists", "knees", "shoulders"], easier: "counter-pushup",
+    steps: ["Start on your hands and knees, hands under shoulders.", "Walk your hands forward so your body is a straight line.", "Lower your chest, then push back up."],
+    cue: "Straight line, knees to head.",
+    anim: { view: "side", anchor: { j: "kneeN", x: 60, y: GY - 2 }, floor: 1, props: [{ type: "mat" }], dur: 1,
+      keys: [{ t1: 126, t2: 126, head: 130, legN: [-54, -110], legF: [-54, -112], footN: -100, footF: -100, armN: [0, 0], armF: [0, 0], ik: { armN: [131, GY], armF: [128, GY] } },
+        { t1: 106, t2: 106, head: 110, legN: [-74, -110], legF: [-74, -112], footN: -100, footF: -100, armN: [0, 0], armF: [0, 0], ik: { armN: [131, GY], armF: [128, GY] } }] } },
+  { id: "pushup", name: "Push-ups", pat: "push", lvl: 4, floor: 1, avoid: ["wrists", "shoulders"], easier: "knee-pushup",
+    steps: ["Start in a plank, hands under shoulders.", "Lower your chest towards the floor.", "Push back up, body in one straight line."],
+    cue: "Tight tummy, straight line.",
+    anim: { view: "side", anchor: { j: "toeN", x: 34, y: GY }, floor: 1, props: [{ type: "mat" }], dur: 1,
+      keys: [{ t1: 109, t2: 109, head: 112, legN: [-71, -71], legF: [-71, -71], footN: 20, footF: 20, armN: [0, 0], armF: [0, 0], ik: { armN: [146, GY], armF: [143, GY] } },
+        { t1: 99, t2: 99, head: 100, legN: [-81, -81], legF: [-81, -81], footN: 20, footF: 20, armN: [0, 0], armF: [0, 0], ik: { armN: [146, GY], armF: [143, GY] } }] } },
+  { id: "overhead-press", name: "Overhead press", pat: "push", lvl: 2, avoid: ["shoulders"], easier: "seated-press",
+    steps: ["Hold your hands at your shoulders. Water bottles work as weights.", "Push your arms straight up overhead.", "Lower back to your shoulders."],
+    cue: "Push up, lower slowly.",
+    anim: { view: "side", anchor: STAND(100), weights: "opt", dur: 0.9, keys: [P(ST, PRESS[0]), P(ST, PRESS[1])] } },
+  { id: "seated-press", name: "Seated overhead press", pat: "push", lvl: 1, sit: 1, alt: 1, avoid: ["shoulders"],
+    steps: ["Sit tall with your hands at your shoulders.", "Push your arms straight up overhead.", "Lower back to your shoulders."],
+    cue: "Push up, lower slowly.",
+    anim: seated([P(SIT, PRESS[0]), P(SIT, PRESS[1])], { weights: "opt", dur: 0.9 }) },
+
+  /* --- Upper back and posture --- */
+  { id: "squeeze-backs", name: "Shoulder blade squeezes", pat: "pull", lvl: 1, desk: 1,
+    steps: ["Stand tall and reach your arms out in front.", "Pull your elbows back and squeeze your shoulder blades together.", "Reach forward again."],
+    cue: "Squeeze and hold for a moment.",
+    anim: { view: "side", anchor: STAND(98), dur: 1, hold: 0.3, keys: [P(ST, SQUEEZE[0]), P(ST, SQUEEZE[1])] } },
+  { id: "seated-squeeze-backs", name: "Seated shoulder squeezes", pat: "pull", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall and reach your arms out in front.", "Pull your elbows back and squeeze your shoulder blades together.", "Reach forward again."],
+    cue: "Squeeze and hold for a moment.",
+    anim: seated([P(SIT, SQUEEZE[0]), P(SIT, SQUEEZE[1])], { dur: 1, hold: 0.3 }) },
+  { id: "arms-w-y", name: "W to Y arm raises", pat: "pull", lvl: 1, desk: 1,
+    steps: ["Bend your elbows and hold your hands up by your shoulders, like a W.", "Press your arms up into a Y.", "Lower back to the W."],
+    cue: "Shoulders down and back.",
+    anim: standF([P(FST, WY[0]), P(FST, WY[1])], { dur: 1.1, hold: 0.25 }) },
+  { id: "seated-w-y", name: "Seated W to Y raises", pat: "pull", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall with your hands up by your shoulders, like a W.", "Press your arms up into a Y.", "Lower back to the W."],
+    cue: "Shoulders down and back.",
+    anim: seatedF([P(FST, WY[0]), P(FST, WY[1])], { dur: 1.1, hold: 0.25 }) },
+  { id: "band-row", name: "Band rows", pat: "pull", lvl: 2, kit: ["band"], easier: "squeeze-backs",
+    steps: ["Loop a band round something sturdy at chest height.", "Hold the ends and pull your elbows back.", "Let your arms go forward slowly."],
+    cue: "Elbows back, chest proud.",
+    anim: { view: "side", anchor: STAND(90), props: [{ type: "door", at: [186, 96] }], dur: 1,
+      keys: [P(ST, { legN: [10, -6], legF: [8, -6], armN: [86, 88], armF: [84, 86] }), P(ST, { legN: [10, -6], legF: [8, -6], armN: [-42, 86], armF: [-44, 84], t2: 182 })] } },
+  { id: "bent-row", name: "Bent-over rows", pat: "pull", lvl: 3, kit: ["weights"], avoid: ["back"], easier: "squeeze-backs",
+    steps: ["Hold a weight in each hand and tip forward from your hips.", "Pull the weights up to your waist.", "Lower them slowly."],
+    cue: "Flat back, elbows up.",
+    anim: { view: "side", anchor: STAND(92), weights: true, dur: 1, keys: [P(ST, { ...HINGED, armN: [2, 2], armF: [0, 0] }), P(ST, { ...HINGED, armN: [-62, 14], armF: [-64, 12] })] } },
+  { id: "arm-curls", name: "Arm curls", pat: "pull", lvl: 2, kit: ["weights"], easier: "squeeze-backs",
+    steps: ["Hold a weight in each hand, arms by your sides.", "Bend your elbows to bring the weights up.", "Lower them slowly."],
+    cue: "Elbows tucked in.",
+    anim: { view: "side", anchor: STAND(100), weights: true, dur: 0.9, keys: [P(ST, { armN: [4, 4], armF: [2, 2] }), P(ST, { armN: [8, 162], armF: [6, 160] })] } },
+
+  /* --- Tummy and core --- */
+  { id: "knee-to-elbow", name: "Standing knee to elbow", pat: "core", lvl: 2, desk: 1, easier: "seated-lean-back",
+    steps: ["Stand tall with your hands lightly behind your head.", "Lift one knee and bring your elbow down to meet it.", "Stand tall, then switch sides."],
+    cue: "Squeeze your tummy.",
+    anim: { view: "side", anchor: { j: "hip", x: 98 }, ground: true, loop: "cycle", dur: 0.55, hold: 0.15,
+      keys: [P(ST, HEAD_HANDS), P(ST, { t2: 158, head: 160, legN: [84, -6], armN: [100, -70, 1, 0.7], armF: [96, -74, 1, 0.7] }),
+        P(ST, HEAD_HANDS), P(ST, { t2: 158, head: 160, legF: [84, -6], armN: [100, -70, 1, 0.7], armF: [96, -74, 1, 0.7] })] } },
+  { id: "seated-lean-back", name: "Seated lean-backs", pat: "core", lvl: 2, sit: 1,
+    steps: ["Sit tall near the front of the chair, arms crossed.", "Lean back slowly, keeping your back straight.", "Sit up tall again."],
+    cue: "Tummy tight, lean back slowly.",
+    anim: seated([P(SIT, CROSS), P(SIT, { ...CROSS, t1: 199, t2: 201, head: 194 })], { dur: 1.4, hold: 0.4 }) },
+  { id: "dead-bug", name: "Dead bug", pat: "core", lvl: 3, floor: 1, easier: "seated-lean-back",
+    steps: ["Lie on your back, arms up, knees bent over your hips.", "Lower one arm behind you and the opposite leg out long.", "Bring them back and switch sides."],
+    cue: "Keep your lower back pressed down.",
+    anim: { view: "side", anchor: { j: "hip", x: 108, y: FLOOR - 9 }, floor: 1, props: [{ type: "mat" }], loop: "cycle", dur: 0.9, hold: 0.25,
+      keys: [DEADBUG, P(DEADBUG, { armN: [-100, -100], legF: [100, 98], footF: 170 }), DEADBUG, P(DEADBUG, { armF: [-104, -104], legN: [100, 98], footN: 170 })] } },
+  { id: "knee-plank", name: "Plank on your knees", pat: "core", lvl: 3, floor: 1, hold: 1, avoid: ["knees", "shoulders"], easier: "seated-lean-back",
+    steps: ["Rest on your forearms and knees.", "Lift your hips so you're in a straight line from knees to head.", "Hold it and keep breathing."],
+    cue: "Hold strong. Keep breathing.",
+    anim: { view: "side", anchor: { j: "kneeN", x: 58, y: GY - 2 }, floor: 1, props: [{ type: "mat" }], dur: 1.8, hold: 0.3,
+      keys: [{ t1: 106, t2: 106, head: 110, legN: [-74, -100], legF: [-74, -102], footN: -150, footF: -150, armN: [0, 90], armF: [2, 92] },
+        { t1: 106, t2: 104, head: 107, legN: [-74, -100], legF: [-74, -102], footN: -150, footF: -150, armN: [0, 90], armF: [2, 92] }] } },
+  { id: "plank", name: "Plank", pat: "core", lvl: 4, floor: 1, hold: 1, avoid: ["shoulders"], easier: "knee-plank",
+    steps: ["Rest on your forearms and toes.", "Keep your body in one straight line.", "Hold it and keep breathing."],
+    cue: "Hold strong. Keep breathing.",
+    anim: { view: "side", anchor: { j: "toeN", x: 28, y: GY }, floor: 1, props: [{ type: "mat" }], dur: 1.8, hold: 0.3,
+      keys: [{ t1: 98, t2: 98, head: 101, legN: [-82, -82], legF: [-82, -82], footN: 20, footF: 20, armN: [0, 90], armF: [2, 92] },
+        { t1: 98, t2: 96, head: 99, legN: [-82, -82], legF: [-82, -82], footN: 20, footF: 20, armN: [0, 90], armF: [2, 92] }] } },
+
+  /* --- Balance --- */
+  { id: "weight-shifts", name: "Side-to-side weight shifts", pat: "balance", lvl: 1,
+    steps: ["Stand with your feet hip-width apart, near a chair.", "Slowly shift your weight onto one foot.", "Then shift across to the other."],
+    cue: "Slow and smooth.",
+    anim: { view: "front", anchor: { j: "ankleN", x: 112, y: GY }, dur: 1.2, hold: 0.3,
+      keys: [P(FST, { legN: [0, 0], legF: [12, 12], t1: 181, t2: 182, armN: [18, 10], armF: [18, 10] }), P(FST, { legN: [12, 12], legF: [0, 0], t1: 179, t2: 178, armN: [18, 10], armF: [18, 10] })] } },
+  { id: "single-leg-supported", name: "Stand on one leg, holding on", pat: "balance", lvl: 1, kit: ["chair"], bal: 1, sides: 1, hold: 1, easier: "tandem-supported",
+    steps: ["Hold the back of a sturdy chair.", "Lift one foot off the floor and hold.", "Switch legs halfway."],
+    cue: "Stand tall. Eyes ahead.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 98, y: GY }, props: [CHAIR_AHEAD], dur: 1.6, hold: 0.2,
+      keys: [P(ST, { legF: [0, 0], legN: [42, -28], ik: HOLD_IK }), P(ST, { legF: [0, 0], legN: [45, -25], t1: 178, t2: 179, ik: HOLD_IK })] } },
+  { id: "tandem-supported", name: "Heel-to-toe stand, holding on", pat: "balance", lvl: 1, kit: ["chair"], bal: 1, sides: 1, hold: 1, easier: "weight-shifts",
+    steps: ["Hold the back of a sturdy chair.", "Put one foot directly in front of the other, heel touching toe.", "Hold. Swap feet halfway."],
+    cue: "Stand tall. Eyes ahead.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 96, y: GY }, props: [CHAIR_AHEAD], dur: 1.6, hold: 0.2,
+      keys: [P(ST, { legN: [4.5, 4.5], legF: [-4.5, -4.5], ik: HOLD_IK }), P(ST, { legN: [4.5, 4.5], legF: [-4.5, -4.5], t1: 178, t2: 179, ik: HOLD_IK })] } },
+  { id: "tandem", name: "Heel-to-toe stand", pat: "balance", lvl: 2, bal: 2, sides: 1, hold: 1, easier: "tandem-supported",
+    steps: ["Stand near a wall or chair, just in case.", "Put one foot directly in front of the other, heel touching toe.", "Hold. Swap feet halfway."],
+    cue: "Stand tall. Eyes ahead.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 98, y: GY }, dur: 1.4, hold: 0.2,
+      keys: [P(ST, { legN: [4.5, 4.5], legF: [-4.5, -4.5], armN: [24, 34], armF: [20, 30] }), P(ST, { legN: [4.5, 4.5], legF: [-4.5, -4.5], armN: [28, 38], armF: [16, 26], t1: 177, t2: 182 })] } },
+  { id: "single-leg", name: "Stand on one leg", pat: "balance", lvl: 3, bal: 2, sides: 1, hold: 1, easier: "single-leg-supported",
+    steps: ["Stand near a wall or chair, just in case.", "Lift one foot off the floor and hold.", "Switch legs halfway."],
+    cue: "Find a spot ahead and focus on it.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 100, y: GY }, dur: 1.4, hold: 0.2,
+      keys: [P(ST, { legF: [0, 0], legN: [42, -28], armN: [30, 46], armF: [26, 42] }), P(ST, { legF: [0, 0], legN: [45, -25], armN: [34, 50], armF: [22, 38], t1: 178, t2: 182 })] } },
+  { id: "seated-forward-reach", name: "Seated forward reach", pat: "balance", lvl: 1, sit: 1,
+    steps: ["Sit tall near the front of the chair.", "Reach your arms forward as far as feels safe.", "Sit back up tall."],
+    cue: "Reach long, sit tall.",
+    anim: seated([SIT, P(SIT, { t1: 146, t2: 138, head: 146, armN: [104, 98], armF: [101, 95] })], { dur: 1.5, hold: 0.35 }) },
+
+  /* --- Heart --- */
+  { id: "march-brisk", name: "Brisk march", pat: "cardio", lvl: 2, easier: "march",
+    steps: ["March on the spot, lifting your knees higher.", "Pump your arms.", "Go a bit faster than a walk."],
+    cue: "Knees up, arms pumping.",
+    anim: { view: "side", anchor: { j: "hip", x: 100 }, ground: true, loop: "cycle", dur: 0.36, hold: 0.05,
+      keys: [ST, P(ST, { legN: [84, -6], armN: [-38, -10], armF: [50, 125] }), ST, P(ST, { legF: [84, -6], armF: [-38, -10], armN: [50, 125] })] } },
+  { id: "step-jacks", name: "Step jacks", pat: "cardio", lvl: 2, easier: "step-touch",
+    steps: ["Step one foot out to the side as your arms go up.", "Step back in as your arms come down.", "Switch sides each time."],
+    cue: "Arms up, step out.",
+    anim: standF([FST, P(FST, { legN: [18, 18], armN: [150, 162], armF: [150, 162] }), FST, P(FST, { legF: [18, 18], armN: [150, 162], armF: [150, 162] })], { loop: "cycle", dur: 0.45, hold: 0.1 }) },
+  { id: "punches", name: "Boxing punches", pat: "cardio", lvl: 1, desk: 1, easier: "seated-punches",
+    steps: ["Stand with one foot slightly in front, fists up.", "Punch forward with one arm, then the other.", "Keep a soft bend in your knees."],
+    cue: "Quick punches. Breathe out.",
+    anim: { view: "side", anchor: STAND(98), dur: 0.3, hold: 0.15,
+      keys: [P(ST, { legN: [7, 0], legF: [-7, 0], ...PUNCH_A }), P(ST, { legN: [7, 0], legF: [-7, 0], ...PUNCH_B })] } },
+  { id: "seated-punches", name: "Seated punches", pat: "cardio", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall, fists up by your chin.", "Punch forward with one arm, then the other.", "Keep your tummy tight."],
+    cue: "Quick punches. Breathe out.",
+    anim: seated([P(SIT, PUNCH_A), P(SIT, PUNCH_B)], { dur: 0.3, hold: 0.15 }) },
+  { id: "seated-jacks", name: "Seated jacks", pat: "cardio", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall near the front of the chair.", "Raise your arms and tap your feet out to the sides.", "Bring them back in. Keep going."],
+    cue: "Out and in.",
+    anim: seatedF([FSIT, P(FSIT, { armN: [150, 165], armF: [150, 165], legN: [90, 24, 0.28], legF: [90, 24, 0.28] })], { dur: 0.45, hold: 0.1 }, true) },
+  { id: "jog", name: "Jog on the spot", pat: "cardio", lvl: 3, impact: 1, easier: "march-brisk",
+    steps: ["Jog gently on the spot.", "Land softly on the balls of your feet.", "Swing your arms."],
+    cue: "Light feet.",
+    anim: { view: "side", anchor: { j: "hip", x: 100 }, ground: true, loop: "cycle", dur: 0.28, hold: 0,
+      keys: [P(ST, { legN: [55, -15], legF: [-6, -12], armN: [-35, 50], armF: [40, 140] }), P(ST, { legF: [55, -15], legN: [-6, -12], armF: [-35, 50], armN: [40, 140] })] } },
+  { id: "jumping-jacks", name: "Jumping jacks", pat: "cardio", lvl: 4, impact: 1, easier: "step-jacks",
+    steps: ["Jump your feet out as your arms swing up.", "Jump back in as your arms come down.", "Land softly."],
+    cue: "Soft landings.",
+    anim: standF([FST, P(FST, { legN: [15, 15], legF: [15, 15], armN: [165, 176], armF: [165, 176] })], { dur: 0.32, hold: 0.05 }) },
+
+  /* --- Stretches --- */
+  { id: "neck-stretch", name: "Neck stretch", pat: "stretch", lvl: 1, sit: 1, desk: 1, sides: 1,
+    steps: ["Sit tall with your shoulders relaxed.", "Tip your ear towards your shoulder.", "Hold, breathing slowly. Switch sides halfway."],
+    cue: "Gentle. No forcing.",
+    anim: seatedF([FSIT, P(FSIT, { head: 156 })], { dur: 2.2, hold: 0.45 }) },
+  { id: "chest-opener", name: "Chest opener", pat: "stretch", lvl: 1, desk: 1,
+    steps: ["Stand tall and clasp your hands behind your back.", "Gently draw your arms back and lift your chest.", "Breathe slowly."],
+    cue: "Lift your chest. Breathe.",
+    anim: { view: "side", anchor: STAND(100), dur: 1.8, hold: 0.45, keys: [ST, P(ST, { t2: 187, head: 190, armN: [-30, -24], armF: [-28, -22] })] } },
+  { id: "upper-back-stretch", name: "Hug and round", pat: "stretch", lvl: 1, desk: 1,
+    steps: ["Reach your arms forward as if hugging a big ball.", "Round your upper back and drop your chin.", "Feel the stretch between your shoulders."],
+    cue: "Round and breathe.",
+    anim: { view: "side", anchor: STAND(96), dur: 1.8, hold: 0.45, keys: [P(ST, ROUND[0]), P(ST, { ...ROUND[1], legN: [6, -4], legF: [4, -4] })] } },
+  { id: "seated-upper-back", name: "Seated hug and round", pat: "stretch", lvl: 1, sit: 1, alt: 1,
+    steps: ["Sit tall and reach your arms forward as if hugging a big ball.", "Round your upper back and drop your chin.", "Feel the stretch between your shoulders."],
+    cue: "Round and breathe.",
+    anim: seated([P(SIT, ROUND[0]), P(SIT, ROUND[1])], { dur: 1.8, hold: 0.45 }) },
+  { id: "hamstring-seated", name: "Seated hamstring stretch", pat: "stretch", lvl: 1, sit: 1, kit: ["chair"], sides: 1,
+    steps: ["Sit on the edge of a chair with one leg straight out, heel down.", "Sit tall and lean forward from your hips.", "Hold the stretch. Switch legs halfway."],
+    cue: "Lean from the hips. Breathe.",
+    anim: seated([P(SIT, { legN: [63, 63], footN: 168, ik: { armN: { j: "kneeN", dx: -14, dy: -7 }, armF: { j: "kneeN", dx: -18, dy: -7 } } }),
+      P(SIT, { legN: [63, 63], footN: 168, t1: 154, t2: 150, head: 160, ik: { armN: { j: "kneeN", dx: 4, dy: 0 }, armF: { j: "kneeN", dx: 0, dy: 0 } } })], { dur: 1.8, hold: 0.45 }) },
+  { id: "calf-stretch", name: "Calf stretch at a wall", pat: "stretch", lvl: 1, sides: 1,
+    steps: ["Put your hands on a wall, one foot back.", "Keep the back leg straight and heel down.", "Lean in until you feel the calf stretch. Switch halfway."],
+    cue: "Back heel down.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 128, y: GY }, props: [{ type: "wall", x: 168 }], dur: 1.8, hold: 0.45,
+      keys: [P(ST, { t1: 166, t2: 166, head: 170, legF: [24, -6], ik: { legN: [92, GY], armN: [166, 86], armF: [164, 86] } }),
+        P(ST, { t1: 162, t2: 162, head: 166, legF: [30, -10], ik: { legN: [92, GY], armN: [166, 86], armF: [164, 86] } })] } },
+  { id: "quad-stretch", name: "Standing thigh stretch", pat: "stretch", lvl: 2, kit: ["chair"], bal: 1, avoid: ["knees"], sides: 1,
+    steps: ["Hold a chair with one hand.", "Bend one knee and hold your ankle behind you.", "Stand tall and hold. Switch legs halfway."],
+    cue: "Knees together, stand tall.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 100, y: GY }, props: [{ type: "chairBack", top: [131, 108] }], dur: 2, hold: 0.4,
+      keys: [P(ST, { legF: [0, 0], legN: [-10, -158], footN: -70, ik: { armN: { j: "ankleN", dx: 1, dy: 3, bend: -1 }, armF: [129, 104] } }),
+        P(ST, { legF: [0, 0], legN: [-12, -158], footN: -70, t1: 178, t2: 179, ik: { armN: { j: "ankleN", dx: 1, dy: 3, bend: -1 }, armF: [129, 104] } })] } },
+  { id: "hip-flexor", name: "Hip flexor stretch", pat: "stretch", lvl: 1, desk: 1, sides: 1,
+    steps: ["Stand with one foot well in front of the other, hands on hips.", "Bend the front knee and gently push your hips forward.", "Feel it at the front of the back hip. Switch halfway."],
+    cue: "Tuck your bottom under.",
+    anim: { view: "side", anchor: { j: "ankleF", x: 120, y: GY }, dur: 1.8, hold: 0.45,
+      keys: [P(ST, { legF: [22, -4], footN: 42, t1: 182, t2: 182, ik: { ...HIPS_IK, legN: [72, 182] } }),
+        P(ST, { legF: [34, -12], footN: 42, t1: 184, t2: 184, ik: { ...HIPS_IK, legN: [72, 182] } })] } },
+  { id: "knee-hug", name: "Knee hug", pat: "stretch", lvl: 1, floor: 1,
+    steps: ["Lie on your back.", "Hug both knees in towards your chest.", "Breathe slowly and relax."],
+    cue: "Relax and breathe.",
+    anim: { view: "side", anchor: { j: "hip", x: 104, y: FLOOR - 10 }, floor: 1, props: [{ type: "mat" }], dur: 1.8, hold: 0.4,
+      keys: [{ t1: -90, t2: -90, head: -93, armN: [90, 90], armF: [90, 90], legN: [190, 96], legF: [188, 94], ik: { armN: { j: "kneeN", dx: 4, dy: 6 }, armF: { j: "kneeN", dx: 2, dy: 6 } } },
+        { t1: -90, t2: -90, head: -93, armN: [90, 90], armF: [90, 90], legN: [206, 104], legF: [204, 102], ik: { armN: { j: "kneeN", dx: 4, dy: 6 }, armF: { j: "kneeN", dx: 2, dy: 6 } } }] } },
+  { id: "child-pose", name: "Child's pose", pat: "stretch", lvl: 1, floor: 1, avoid: ["knees"],
+    steps: ["Kneel and sit back towards your heels.", "Walk your hands forward and rest your forehead down.", "Breathe slowly."],
+    cue: "Sink back and breathe.",
+    anim: { view: "side", anchor: { j: "kneeN", x: 96, y: GY - 2 }, floor: 1, props: [{ type: "mat" }], dur: 2.2, hold: 0.4,
+      keys: [{ t1: 96, t2: 96, head: 75, legN: [77, -90], legF: [77, -90], footN: -90, footF: -90, armN: [78, 80], armF: [76, 78] },
+        { t1: 98, t2: 100, head: 78, legN: [77, -90], legF: [77, -90], footN: -90, footF: -90, armN: [80, 82], armF: [78, 80] }] } },
+  { id: "cat-cow", name: "Cat and cow", pat: "stretch", lvl: 2, floor: 1, avoid: ["knees", "wrists"],
+    steps: ["Kneel on all fours.", "Round your back up high, chin to chest.", "Then let your tummy drop and look up."],
+    cue: "Move with your breath.",
+    anim: { view: "side", anchor: { j: "kneeN", x: 80, y: GY - 2 }, floor: 1, props: [{ type: "mat" }], dur: 1.6, hold: 0.3,
+      keys: [P(ALL_FOURS, { t1: 126, t2: 72, head: 30, ik: { armN: [123, GY], armF: [120, GY] } }), P(ALL_FOURS, { t1: 82, t2: 112, head: 128, ik: { armN: [123, GY], armF: [120, GY] } })] } },
+  { id: "breathe", name: "Big breaths", pat: "stretch", lvl: 1, breath: 1,
+    steps: ["Stand tall with your arms by your sides.", "Breathe in as your arms float up overhead.", "Breathe out as they float back down."],
+    cue: "Breathe in, arms up. Breathe out, arms down.",
+    anim: standF(BREATHE, { dur: 2.6, hold: 0.25 }) },
+  { id: "seated-breathe", name: "Seated big breaths", pat: "stretch", lvl: 1, sit: 1, alt: 1, breath: 1,
+    steps: ["Sit tall with your arms by your sides.", "Breathe in as your arms float up overhead.", "Breathe out as they float back down."],
+    cue: "Breathe in, arms up. Breathe out, arms down.",
+    anim: seatedF(BREATHE, { dur: 2.6, hold: 0.25 }) },
+];
+const MOVE = Object.fromEntries(MOVES.map((m) => [m.id, m]));
+const PAT_LABEL = { warm: "Warm-up", legs: "Legs", hinge: "Hips and back", push: "Arms and chest", pull: "Upper back", core: "Tummy", balance: "Balance", cardio: "Heart", stretch: "Stretch" };
+
+/* ----------------------------------------------------------------------------
+   THE PERSON
+---------------------------------------------------------------------------- */
+const QUESTIONS = {
+  name: { title: "What should we call you?", sub: "A first name is plenty. You can skip this.", type: "text" },
+  age: { title: "How old are you?", sub: "This sets a safe starting point.", type: "one", opts: [
+    ["u40", "Under 40"], ["40s50s", "40 to 59"], ["60s", "60 to 74"], ["75p", "75 or over"]] },
+  goal: { title: "What matters most to you?", type: "one", opts: [
+    ["energy", "More energy", "Feel less tired, more awake"],
+    ["weight", "Lose a little weight", "Get your heart pumping"],
+    ["strength", "Get stronger", "Carrying shopping, climbing stairs"],
+    ["steady", "Stay steady on my feet", "Better balance, fewer falls"],
+    ["aches", "Ease aches and stiffness", "Move more freely"]] },
+  active: { title: "How active are you right now?", sub: "No judgement. Everyone starts somewhere.", type: "one", opts: [
+    [1, "Not very", "I mostly sit or rest"], [2, "A little", "Some walking, the odd bit of exercise"], [3, "Fairly active", "I move most days"]] },
+  life: { title: "What's a normal day like?", sub: "We'll pick moves that undo it.", type: "one", opts: [
+    ["desk", "Sitting a lot", "Desk, driving or screens"], ["feet", "On my feet a lot", "Standing or walking for work"],
+    ["busy", "Busy at home", "Kids, caring, no spare minute"], ["retired", "Retired or taking it easy", "More time, less routine"],
+    ["mixed", "A bit of everything"]] },
+  limits: { title: "Anything we should go easy on?", sub: "Pick any that apply.", type: "many", none: "Nothing, I'm fine", opts: [
+    ["knees", "My knees"], ["back", "My back"], ["shoulders", "My shoulders"], ["wrists", "My wrists or hands"],
+    ["balance", "My balance isn't great"], ["floor", "Getting down on the floor"], ["seated", "I need to stay seated"]] },
+  kit: { title: "What do you have at home?", sub: "Most moves only need you and a sturdy chair.", type: "many", none: "Just a chair", opts: [
+    ["weights", "Light weights", "Two full water bottles work too"], ["band", "A resistance band"], ["step", "Stairs or a sturdy step"]] },
+  minutes: { title: "How long can you spare?", sub: "Even 5 minutes makes a difference.", type: "one", opts: [
+    [5, "5 minutes", "A quick boost"], [10, "10 minutes", "The sweet spot for most people"], [15, "15 minutes"], [20, "20 minutes"]] },
+  days: { title: "How many days a week?", sub: "Start small. You can add more later.", type: "one", grid: true, opts: [[2, "2"], [3, "3"], [4, "4"], [5, "5"], [7, "Every day"]] },
+  when: { title: "When could you fit it in?", sub: "Tying it to something you already do helps it stick.", type: "one", opts: [
+    ["morning", "With my morning coffee or tea"], ["lunch", "On my lunch break"], ["afterwork", "When I get home"],
+    ["evening", "While the TV is on"], ["bed", "Before bed"]] },
+};
+const FLOW = ["name", "age", "goal", "active", "life", "limits", "kit", "minutes", "days", "when"];
+const WHEN_PHRASE = { morning: "with your morning coffee", lunch: "on your lunch break", afterwork: "when you get home", evening: "while the TV is on", bed: "before bed" };
+const WHEN_TIME = { morning: "08:00", lunch: "12:30", afterwork: "17:30", evening: "19:30", bed: "21:00" };
+const DEFAULT_DAYS = { 2: [2, 4], 3: [1, 3, 5], 4: [1, 2, 4, 6], 5: [1, 2, 3, 4, 5], 7: [0, 1, 2, 3, 4, 5, 6] };
+const optLabel = (q, v) => { const o = QUESTIONS[q].opts.find((x) => x[0] === v); return o ? o[1] : "Not set"; };
+const LIMIT_SHORT = { knees: "knees", back: "back", shoulders: "shoulders", wrists: "wrists", balance: "balance", floor: "floor work", seated: "staying seated" };
+const sentence = (xs) => { const t = xs.join(", "); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+const fmtLimits = (vs) => (vs && vs.length ? sentence(vs.map((v) => LIMIT_SHORT[v] || v)) : "Nothing");
+const fmtKit = (vs) => sentence(["a chair", ...(vs || []).map((k) => optLabel("kit", k).toLowerCase())]);
+function startLevel(p) {
+  let l = p.active || 1;
+  if (p.age === "60s") l = Math.min(l, 2);
+  if (p.age === "75p") l = 1;
+  if (p.limits && p.limits.includes("seated")) l = Math.min(l, 2);
+  return l;
+}
+
+const KEY = "steady-workouts-v1";
+const DEFAULT = {
+  onboarded: false,
+  profile: { name: "", age: null, goal: "energy", active: 1, life: "mixed", limits: [], kit: [], minutes: 10, days: 3, when: "morning" },
+  level: 1, rightRun: 0, offerUp: false, hard: {},
+  history: [], checks: [],
+  today: { date: null, mode: "normal", n: 0 },
+  settings: { big: false, voice: true, beeps: true, remindDays: null, remindTime: null },
+};
+function loadState() {
+  try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw);
+    return { ...DEFAULT, ...p, profile: { ...DEFAULT.profile, ...(p.profile || {}) }, settings: { ...DEFAULT.settings, ...(p.settings || {}) } }; } } catch (e) {}
+  return DEFAULT;
+}
+const saveState = (s) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
+
+/* ----------------------------------------------------------------------------
+   WORKOUT BUILDER
+   A session is warm-up, a short circuit repeated in rounds, then a cool-down.
+   Which moves fill the circuit comes from the person's goal; which version of
+   each move comes from their level, limits and kit. The same day, profile and
+   choice of "shorter / gentler / new moves" always gives the same session.
+---------------------------------------------------------------------------- */
+const TEMPLATES = {
+  energy: ["legs", "cardio", "push", "core", "pull", "cardio"],
+  weight: ["cardio", "legs", "push", "cardio", "core", "hinge"],
+  strength: ["legs", "push", "hinge", "pull", "core", "legs"],
+  steady: ["legs", "balance", "push", "hinge", "balance", "pull"],
+  aches: ["hinge", "pull", "core", "legs", "balance", "push"],
+};
+const FALLBACK = { hinge: ["legs", "core"], cardio: ["warm", "legs"], core: ["balance", "hinge"], balance: ["legs", "core"], pull: ["push"], push: ["pull"], legs: ["hinge"] };
+const TIMING = { 1: [30, 25], 2: [35, 20], 3: [40, 20], 4: [45, 15] };
+const DISTINCT = { 5: 3, 10: 4, 15: 5, 20: 6 };
+const TITLES = { energy: "Energy boost", weight: "Get your heart going", strength: "Full-body strength", steady: "Strong and steady", aches: "Loosen up" };
+const SEATED_TITLES = { energy: "Seated energy boost", weight: "Seated heart pumper", strength: "Seated strength", steady: "Seated strength and balance", aches: "Seated loosen up" };
+
+function ctxFor(st, mode = "normal", n = 0) {
+  const p = st.profile;
+  const L = new Set(p.limits || []);
+  let lvl = clamp(Math.round(st.level), 1, 4);
+  if (mode === "gentle") lvl = Math.max(1, lvl - 1);
+  const last = st.history[st.history.length - 1];
+  return {
+    p, L, K: new Set(["chair", ...(p.kit || [])]), seatedOnly: L.has("seated"), older: p.age === "60s" || p.age === "75p",
+    lvl, gentle: mode === "gentle", hard: st.hard || {}, recent: new Set(last ? last.moves : []), used: new Set(),
+    R: rng(hash([dkey(), mode, n, lvl, JSON.stringify(p)].join("|"))),
+  };
+}
+function allowed(m, c, relaxed) {
+  if (c.seatedOnly && !m.sit) return false;
+  if (!relaxed && !c.seatedOnly && m.alt && !(c.p.age === "75p" || (c.L.has("balance") && c.lvl <= 1))) return false;
+  if (m.floor && (c.L.has("floor") || c.L.has("seated"))) return false;
+  if ((m.avoid || []).some((a) => c.L.has(a))) return false;
+  if ((m.kit || []).some((k) => !c.K.has(k))) return false;
+  if (m.impact && (c.older || c.L.has("knees") || c.lvl < 3 || c.gentle)) return false;
+  if (m.bal >= 2 && (c.L.has("balance") || c.p.age === "75p")) return false;
+  return true;
+}
+function pick(pat, c, { prefer, only } = {}) {
+  const pool = MOVES.filter((m) => (m.pat === pat || m.also === pat) && !c.used.has(m.id) && allowed(m, c) && (only ? only(m) : !m.breath));
+  if (!pool.length) return null;
+  const score = (m) => {
+    const eff = m.lvl + (c.hard[m.id] ? 1 : 0);
+    let s = -Math.abs(eff - c.lvl) * 2.2 - (eff > c.lvl ? 3 : 0);
+    if (c.recent.has(m.id)) s -= 1.2;
+    if (c.p.life === "desk" && m.desk) s += 0.6;
+    if (prefer && prefer(m)) s += 1.5;
+    return s + c.R() * 1.6;
+  };
+  const best = pool.map((m) => [score(m), m]).sort((a, b) => b[0] - a[0])[0][1];
+  c.used.add(best.id);
+  return best;
+}
+function easierFor(m, c) {
+  const seen = new Set([m.id]);
+  let id = m.easier;
+  while (id && MOVE[id] && !seen.has(id)) {
+    seen.add(id);
+    if (allowed(MOVE[id], c, true)) return MOVE[id];
+    id = MOVE[id].easier;
+  }
+  return null;
+}
+
+function buildSession(st, mode = "normal", n = 0) {
+  const p = st.profile, c = ctxFor(st, mode, n);
+  const mini = mode === "mini";
+  const minutes = mini ? 2 : mode === "short" ? Math.max(5, Math.floor(p.minutes / 10) * 5) : p.minutes;
+  const first = (pats, opts) => { for (const pat of pats) { const m = pick(pat, c, opts); if (m) return m; } return null; };
+
+  let [work, rest] = TIMING[c.lvl];
+  if (p.age === "75p" || c.gentle) rest += 5;
+  const warmN = mini ? 1 : minutes >= 15 ? 3 : minutes >= 10 ? 2 : 1;
+  const coolN = mini ? 1 : Math.min(4, (minutes >= 15 ? 3 : minutes >= 10 ? 2 : 1) + (p.goal === "aches" ? 1 : 0));
+
+  const warm = [];
+  for (let i = 0; i < warmN; i++) {
+    const m = first(["warm"], { prefer: i === 0 ? (x) => x.also === "cardio" : (x) => x.also !== "cardio" });
+    if (m) warm.push(m);
+  }
+  let slots = mini ? ["legs", "push"] : (TEMPLATES[p.goal] || TEMPLATES.energy).slice(0, DISTINCT[minutes] || 4);
+  if (!mini && c.older && !slots.includes("balance")) slots[slots.length - 1] = "balance";
+  if (!mini && p.life === "desk" && !slots.includes("pull")) { const i = slots.lastIndexOf("cardio"); slots[i >= 0 ? i : slots.length - 1] = "pull"; }
+  const main = slots.map((s) => first([s, ...(FALLBACK[s] || [])])).filter(Boolean);
+  const lifePref = { desk: ["chest-opener", "hip-flexor", "upper-back-stretch", "seated-upper-back"], feet: ["calf-stretch", "hamstring-seated", "knee-hug"],
+    busy: ["neck-stretch", "chest-opener"], retired: ["hamstring-seated", "calf-stretch"] }[p.life] || [];
+  const cool = [];
+  const breath = coolN >= 2;
+  for (let i = 0; i < coolN - (breath ? 1 : 0); i++) { const m = first(["stretch"], { prefer: (x) => lifePref.includes(x.id) }); if (m) cool.push(m); }
+  if (breath) { const m = first(["stretch"], { only: (x) => x.breath }); if (m) cool.push(m); }
+
+  // Timings. Warm-up and cool-down moves are a fixed 30 seconds (40 when done
+  // one side at a time); the circuit's work time stretches to fill the minutes.
+  const easySecs = (m) => (m.sides ? 40 : 30);
+  const T = { ready: mini ? 5 : 10, warmGap: 8, coolGap: 6 };
+  let rounds = 1;
+  if (mini) { work = 25; rest = 5; } else {
+    const budget = minutes * 60 - T.ready - warm.reduce((s, m) => s + easySecs(m) + T.warmGap, 0) - cool.reduce((s, m) => s + easySecs(m) + T.coolGap, 0);
+    // Pick whichever round count keeps the work interval nearest the person's
+    // level, and never stretch it more than 10 seconds past that.
+    const base = work, fit = (r) => Math.round((budget / (r * main.length) - rest) / 5) * 5;
+    const lo = Math.max(1, Math.floor(budget / ((base + rest) * main.length))), hi = lo + 1;
+    rounds = Math.abs(fit(hi) - base) < Math.abs(fit(lo) - base) ? hi : lo;
+    work = clamp(fit(rounds), 20, base + 10);
+  }
+  const mainSecs = (m) => {
+    let w = m.hold ? Math.min(work, c.lvl <= 2 ? 30 : 40) : work;
+    return m.sides ? 2 * Math.max(15, Math.round((w * 0.6) / 5) * 5) : w;
+  };
+  const steps = [];
+  const add = (m, secs, block, label, gap) => { steps.push({ kind: "work", id: m.id, secs, block, label }); steps.push({ kind: "rest", secs: gap, block }); };
+  warm.forEach((m) => add(m, mini ? 25 : easySecs(m), "warm", mini ? "Two-minute reset" : "Warm-up", mini ? 5 : T.warmGap));
+  for (let r = 0; r < rounds; r++) main.forEach((m) => add(m, mini ? 25 : mainSecs(m), "main", mini ? "Two-minute reset" : rounds > 1 ? `Round ${r + 1} of ${rounds}` : "Main set", rest));
+  cool.forEach((m) => add(m, mini ? 25 : easySecs(m), "cool", mini ? "Two-minute reset" : "Cool-down", mini ? 5 : T.coolGap));
+  steps.pop();
+  steps.unshift({ kind: "ready", secs: T.ready, block: "warm" });
+  const total = steps.reduce((s, x) => s + x.secs, 0);
+
+  const all = [...warm, ...main, ...cool];
+  const chips = [];
+  if (c.seatedOnly) chips.push("All seated");
+  else if (!all.some((m) => m.floor) && (c.L.has("floor") || c.older)) chips.push("No floor work");
+  if (c.L.has("knees")) chips.push("Kind to knees");
+  if (c.L.has("back")) chips.push("Back-friendly");
+  if (c.L.has("shoulders")) chips.push("Easy on shoulders");
+  if (c.L.has("wrists")) chips.push("No weight on wrists");
+  const kitUsed = ["weights", "band", "step"].filter((k) => all.some((m) => (m.kit || []).includes(k)));
+  const needsChair = all.some((m) => (m.kit || []).includes("chair") || m.sit);
+  chips.push(kitUsed.length ? sentence([...(needsChair ? ["chair"] : []), ...kitUsed]) : needsChair ? "Just a chair" : "No equipment");
+
+  const title = mini ? "Two-minute reset" : (c.seatedOnly ? SEATED_TITLES : TITLES)[p.goal] || "Today's workout";
+  return { title: mode === "gentle" && !mini ? `Gentle ${title.toLowerCase()}` : title, minutes: Math.max(1, Math.round(total / 60)), total, steps, moves: all.map((m) => m.id), chips, mode, rounds };
+}
+
+/* ----------------------------------------------------------------------------
+   COACH: voice, beeps and keeping the screen awake
+---------------------------------------------------------------------------- */
+const Voice = {
+  on: true,
+  voice() { try { const vs = speechSynthesis.getVoices(); return vs.find((v) => v.lang && v.lang.replace("_", "-") === (LANG.startsWith("en") ? LANG : "en-US")) || vs.find((v) => /^en/i.test(v.lang)) || null; } catch (e) { return null; } },
+  prime() { try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (e) {} },
+  say(text) {
+    if (!this.on) return;
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); const v = this.voice(); if (v) u.voice = v;
+      u.lang = v ? v.lang : "en-US"; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) {}
+  },
+  stop() { try { speechSynthesis.cancel(); } catch (e) {} },
+};
+const Beep = {
+  on: true, ctx: null,
+  init() { try { if (!this.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) this.ctx = new AC(); } if (this.ctx && this.ctx.state === "suspended") this.ctx.resume(); } catch (e) {} },
+  tone(freq = 660, dur = 0.12) {
+    if (!this.on || !this.ctx) return;
+    try { const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.frequency.value = freq; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + dur + 0.02); } catch (e) {}
+  },
+};
+function useWakeLock(active) {
+  useEffect(() => {
+    if (!active || !("wakeLock" in navigator)) return;
+    let lock = null, dead = false;
+    const get = async () => { try { lock = await navigator.wakeLock.request("screen"); } catch (e) {} };
+    const onVis = () => { if (!dead && document.visibilityState === "visible") get(); };
+    get();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { dead = true; document.removeEventListener("visibilitychange", onVis); try { lock && lock.release(); } catch (e) {} };
+  }, [active]);
+}
+
+/* ----------------------------------------------------------------------------
+   ONBOARDING
+---------------------------------------------------------------------------- */
+const SHOWCASE = ["sit-to-stand", "wall-pushup", "side-leg-raise", "march"];
+function Welcome({ onStart, onQuick }) {
+  const [i, setI] = useState(0);
+  useEffect(() => { const id = setInterval(() => setI((x) => (x + 1) % SHOWCASE.length), 4200); return () => clearInterval(id); }, []);
+  return (
+    <div className="full stack">
+      <div className="row" style={{ justifyContent: "space-between", minHeight: "3rem" }}>
+        <span style={{ fontFamily: "var(--display)", fontWeight: 800, fontSize: "1.5rem", letterSpacing: "-0.02em" }}>Steady</span>
+        <span className="muted" style={{ fontWeight: 700, fontSize: "0.9rem" }}>{MOVE[SHOWCASE[i]].name}</span>
+      </div>
+      <div className="welcome-stage"><Figure move={MOVE[SHOWCASE[i]]} /></div>
+      <div className="stack-s" style={{ marginTop: "0.25rem" }}>
+        <h1 style={{ fontSize: "2.35rem" }}>Little workouts that fit your life.</h1>
+        <p className="muted" style={{ fontSize: "1.1rem" }}>Five to twenty minutes. No gym and no jargon. Every move is shown, explained and built around your body and your day.</p>
+      </div>
+      <div className="spacer" />
+      <div className="stack-s">
+        <button className="btn btn-sun btn-big" onClick={onStart}>Set up my plan</button>
+        <p className="muted" style={{ textAlign: "center", fontSize: "0.95rem" }}>Ten quick taps. About a minute.</p>
+        <button className="btn btn-line" onClick={onQuick}>Skip and show me a workout</button>
+      </div>
+    </div>
+  );
+}
+
+function Question({ q, value, onChange, onNext }) {
+  const Q = QUESTIONS[q];
+  if (Q.type === "text") return (
+    <div className="stack">
+      <label htmlFor="q-name" className="sr-only" style={{ position: "absolute", left: -9999 }}>First name</label>
+      <input id="q-name" className="text-in" autoComplete="given-name" placeholder="First name" value={value || ""} maxLength={30}
+        onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onNext(); }} />
+    </div>
+  );
+  if (Q.type === "one") return (
+    <div className={Q.grid ? "opt-row" : "opts"}>
+      {Q.opts.map(([v, label, sub]) => (
+        <button key={String(v)} className="opt" aria-pressed={value === v} onClick={() => { onChange(v); setTimeout(onNext, 160); }}>
+          <span>{label}{sub && <small>{sub}</small>}</span>
+        </button>
+      ))}
+    </div>
+  );
+  const set = new Set(value || []);
+  const toggle = (v) => { const s = new Set(set); s.has(v) ? s.delete(v) : s.add(v); onChange([...s]); };
+  return (
+    <div className="opts">
+      {Q.opts.map(([v, label, sub]) => (
+        <button key={v} className="opt" aria-pressed={set.has(v)} onClick={() => toggle(v)}>
+          <span>{label}{sub && <small>{sub}</small>}</span>
+          <span className="tick">{set.has(v) && <Check size={16} />}</span>
+        </button>
+      ))}
+      <button className="opt" aria-pressed={set.size === 0} onClick={() => onChange([])}>
+        <span>{Q.none}</span><span className="tick">{set.size === 0 && <Check size={16} />}</span>
+      </button>
+    </div>
+  );
+}
+
+function Onboarding({ initial, onDone }) {
+  const [stage, setStage] = useState("welcome");
+  const [step, setStep] = useState(0);
+  const [p, setP] = useState(initial);
+  const q = FLOW[step];
+  const next = () => { if (step < FLOW.length - 1) setStep(step + 1); else setStage("safety"); };
+  const back = () => { if (stage === "plan") setStage("safety"); else if (stage === "safety") setStage("q"); else if (step > 0) setStep(step - 1); else setStage("welcome"); };
+  useEffect(() => { window.scrollTo(0, 0); }, [stage, step]);
+
+  if (stage === "welcome") return <Welcome onStart={() => setStage("q")} onQuick={() => onDone(initial, false, true)} />;
+  const pct = stage === "q" ? ((step + 1) / (FLOW.length + 2)) * 100 : stage === "safety" ? ((FLOW.length + 1) / (FLOW.length + 2)) * 100 : 100;
+  const Top = () => (
+    <div className="ob-top">
+      <button className="icon-btn" onClick={back} aria-label="Back"><Back /></button>
+      <div className="progress" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin="0" aria-valuemax="100"><i style={{ width: pct + "%" }} /></div>
+    </div>
+  );
+  if (stage === "safety") return (
+    <div className="full stack">
+      <Top />
+      <h1>A quick word on safety</h1>
+      <ul className="safety" style={{ paddingLeft: "1.3rem", margin: 0, fontSize: "1.05rem" }}>{SAFETY.map((s, i) => <li key={i}>{s}</li>)}</ul>
+      <div className="spacer" />
+      <button className="btn btn-sun btn-big" onClick={() => setStage("plan")}>Got it</button>
+    </div>
+  );
+  if (stage === "plan") return (
+    <div className="full stack">
+      <Top />
+      <div className="stack-s">
+        <span className="eyebrow">Your plan</span>
+        <h1>{p.name ? `Here's your plan, ${p.name}.` : "Here's your plan."}</h1>
+      </div>
+      <PlanSummary p={p} />
+      <p className="muted">We'll start gently and adjust as you go. Tell us after each workout how it felt.</p>
+      <div className="spacer" />
+      <div className="stack-s">
+        <button className="btn btn-sun btn-big" onClick={() => onDone(p, true)}><Play size={22} /> Start my first workout</button>
+        <button className="btn btn-line" onClick={() => onDone(p, false)}>Have a look around first</button>
+      </div>
+    </div>
+  );
+  const Q = QUESTIONS[q];
+  return (
+    <div className="full stack">
+      <Top />
+      <div className="stack-s">
+        <h1>{Q.title}</h1>
+        {Q.sub && <p className="muted" style={{ fontSize: "1.05rem" }}>{Q.sub}</p>}
+      </div>
+      <Question q={q} value={p[q]} onChange={(v) => setP({ ...p, [q]: v })} onNext={next} />
+      <div className="spacer" />
+      {(Q.type !== "one") && <button className="btn btn-pine btn-big" onClick={next}>{q === "name" && !p.name ? "Skip" : "Next"}</button>}
+    </div>
+  );
+}
+
+const SAFETY = [
+  "Go at your own pace. Rest whenever you need to.",
+  "Keep a sturdy chair or a counter nearby to hold on to.",
+  "Stop and sit down if you feel chest pain, dizziness or very short of breath. Get medical help if it doesn't settle.",
+  "Feeling a bit achy the next day is normal. Sharp or joint pain is not, so skip that move.",
+  "If you have a heart condition, have had a recent operation or fall, or a doctor has told you to limit activity, check with them first.",
+];
+
+function PlanSummary({ p }) {
+  const rows = [
+    ["Time", `${p.minutes} minutes, ${p.days === 7 ? "every day" : `${p.days} days a week`}`],
+    ["Focus", optLabel("goal", p.goal)],
+    ["Going easy on", fmtLimits(p.limits)],
+    ["Using", fmtKit(p.kit)],
+    ["When", WHEN_PHRASE[p.when] ? WHEN_PHRASE[p.when][0].toUpperCase() + WHEN_PHRASE[p.when].slice(1) : "Whenever suits"],
+  ];
+  return (
+    <div className="list">
+      {rows.map(([k, v]) => <div key={k} className="li"><span className="k">{k}</span><span className="v">{v}</span></div>)}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   TODAY
+---------------------------------------------------------------------------- */
+function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
+function weekInfo(history, goal) {
+  const s = startOfWeek(new Date());
+  const days = Array.from({ length: 7 }, (_, i) => addDays(s, i));
+  const done = new Set(history.map((h) => h.date));
+  const count = days.filter((d) => done.has(dkey(d))).length;
+  return { days, done, count, goal };
+}
+
+function WeekStrip({ info }) {
+  const today = dkey();
+  return (
+    <div className="week" aria-label={`${info.count} of ${info.goal} workouts this week`}>
+      {info.days.map((d) => {
+        const k = dkey(d), on = info.done.has(k);
+        return (
+          <div key={k} className="day">
+            <span>{DAY_ABBR[d.getDay()]}</span>
+            <span className={"dot" + (on ? " done" : "") + (k === today ? " today" : "")}>{on && <Check size={16} />}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function weekMessage(count, goal) {
+  if (count >= goal) return count > goal ? `${count} this week. Everything past ${goal} is a bonus.` : `Weekly goal done. ${goal} out of ${goal}.`;
+  if (count === 0) return `A fresh week. Aim for ${goal} workouts.`;
+  return `${count} of ${goal} this week. Keep it rolling.`;
+}
+
+function MoveList({ session, weights }) {
+  const [open, setOpen] = useState(null);
+  return (
+    <div className="move-list">
+      {session.moves.map((id) => {
+        const m = MOVE[id], isOpen = open === id;
+        return (
+          <div key={id}>
+            <button className="move-row" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : id)}>
+              <Figure move={m} play={false} className="sm" weights={weights} />
+              <span style={{ flex: 1, minWidth: 0 }}><b>{m.name}</b><small>{PAT_LABEL[m.pat]}{m.sides ? " · both sides" : ""}</small></span>
+              <ChevronDown size={20} style={{ transform: isOpen ? "rotate(180deg)" : "none", flex: "none" }} />
+            </button>
+            {isOpen && (
+              <div className="move-open">
+                <Figure move={m} weights={weights} />
+                <ol className="steps">{m.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Today({ st, session, onStart, setToday, onLevelOffer }) {
+  const p = st.profile;
+  const info = weekInfo(st.history, p.days);
+  const today = dkey();
+  const doneToday = st.history.filter((h) => h.date === today);
+  const last = st.history[st.history.length - 1];
+  const away = last ? daysBetween(last.date, today) : 0;
+  const [showMoves, setShowMoves] = useState(false);
+  const mode = st.today.date === today ? st.today.mode : "normal";
+  const hasW = (p.kit || []).includes("weights");
+  const first = MOVE[session.moves.find((id) => MOVE[id].pat !== "warm") || session.moves[0]];
+
+  return (
+    <div className="wrap stack">
+      <div className="greet stack-s">
+        <span className="eyebrow">{fmtDay(new Date(), { weekday: "long", month: "long", day: "numeric" })}</span>
+        <h1>{greeting()}{p.name ? `, ${p.name}` : ""}.</h1>
+      </div>
+
+      {away >= 5 && !doneToday.length && (
+        <div className="banner">
+          <p style={{ fontWeight: 700 }}>Welcome back. It's been {away} days, and that's fine.</p>
+          <p className="muted">The best workout is the one you do. Two minutes still counts.</p>
+        </div>
+      )}
+
+      {st.offerUp && (
+        <div className="banner">
+          <p style={{ fontWeight: 700 }}>Your last few workouts felt just right. Ready for a little more?</p>
+          <div className="row">
+            <button className="btn btn-pine" onClick={() => onLevelOffer(true)}>Yes, a bit more</button>
+            <button className="btn btn-line" onClick={() => onLevelOffer(false)}>Not yet</button>
+          </div>
+        </div>
+      )}
+
+      <section className="today" aria-label="Today's workout">
+        {doneToday.length > 0 ? (
+          <div className="today-body" style={{ alignItems: "flex-start" }}>
+            <div className="done-badge"><Check size={36} /></div>
+            <h2>Done for today.</h2>
+            <p className="muted">You moved for {plural(Math.max(1, Math.round(doneToday.reduce((s, h) => s + h.secs, 0) / 60)), "minute")}. That's the habit growing.</p>
+            <button className="btn btn-tint" onClick={() => onStart("bonus")}><Bolt size={20} /> Fancy a bonus round?</button>
+          </div>
+        ) : (
+          <>
+            <Figure move={first} weights={hasW} />
+            <div className="today-body">
+              <div className="stack-s" style={{ gap: "0.35rem" }}>
+                <span className="eyebrow">Today's workout</span>
+                <h2>{session.title}</h2>
+                <div className="meta">
+                  <span><Clock size={18} /> {session.minutes} minutes</span>
+                  <span>{plural(session.moves.length, "move")}</span>
+                  {session.rounds > 1 && <span>{session.rounds} rounds</span>}
+                </div>
+              </div>
+              <button className="btn btn-sun btn-big" onClick={() => onStart()}><Play size={24} /> Start</button>
+              <div className="chips">{session.chips.map((ch) => <span key={ch} className="tag">{ch}</span>)}</div>
+              <button className="link" style={{ alignSelf: "flex-start" }} aria-expanded={showMoves} onClick={() => setShowMoves(!showMoves)}>
+                {showMoves ? "Hide the moves" : `See all ${session.moves.length} moves first`}
+              </button>
+              {showMoves && <MoveList session={session} weights={hasW} />}
+            </div>
+          </>
+        )}
+      </section>
+
+      <div className="card stack-s">
+        <WeekStrip info={info} />
+        <p style={{ fontWeight: 700 }}>{weekMessage(info.count, p.days)}</p>
+      </div>
+
+      {!doneToday.length && (
+        <div className="card stack-s">
+          <h3>Not feeling it?</h3>
+          <p className="muted">Do two minutes. Most days you'll want to keep going, and if not, two minutes still counts.</p>
+          <button className="btn btn-tint" onClick={() => onStart("mini")}><Play size={20} /> Just 2 minutes</button>
+        </div>
+      )}
+
+      {!doneToday.length && (
+        <div className="stack-s">
+          <span className="eyebrow">Change today's workout</span>
+          <div className="chips">
+            {p.minutes > 5 && <button className="chip" aria-pressed={mode === "short"} onClick={() => setToday(mode === "short" ? "normal" : "short")}><Shorter size={20} /> Shorter</button>}
+            <button className="chip" aria-pressed={mode === "gentle"} onClick={() => setToday(mode === "gentle" ? "normal" : "gentle")}><Feather size={20} /> Gentler</button>
+            <button className="chip" onClick={() => setToday(mode, true)}><Shuffle size={20} /> Different moves</button>
+          </div>
+        </div>
+      )}
+
+      <p className="muted" style={{ fontSize: "0.95rem" }}>
+        Your plan: {p.minutes} minutes, {p.days === 7 ? "every day" : `${p.days} days a week`}, {WHEN_PHRASE[p.when] || "whenever suits"}.
+      </p>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   WORKOUT PLAYER
+---------------------------------------------------------------------------- */
+function Ring({ frac, children }) {
+  const r = 52, C = 2 * Math.PI * r;
+  return (
+    <div className="ring">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="ring-bg" cx="60" cy="60" r={r} strokeWidth="10" fill="none" />
+        <circle className="ring-fg" cx="60" cy="60" r={r} strokeWidth="10" fill="none" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - clamp(frac, 0, 1))} />
+      </svg>
+      <div className="num">{children}</div>
+    </div>
+  );
+}
+
+function Player({ session, ctx, settings, setSetting, onQuit, onDone, onEasier }) {
+  const [steps, setSteps] = useState(session.steps);
+  const [i, setI] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [, tick] = useState(0);
+  const clock = useRef({ end: Date.now() + steps[0].secs * 1000, rem: null, active: 0, last: Date.now(), cue: -1, half: false, reached: new Set() });
+  const step = steps[i];
+  const nextWorkIdx = (from) => { for (let k = from; k < steps.length; k++) if (steps[k].kind === "work") return k; return -1; };
+  const shownIdx = step.kind === "work" ? i : nextWorkIdx(i);
+  const shown = shownIdx >= 0 ? MOVE[steps[shownIdx].id] : null;
+  const works = steps.map((s, k) => [s, k]).filter(([s]) => s.kind === "work");
+  const left = clock.current.rem != null ? clock.current.rem : clock.current.end - Date.now();
+  const secsLeft = Math.max(0, Math.ceil(left / 1000));
+  const frac = 1 - left / (step.secs * 1000);
+  const mirror = step.kind === "work" && shown && shown.sides && left <= step.secs * 500;
+  useWakeLock(true);
+
+  const announce = (k, list = steps) => {
+    const s = list[k];
+    if (s.kind === "work") { Beep.tone(880, 0.18); const m = MOVE[s.id]; clock.current.reached.add(s.id); Voice.say(`${m.name}. ${m.sides ? "First side. " : ""}${m.cue}`); }
+    else if (s.kind === "ready") { const n = nextWorkIdx(k); Voice.say(`Get ready. First up, ${MOVE[list[n].id].name}.`); }
+    else { const n = nextWorkIdx(k); Voice.say(n >= 0 ? `Rest. Next up, ${MOVE[list[n].id].name}.` : "Rest."); }
+  };
+  const finish = () => { Voice.say("All done. Brilliant work."); Beep.tone(988, 0.3); onDone({ secs: Math.round(clock.current.active / 1000), moves: [...clock.current.reached], complete: true }); };
+  const goTo = (k) => {
+    if (k >= steps.length) { finish(); return; }
+    k = Math.max(0, k);
+    const c = clock.current;
+    c.end = Date.now() + steps[k].secs * 1000;
+    if (c.rem != null) c.rem = steps[k].secs * 1000;
+    c.cue = -1; c.half = false;
+    setI(k);
+    announce(k);
+  };
+  useEffect(() => { announce(0); return () => Voice.stop(); }, []);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const c = clock.current, now = Date.now();
+      if (c.rem == null) c.active += now - c.last;
+      c.last = now;
+      const l = c.rem != null ? c.rem : c.end - now;
+      const s = Math.ceil(l / 1000);
+      if (c.rem == null && s <= 3 && s >= 1 && s !== c.cue) { c.cue = s; Beep.tone(660, 0.1); }
+      if (c.rem == null && step.kind === "work" && MOVE[step.id].sides && !c.half && l <= step.secs * 500) { c.half = true; Beep.tone(880, 0.15); Voice.say("Switch sides."); }
+      if (c.rem == null && l <= 0) goTo(i + 1); else tick((x) => x + 1);
+    }, 200);
+    return () => clearInterval(id);
+  }, [i, steps]);
+  const pause = () => { const c = clock.current; if (c.rem != null) return; c.rem = Math.max(0, c.end - Date.now()); setPaused(true); Voice.stop(); };
+  const resume = () => { const c = clock.current; if (c.rem == null) return; c.end = Date.now() + c.rem; c.rem = null; c.last = Date.now(); setPaused(false); };
+  useEffect(() => { const f = () => { if (document.visibilityState === "hidden") pause(); }; document.addEventListener("visibilitychange", f); return () => document.removeEventListener("visibilitychange", f); }, []);
+  const skipBack = () => {
+    const elapsed = step.secs * 1000 - left;
+    if (step.kind === "work" && elapsed > 4000) { goTo(i); return; }
+    for (let k = i - 1; k >= 0; k--) if (steps[k].kind === "work") { goTo(k); return; }
+    goTo(0);
+  };
+  const easier = step.kind === "work" ? easierFor(MOVE[step.id], ctx) : null;
+  const makeEasier = () => {
+    const from = step.id;
+    const ns = steps.map((s, k) => (k >= i && s.id === from ? { ...s, id: easier.id } : s));
+    setSteps(ns);
+    clock.current.reached.add(easier.id);
+    onEasier(from);
+    Voice.say(`No problem. Try ${easier.name} instead.`);
+  };
+  const quit = () => { pause(); setConfirm(true); };
+  const doneSecs = Math.round(clock.current.active / 1000);
+
+  const workNo = works.findIndex(([, k]) => k === shownIdx) + 1;
+  const blockWorks = works.filter(([s]) => s.block === (shownIdx >= 0 ? steps[shownIdx].block : "")).map(([, k]) => k);
+  const label = step.kind === "ready" ? "Get ready" : `${steps[shownIdx] ? steps[shownIdx].label : ""}`;
+  return (
+    <div className={"player " + step.kind}>
+      <div className="p-top">
+        <button className="icon-btn" onClick={quit} aria-label="Stop workout"><X /></button>
+        <div className="label">{label}</div>
+        <button className="icon-btn" onClick={() => setSetting("voice", !settings.voice)} aria-label={settings.voice ? "Turn voice coach off" : "Turn voice coach on"} aria-pressed={settings.voice}>
+          {settings.voice ? <Volume /> : <VolumeOff />}
+        </button>
+      </div>
+      <div className="segs" aria-hidden="true">
+        {works.map(([s, k]) => <span key={k} className="seg"><i style={{ width: (k < i ? 100 : k === i ? clamp(frac, 0, 1) * 100 : 0) + "%" }} /></span>)}
+      </div>
+      {shown && <div className="p-stage"><Figure move={shown} mirror={mirror} weights={(ctx.p.kit || []).includes("weights")} /></div>}
+
+      {step.kind === "work" ? (
+        <div className="p-info">
+          <Ring frac={frac}>{fmtClock(secsLeft)}</Ring>
+          <div className="stack-s" style={{ gap: "0.35rem", minWidth: 0 }}>
+            <div className="row" style={{ gap: "0.4rem", flexWrap: "wrap" }}>
+              {shown.sides && <span className="side-pill">{mirror ? "Side 2 of 2" : "Side 1 of 2"}</span>}
+              {paused && <span className="paused-pill">Paused</span>}
+              <span className="muted" style={{ fontWeight: 700, fontSize: "0.9rem" }}>Move {workNo} of {works.length}</span>
+            </div>
+            <h2>{shown.name}</h2>
+          </div>
+        </div>
+      ) : (
+        <div className="p-info">
+          <Ring frac={frac}>{fmtClock(secsLeft)}</Ring>
+          <div className="stack-s" style={{ gap: "0.3rem", minWidth: 0 }}>
+            <div className="row" style={{ gap: "0.4rem" }}>
+              <span className="muted" style={{ fontWeight: 800 }}>{step.kind === "ready" ? "Get ready" : "Rest"}</span>
+              {paused && <span className="paused-pill">Paused</span>}
+            </div>
+            {shown && <h2 style={{ fontSize: "1.3rem" }}><span className="muted" style={{ fontWeight: 700 }}>Up next: </span>{shown.name}</h2>}
+          </div>
+        </div>
+      )}
+      <div className="p-scroll">{shown && <ol className="steps">{shown.steps.map((s, k) => <li key={k}>{s}</li>)}</ol>}</div>
+      {step.kind === "work" && easier && <button className="btn btn-line" onClick={makeEasier}><Feather size={22} /> Make it easier</button>}
+      {step.kind !== "work" && <button className="btn btn-tint" onClick={() => goTo(i + 1)}>{step.kind === "ready" ? "I'm ready" : "Skip the rest"}</button>}
+
+      <div className="p-controls">
+        <button className="ctl" onClick={skipBack} aria-label="Back"><span className="icon-btn"><SkipBack /></span>Back</button>
+        <button className="ctl-main" onClick={paused ? resume : pause} aria-label={paused ? "Resume" : "Pause"}>{paused ? <Play size={34} /> : <Pause size={34} />}</button>
+        <button className="ctl" onClick={() => goTo(i + 1)} aria-label="Skip"><span className="icon-btn"><SkipNext /></span>Skip</button>
+      </div>
+
+      {confirm && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="stop-t">
+          <div className="dialog">
+            <h2 id="stop-t">Stop here?</h2>
+            {doneSecs >= 60
+              ? <p className="muted">You've done {plural(Math.round(doneSecs / 60), "minute")}. That still counts and we'll save it.</p>
+              : <p className="muted">You've only just started. Nothing will be saved yet.</p>}
+            <button className="btn btn-sun" onClick={() => { setConfirm(false); resume(); }}>Keep going</button>
+            <button className="btn btn-line" onClick={() => { Voice.stop(); doneSecs >= 60 ? onDone({ secs: doneSecs, moves: [...clock.current.reached], complete: false }) : onQuit(); }}>
+              {doneSecs >= 60 ? "Save and stop" : "Stop"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Finish({ result, st, onFeel }) {
+  const info = weekInfo(st.history, st.profile.days);
+  const mins = Math.max(1, Math.round(result.secs / 60));
+  const total = st.history.length;
+  const justHit = info.count === st.profile.days;
+  return (
+    <div className="full stack" style={{ textAlign: "center" }}>
+      <div className="burst"><Check size={60} /></div>
+      <h1>{result.complete ? "Workout done." : "Nice work."}</h1>
+      <p className="muted" style={{ fontSize: "1.1rem" }}>{plural(mins, "minute")} of moving. {total === 1 ? "Your very first one." : `That's ${total} workouts so far.`}</p>
+      <div className="card" style={{ textAlign: "left" }}>
+        <WeekStrip info={info} />
+        <p style={{ fontWeight: 700, marginTop: "0.6rem" }}>{justHit ? "That's your weekly goal hit." : weekMessage(info.count, st.profile.days)}</p>
+      </div>
+      <div className="spacer" />
+      <h2>How did that feel?</h2>
+      <div className="feel">
+        <button className="opt" onClick={() => onFeel("easy")}>Too easy</button>
+        <button className="opt" onClick={() => onFeel("right")}>Just right</button>
+        <button className="opt" onClick={() => onFeel("hard")}>Too hard</button>
+      </div>
+      <button className="link" style={{ alignSelf: "center" }} onClick={() => onFeel(null)}>Skip</button>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   PROGRESS
+---------------------------------------------------------------------------- */
+const MILESTONES = [1, 5, 10, 25, 50, 100];
+function ChairChart({ checks }) {
+  const data = checks.slice(-6);
+  const W = 300, H = 150, pad = 22, bw = Math.min(40, (W - pad * 2) / data.length - 12);
+  const max = Math.max(...data.map((d) => d.count), 10);
+  const x = (i) => pad + ((W - pad * 2) / data.length) * (i + 0.5);
+  const y = (v) => H - 26 - (v / max) * (H - 50);
+  return (
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Sit-to-stand results: ${data.map((d) => d.count).join(", ")}`} style={{ width: "100%", height: "auto" }}>
+      {data.map((d, i) => (
+        <g key={i}>
+          <rect className={"bar" + (i === data.length - 1 ? " last" : "")} x={x(i) - bw / 2} y={y(d.count)} width={bw} height={H - 26 - y(d.count)} rx="5" />
+          <text className="val" x={x(i)} y={y(d.count) - 6} textAnchor="middle">{d.count}</text>
+          <text x={x(i)} y={H - 8} textAnchor="middle">{fmtDay(fromKey(d.date), { month: "short", day: "numeric" })}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function StrengthCheck({ onSave, onClose, last }) {
+  const [phase, setPhase] = useState("intro");
+  const [left, setLeft] = useState(30);
+  const [count, setCount] = useState(last ? last.count : 8);
+  useEffect(() => {
+    if (phase !== "count3" && phase !== "go") return;
+    const total = phase === "count3" ? 3 : 30, t0 = Date.now();
+    setLeft(total);
+    const id = setInterval(() => {
+      const l = total - Math.floor((Date.now() - t0) / 1000);
+      if (l <= 0) { clearInterval(id); if (phase === "count3") { Beep.tone(880, 0.25); Voice.say("Go"); setPhase("go"); } else { Beep.tone(988, 0.4); Voice.say("Stop. Sit down and rest."); setPhase("enter"); } }
+      else { setLeft(l); if (l <= 3) Beep.tone(660, 0.1); }
+    }, 250);
+    return () => clearInterval(id);
+  }, [phase]);
+  useWakeLock(phase === "go" || phase === "count3");
+  return (
+    <div className="full stack">
+      <div className="ob-top"><button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button><span style={{ fontWeight: 800 }}>Strength check</span></div>
+      {phase === "intro" && (<>
+        <Figure move={MOVE["sit-to-stand"]} />
+        <h1>The 30-second chair test</h1>
+        <p className="muted" style={{ fontSize: "1.05rem" }}>Physiotherapists use this simple test to track leg strength. Do it once a month and watch the number climb.</p>
+        <ol className="steps" style={{ fontSize: "1.05rem" }}>
+          <li>Sit in the middle of a sturdy chair without arms, against a wall so it can't slide.</li>
+          <li>Cross your arms over your chest, feet flat on the floor.</li>
+          <li>When the timer starts, stand up fully and sit down again, as many times as you can in 30 seconds.</li>
+        </ol>
+        <p className="muted">Need your hands to stand? That's fine, use them, and do the same every time.</p>
+        <div className="spacer" />
+        <button className="btn btn-sun btn-big" onClick={() => { Beep.init(); Voice.prime(); setPhase("count3"); }}>Start the 30 seconds</button>
+      </>)}
+      {(phase === "count3" || phase === "go") && (<>
+        <Figure move={MOVE["sit-to-stand"]} play={phase === "go"} />
+        <div style={{ textAlign: "center" }}>
+          <p className="eyebrow">{phase === "count3" ? "Get ready" : "Stand up, sit down"}</p>
+          <div style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: "5rem", lineHeight: 1.1 }}>{left}</div>
+          <p className="muted">{phase === "go" ? "Count each time you stand up." : "Arms crossed, feet flat."}</p>
+        </div>
+      </>)}
+      {phase === "enter" && (<>
+        <h1>How many times did you stand up?</h1>
+        <div className="counter">
+          <button className="icon-btn" aria-label="One fewer" onClick={() => setCount(Math.max(0, count - 1))}><Minus size={28} /></button>
+          <output aria-live="polite">{count}</output>
+          <button className="icon-btn" aria-label="One more" onClick={() => setCount(Math.min(60, count + 1))}><PlusIcon size={28} /></button>
+        </div>
+        {last && <p className="muted" style={{ textAlign: "center" }}>Last time: {last.count}</p>}
+        <div className="spacer" />
+        <button className="btn btn-sun btn-big" onClick={() => onSave(count)}>Save</button>
+      </>)}
+    </div>
+  );
+}
+
+function Progress({ st, onCheck }) {
+  const h = st.history;
+  const minutes = Math.round(h.reduce((s, x) => s + x.secs, 0) / 60);
+  const info = weekInfo(h, st.profile.days);
+  const weeks = Array.from({ length: 8 }, (_, i) => {
+    const s = addDays(startOfWeek(new Date()), -7 * i);
+    const e = addDays(s, 6), sk = dkey(s), ek = dkey(e);
+    const days = new Set(h.filter((x) => x.date >= sk && x.date <= ek).map((x) => x.date)).size;
+    return { s, e, days };
+  });
+  const lastCheck = st.checks[st.checks.length - 1];
+  const sinceCheck = lastCheck ? daysBetween(lastCheck.date, dkey()) : null;
+  return (
+    <div className="wrap stack">
+      <h1>Your progress</h1>
+      <div className="tiles">
+        <div className="tile"><b>{h.length}</b><span>{h.length === 1 ? "workout" : "workouts"}</span></div>
+        <div className="tile"><b>{minutes}</b><span>minutes moved</span></div>
+        <div className="tile"><b>{info.count}/{st.profile.days}</b><span>this week</span></div>
+      </div>
+      {h.length === 0 && <p className="muted">Your weeks will fill up here once you've done your first workout. Every dot is a day you moved.</p>}
+      <div className="card">
+        <div className="weeks">
+          {weeks.map((w, i) => (
+            <div key={i} className="wk">
+              <span className="wk-label">{i === 0 ? "This week" : i === 1 ? "Last week" : fmtDay(w.s, { month: "short", day: "numeric" })}</span>
+              <span className="wk-dots" aria-label={`${w.days} of ${st.profile.days}`}>
+                {Array.from({ length: Math.max(st.profile.days, w.days) }, (_, k) => <i key={k} className={k < Math.min(w.days, st.profile.days) ? "on" : k < w.days ? "extra" : ""} />)}
+              </span>
+              {w.days >= st.profile.days && <span className="wk-goal">Goal</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {!st.profile.limits.includes("seated") && (
+        <div className="card stack-s">
+          <h3>Strength check</h3>
+          {st.checks.length >= 2 && <ChairChart checks={st.checks} />}
+          {st.checks.length === 1 && <p><b style={{ fontSize: "1.6rem", fontFamily: "var(--display)" }}>{lastCheck.count}</b> <span className="muted">stands in 30 seconds on {fmtDay(fromKey(lastCheck.date), { month: "long", day: "numeric" })}</span></p>}
+          {st.checks.length >= 2 && (() => { const d = lastCheck.count - st.checks[st.checks.length - 2].count;
+            return <p style={{ fontWeight: 700 }}>{d > 0 ? `Up ${d} since last time. That's real strength.` : d === 0 ? "Holding steady since last time." : "A little down this time. Sleep, mood and the chair all play a part."}</p>; })()}
+          <p className="muted">{st.checks.length === 0 ? "A 30-second test that shows how your leg strength changes over the months." : sinceCheck >= 28 ? "It's been a month. Time for another check." : `Next check in about ${28 - sinceCheck} days.`}</p>
+          <button className={"btn " + (st.checks.length === 0 || sinceCheck >= 28 ? "btn-pine" : "btn-line")} onClick={onCheck}>Do a strength check</button>
+        </div>
+      )}
+
+      <div className="stack-s">
+        <h3>Milestones</h3>
+        <div className="badges">
+          {MILESTONES.map((n) => <div key={n} className={"badge" + (h.length >= n ? " got" : "")}><b>{n}</b>{n === 1 ? "first workout" : "workouts"}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   YOU: profile, reminders and settings
+---------------------------------------------------------------------------- */
+function calendarLink(p, days, time) {
+  const [hh, mm] = time.split(":").map(Number);
+  let start = new Date(); start.setHours(hh, mm, 0, 0);
+  for (let k = 0; k < 8 && (!days.includes(start.getDay()) || start < new Date()); k++) start = addDays(start, 1);
+  const end = new Date(start.getTime() + p.minutes * 60000);
+  const f = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const by = days.slice().sort().map((d) => ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][d]).join(",");
+  let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
+  const q = new URLSearchParams({ action: "TEMPLATE", text: `Steady workout (${p.minutes} min)`, details: "Open Steady and press Start. Even two minutes counts.",
+    dates: `${f(start)}/${f(end)}`, recur: `RRULE:FREQ=WEEKLY;BYDAY=${by}`, ...(tz ? { ctz: tz } : {}) });
+  return "https://calendar.google.com/calendar/render?" + q.toString();
+}
+
+function Reminder({ st, setSetting }) {
+  const p = st.profile;
+  const days = st.settings.remindDays || DEFAULT_DAYS[p.days] || DEFAULT_DAYS[3];
+  const time = st.settings.remindTime || WHEN_TIME[p.when] || "08:00";
+  const toggle = (d) => { const s = new Set(days); s.has(d) ? s.delete(d) : s.add(d); if (s.size) setSetting("remindDays", [...s].sort()); };
+  const order = SUN_FIRST ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5, 6, 0];
+  const t = new Date(); const [hh, mm] = time.split(":").map(Number); t.setHours(hh, mm);
+  const timeText = t.toLocaleTimeString(LANG, { hour: "numeric", minute: "2-digit" });
+  const dayText = days.length === 7 ? "every day" : order.filter((d) => days.includes(d)).map((d) => DAY_SHORT[d]).join(", ");
+  return (
+    <div className="card stack-s">
+      <h3>Set a reminder</h3>
+      <p className="muted">People who plan a time are far more likely to show up. Pick your days and time.</p>
+      <div className="days-pick">{order.map((d) => <button key={d} aria-pressed={days.includes(d)} aria-label={DAY_SHORT[d]} onClick={() => toggle(d)}>{DAY_ABBR[d]}</button>)}</div>
+      <div className="row"><label htmlFor="rem-time" style={{ fontWeight: 700 }}>Time</label><input id="rem-time" type="time" className="time-in" value={time} onChange={(e) => e.target.value && setSetting("remindTime", e.target.value)} /></div>
+      <a className="btn btn-pine" href={calendarLink(p, days, time)} target="_blank" rel="noopener">Add to Google Calendar</a>
+      <p className="muted" style={{ fontSize: "0.95rem" }}>Or set a repeating alarm in your phone's Clock app for <b>{timeText}</b>, {dayText}.</p>
+    </div>
+  );
+}
+
+function Toggle({ on, onChange, label, sub }) {
+  return (
+    <button className="li" role="switch" aria-checked={on} onClick={() => onChange(!on)}>
+      <span style={{ flex: 1 }}><b style={{ display: "block" }}>{label}</b>{sub && <span className="muted" style={{ fontSize: "0.9rem" }}>{sub}</span>}</span>
+      <span className={"switch" + (on ? " on" : "")} />
+    </button>
+  );
+}
+
+function EditQuestion({ q, profile, onSave, onCancel }) {
+  const [v, setV] = useState(profile[q]);
+  const Q = QUESTIONS[q];
+  return (
+    <div className="full stack">
+      <div className="ob-top"><button className="icon-btn" onClick={onCancel} aria-label="Back"><Back /></button></div>
+      <div className="stack-s"><h1>{Q.title}</h1>{Q.sub && <p className="muted">{Q.sub}</p>}</div>
+      <Question q={q} value={v} onChange={setV} onNext={() => {}} />
+      <div className="spacer" />
+      <button className="btn btn-sun btn-big" onClick={() => onSave(v)}>Save</button>
+    </div>
+  );
+}
+
+function You({ st, onEdit, setSetting, onReset, onSafety }) {
+  const p = st.profile;
+  const [confirmReset, setConfirmReset] = useState(false);
+  const rows = [
+    ["name", "Name", p.name || "Not set"], ["age", "Age", optLabel("age", p.age)], ["goal", "Main goal", optLabel("goal", p.goal)],
+    ["active", "Activity", optLabel("active", p.active)], ["life", "Your day", optLabel("life", p.life)],
+    ["limits", "Go easy on", fmtLimits(p.limits)], ["kit", "Equipment", fmtKit(p.kit)],
+    ["minutes", "Workout length", `${p.minutes} minutes`], ["days", "Days a week", p.days === 7 ? "Every day" : String(p.days)],
+    ["when", "When", optLabel("when", p.when)],
+  ];
+  return (
+    <div className="wrap stack">
+      <h1>{p.name || "You"}</h1>
+      <div className="stack-s">
+        <span className="eyebrow">Your plan</span>
+        <div className="list">
+          {rows.map(([q, k, v]) => (
+            <button key={q} className="li" onClick={() => onEdit(q)}>
+              <span className="k">{k}</span><span className="v">{v}</span><Chevron size={20} style={{ flex: "none", color: "var(--ink-2)" }} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <Reminder st={st} setSetting={setSetting} />
+      <div className="stack-s">
+        <span className="eyebrow">Settings</span>
+        <div className="list">
+          <Toggle on={st.settings.big} onChange={(v) => setSetting("big", v)} label="Bigger text" sub="Easier to read at arm's length" />
+          <Toggle on={st.settings.voice} onChange={(v) => setSetting("voice", v)} label="Voice coach" sub="Reads out each move so you can look away" />
+          <Toggle on={st.settings.beeps} onChange={(v) => setSetting("beeps", v)} label="Countdown beeps" />
+        </div>
+      </div>
+      <div className="list">
+        <button className="li" onClick={onSafety}><span style={{ flex: 1, fontWeight: 700 }}>Safety tips</span><Chevron size={20} /></button>
+        <button className="li" onClick={() => setConfirmReset(true)}><span style={{ flex: 1, fontWeight: 700, color: "var(--warn)" }}>Start over</span></button>
+      </div>
+      <p className="muted" style={{ fontSize: "0.9rem" }}>Steady keeps everything on this device. There's no account and nothing is sent anywhere.</p>
+      {confirmReset && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="reset-t">
+          <div className="dialog">
+            <h2 id="reset-t">Start over?</h2>
+            <p className="muted">This clears your plan, your workouts and your strength checks from this device. It can't be undone.</p>
+            <button className="btn btn-line" style={{ color: "var(--warn)" }} onClick={onReset}>Yes, clear everything</button>
+            <button className="btn btn-sun" onClick={() => setConfirmReset(false)}>Keep my data</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Safety({ onClose }) {
+  return (
+    <div className="full stack">
+      <div className="ob-top"><button className="icon-btn" onClick={onClose} aria-label="Back"><Back /></button></div>
+      <h1>Safety tips</h1>
+      <ul className="safety" style={{ paddingLeft: "1.3rem", margin: 0, fontSize: "1.05rem" }}>{SAFETY.map((s, i) => <li key={i}>{s}</li>)}</ul>
+      <p className="muted">Steady offers general fitness guidance and isn't a substitute for advice from your doctor or physiotherapist.</p>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   APP
+---------------------------------------------------------------------------- */
+function App() {
+  const [st, setSt] = useState(loadState);
+  const [tab, setTab] = useState("today");
+  const [screen, setScreen] = useState(null); // { kind: 'play' | 'finish' | 'edit' | 'check' | 'safety', ... }
+  const [toast, setToast] = useState(null);
+  const update = (f) => setSt((s) => { const n = typeof f === "function" ? f(s) : { ...s, ...f }; saveState(n); return n; });
+  const setSetting = (k, v) => update((s) => ({ ...s, settings: { ...s.settings, [k]: v } }));
+  const say = (t) => { setToast(t); setTimeout(() => setToast((x) => (x === t ? null : x)), 3200); };
+
+  useEffect(() => { document.documentElement.classList.toggle("big", !!st.settings.big); }, [st.settings.big]);
+  Voice.on = st.settings.voice; Beep.on = st.settings.beeps;
+  useEffect(() => { window.scrollTo(0, 0); }, [tab, screen && screen.kind, st.onboarded]);
+
+  const today = dkey();
+  const mode = st.today.date === today ? st.today.mode : "normal";
+  const n = st.today.date === today ? st.today.n : 0;
+  const session = useMemo(() => buildSession(st, mode, n), [st.profile, st.level, st.hard, mode, n, today]);
+  const setToday = (m, reroll) => update((s) => ({ ...s, today: { date: today, mode: m, n: (s.today.date === today ? s.today.n : 0) + (reroll ? 1 : 0) } }));
+
+  const start = (kind) => {
+    Beep.init(); Voice.prime();
+    const sess = kind === "mini" ? buildSession(st, "mini", n) : kind === "bonus" ? buildSession(st, "short", n + 7) : session;
+    setScreen({ kind: "play", session: sess });
+  };
+  const onDone = (res) => {
+    if (res.secs < 45) { setScreen(null); say("That went by fast, so we didn't count it."); return; }
+    const entry = { date: dkey(), at: Date.now(), secs: res.secs, moves: res.moves, mode: screen.session.mode, complete: res.complete, feel: null };
+    update((s) => ({ ...s, history: [...s.history, entry] }));
+    setScreen({ kind: "finish", result: res });
+  };
+  const onFeel = (feel) => {
+    update((s) => {
+      const h = s.history.slice();
+      if (h.length) h[h.length - 1] = { ...h[h.length - 1], feel };
+      let { level, rightRun, offerUp } = s;
+      if (feel === "easy") { level = Math.min(4.4, level + 0.5); rightRun = 0; }
+      if (feel === "hard") { level = Math.max(1, level - 0.5); rightRun = 0; offerUp = false; }
+      if (feel === "right") { rightRun += 1; if (rightRun >= 4 && level < 4) offerUp = true; }
+      return { ...s, history: h, level, rightRun, offerUp };
+    });
+    if (feel === "easy") say("Got it. Next time will be a bit harder.");
+    if (feel === "hard") say("Thanks. We'll ease off next time.");
+    setScreen(null); setTab("today");
+  };
+  const onLevelOffer = (yes) => {
+    update((s) => ({ ...s, level: yes ? Math.min(4.4, s.level + 0.5) : s.level, rightRun: 0, offerUp: false }));
+    if (yes) say("Done. Tomorrow's workout steps up a notch.");
+  };
+
+  if (!st.onboarded) {
+    const blank = { ...DEFAULT.profile, goal: null, active: null, life: null, minutes: null, days: null, when: null };
+    return <Onboarding initial={blank} onDone={(answers, go, quick) => {
+      const p = quick ? DEFAULT.profile : Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, v == null ? DEFAULT.profile[k] : v]));
+      const big = p.age === "60s" || p.age === "75p";
+      const next = { ...st, onboarded: true, profile: p, level: startLevel(p), settings: { ...st.settings, big: quick ? st.settings.big : big } };
+      update(next);
+      if (go) { Beep.init(); Voice.prime(); setScreen({ kind: "play", session: buildSession(next) }); }
+    }} />;
+  }
+  if (screen && screen.kind === "play") {
+    return <Player session={screen.session} ctx={ctxFor(st)} settings={st.settings} setSetting={setSetting}
+      onQuit={() => setScreen(null)} onDone={onDone}
+      onEasier={(id) => update((s) => ({ ...s, hard: { ...s.hard, [id]: (s.hard[id] || 0) + 1 } }))} />;
+  }
+  if (screen && screen.kind === "finish") return <Finish result={screen.result} st={st} onFeel={onFeel} />;
+  if (screen && screen.kind === "edit") {
+    return <EditQuestion q={screen.q} profile={st.profile} onCancel={() => setScreen(null)} onSave={(v) => {
+      update((s) => { const p = { ...s.profile, [screen.q]: v };
+        return { ...s, profile: p, level: ["age", "active"].includes(screen.q) || (screen.q === "limits" && v.includes("seated")) ? startLevel(p) : s.level }; });
+      setScreen(null); say("Saved. Today's workout has been updated.");
+    }} />;
+  }
+  if (screen && screen.kind === "check") {
+    return <StrengthCheck last={st.checks[st.checks.length - 1]} onClose={() => setScreen(null)} onSave={(count) => {
+      update((s) => ({ ...s, checks: [...s.checks, { date: dkey(), count }] })); setScreen(null); setTab("progress"); say("Saved your strength check.");
+    }} />;
+  }
+  if (screen && screen.kind === "safety") return <Safety onClose={() => setScreen(null)} />;
+
+  return (
+    <>
+      {tab === "today" && <Today st={st} session={session} onStart={start} setToday={setToday} onLevelOffer={onLevelOffer} />}
+      {tab === "progress" && <Progress st={st} onCheck={() => setScreen({ kind: "check" })} />}
+      {tab === "you" && <You st={st} onEdit={(q) => setScreen({ kind: "edit", q })} setSetting={setSetting} onSafety={() => setScreen({ kind: "safety" })}
+        onReset={() => { update({ ...DEFAULT, settings: { ...DEFAULT.settings } }); setTab("today"); }} />}
+      <nav className="tabs" aria-label="Main">
+        <div className="tabs-in">
+          {[["today", "Today", SunIcon], ["progress", "Progress", ChartIcon], ["you", "You", UserIcon]].map(([k, label, Icon]) => (
+            <button key={k} className="tab" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}><Icon size={26} />{label}</button>
+          ))}
+        </div>
+      </nav>
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
