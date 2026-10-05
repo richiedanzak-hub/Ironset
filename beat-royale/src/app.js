@@ -12,7 +12,7 @@ import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomInt } from 'node:crypto';
 import * as game from './game.js';
-import { createMusic } from './music.js';
+import { checkTheme, createMusic } from './music.js';
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const CODE_LETTERS = 'BCDFGHJKLMNPQRSTVWXZ'; // no vowels, so no accidental words
@@ -167,15 +167,43 @@ export function createApp({
     rooms.delete(code);
   }
 
-  async function lookUpDetails(room, entryId) {
+  // After a pick goes in: fill in details for something typed by hand, and
+  // swap a compilation version for the original album, cover and year.
+  async function refine(room, entryId) {
     const e = room.entries[entryId];
     if (!e) return;
     try {
-      const details = await music.details(e.kind, e.title, { clean: room.settings.clean });
-      if (details && rooms.get(room.code) === room && game.applyDetails(room, entryId, details, now())) broadcast(room);
+      const info = await music.lookup(e.kind, e, { clean: room.settings.clean });
+      if (info.found && rooms.get(room.code) === room && game.applyDetails(room, entryId, info.item, now(), { replace: true })) broadcast(room);
     } catch (err) {
       console.warn('[details]', err.message);
     }
+  }
+
+  // With a theme that has a genre or decade, a pick has to fit it. The check
+  // happens before the pick goes in, and the original release goes in with it.
+  async function checkPick(room, move) {
+    const s = room.settings;
+    const theme = s.theme;
+    if (!s.themeStrict || !theme || (!theme.genre && !theme.decade) || room.phase !== 'submit') return move;
+    let item;
+    try {
+      item = game.cleanItem(move.item);
+    } catch {
+      return move; // the game reports what's wrong with it
+    }
+    let info;
+    try {
+      info = await music.lookup(s.kind, item, { clean: s.clean });
+    } catch (err) {
+      console.warn('[theme check]', err.message);
+      return move; // can't check right now; don't hold up the party
+    }
+    if (info.missing) throw new HttpError(422, `Couldn't find "${item.title}" to check it fits the theme. Pick it from the search results instead 👆`);
+    if (!info.found) return move; // no details on file; let it in
+    const verdict = checkTheme(info, theme);
+    if (!verdict.ok) throw new HttpError(422, verdict.message);
+    return { ...move, item: info.item, checked: true };
   }
 
   // -------------------------------------------------------------- API
@@ -249,11 +277,12 @@ export function createApp({
         const body = await readJson(req);
         const me = game.authenticate(room, body.p, body.s);
         if (!me) throw new HttpError(403, 'Not in this party');
-        const out = game.act(room, me.id, body.action, now(), rng);
+        const move = body.action?.type === 'add' ? await checkPick(room, body.action) : body.action;
+        const out = game.act(room, me.id, move, now(), rng);
         if (out.removed) dropStreams(room.code, out.removed, out.removed === me.id ? 'left' : 'kicked');
         if (!room.order.length) deleteRoom(room.code, 'ended');
         else broadcast(room);
-        if (out.needsDetails) lookUpDetails(room, out.entryId);
+        if (move?.type === 'add' && out.entryId && !move.checked && !out.notice) refine(room, out.entryId);
         return sendJson(res, 200, { ok: true, notice: out.notice || null, entryId: out.entryId || null });
       }
     }

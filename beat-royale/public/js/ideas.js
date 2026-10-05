@@ -24,17 +24,19 @@ const dedupe = (list) => {
 
 function IdeaCard({ m, pick, full, onAdd, onRemove }) {
   const [busy, setBusy] = useState(false);
+  const [offTheme, setOffTheme] = useState(null);
   const click = async () => {
     setBusy(true);
-    await (pick ? onRemove(pick) : onAdd(m));
+    const out = await (pick ? onRemove(pick) : onAdd(m));
+    if (out?.offTheme) setOffTheme(out.offTheme);
     setBusy(false);
   };
-  return html`<div class="idea">
+  return html`<div class="idea ${offTheme ? 'off-theme' : ''}">
     <${Cover} item=${m}><${PlayButton} item=${m} /></${Cover}>
     <div class="idea-title">${m.title}</div>
-    <div class="idea-meta">${itemMeta(m)}</div>
-    <button class="add-btn ${pick ? 'on' : ''}" disabled=${busy || (!pick && full)} onClick=${click}>
-      ${pick ? '✓ In the hat' : full ? 'Limit reached' : '+ Add'}
+    <div class="idea-meta">${offTheme ? `🚫 ${offTheme}` : itemMeta(m)}</div>
+    <button class="add-btn ${pick ? 'on' : ''}" disabled=${busy || !!offTheme || (!pick && full)} onClick=${click}>
+      ${pick ? '✓ In the hat' : offTheme ? 'Off theme' : busy ? 'Checking…' : full ? 'Limit reached' : '+ Add'}
     </button>
   </div>`;
 }

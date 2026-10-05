@@ -574,3 +574,16 @@ test('the host can set a theme for the night', () => {
   set(ids[0], { vibe: 'roadtrip' });
   assert.equal(room.settings.theme.vibe, 'roadtrip', 'can still change while the hat is open');
 });
+
+test('a pick can be switched to its original release', () => {
+  const { room, ids } = party(['Mom', 'Dad']);
+  game.act(room, ids[0], { type: 'start' }, T0);
+  const art = (id) => `https://cdn-images.dzcdn.net/images/cover/${id}/500x500-000000-80-0-0.jpg`;
+  const { entryId } = add(room, ids[0], 'Last Resort', { artist: 'Papa Roach', album: 'Workout Hits', year: 2010, deezerId: 7001, cover: art('workout') });
+  game.applyDetails(room, entryId, { title: 'Last Resort', artist: 'Papa Roach', album: 'Infest', year: 2000, deezerId: 7002, cover: art('infest'), explicit: true }, T0, { replace: true });
+  const e = room.entries[entryId];
+  assert.deepEqual([e.album, e.year, e.deezerId, e.cover, e.explicit], ['Infest', 2000, 7002, art('infest'), true]);
+  // Without `replace`, details only fill gaps.
+  game.applyDetails(room, entryId, { title: 'Last Resort', album: 'Something Else', year: 1999 }, T0);
+  assert.equal(room.entries[entryId].album, 'Infest');
+});

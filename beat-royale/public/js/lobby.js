@@ -1,7 +1,7 @@
 // The lobby: invite people, set the house rules, open the hat.
 import { html, useState, useEffect, useMemo } from './lib.js';
 import { inviteLink, request } from './api.js';
-import { Avatar, DECADES, Seg, Stepper, ThemeBanner, VIBES, noun, themeTitle, toast, useGame } from './ui.js';
+import { Avatar, DECADES, Seg, Stepper, ThemeBanner, VIBES, noun, themeRule, themeTitle, toast, useGame } from './ui.js';
 import { sfx } from './sfx.js';
 
 export function ShareBody({ code }) {
@@ -143,6 +143,7 @@ export function rulesSummary(s) {
       : `As many ${n(2)} as you like`;
   return [
     s.theme ? `🎨 ${themeTitle(s.theme)}` : null,
+    s.themeStrict && themeRule(s.theme, s.kind) ? `🔒 ${themeRule(s.theme, s.kind)}` : null,
     `${KIND_LABEL[s.kind]} battle`,
     `🎶 ${each}`,
     s.clean ? '🧼 Clean picks only' : null,
@@ -177,6 +178,17 @@ export function RulesCard() {
       </div>
       <${ThemePicker} theme=${s.theme} set=${set} />
     </div>
+    ${themeRule(s.theme, s.kind)
+      ? html`<div class="rule rule-col">
+          <div class="rule-text">
+            <strong>Off-theme picks</strong>
+            <span>${s.themeStrict ? `${themeRule(s.theme, s.kind)}. Each pick is checked as it goes in` : 'Allowed: the theme is just a suggestion'}</span>
+          </div>
+          <${Seg} label="Off-theme picks" value=${s.themeStrict ? 'block' : 'allow'}
+            options=${[['block', '🚫 Blocked'], ['allow', '👍 Allowed']]}
+            onChange=${(v) => set({ themeStrict: v === 'block' })} />
+        </div>`
+      : null}
     <div class="rule rule-col">
       <div class="rule-text"><strong>What are we battling?</strong><span>${inLobby ? 'Songs are the classic pick' : 'Locked in once the hat opens'}</span></div>
       <${Seg} label="What to battle" value=${s.kind} disabled=${!inLobby}

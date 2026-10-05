@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   kind: 'song',        // what's being battled: 'song' | 'album' | 'artist' (set in the lobby)
   clean: false,        // true = no explicit songs or albums
   theme: null,         // { name, genre, decade, vibe }: the host's theme for the night
+  themeStrict: true,   // true = picks outside the theme's genre or decade are turned away (checked by the server)
   champions: false,    // true = every pick that won a matchup battles again at the end
 });
 
@@ -141,6 +142,7 @@ export function cleanSettings(current, patch) {
   if (typeof p.clean === 'boolean') next.clean = p.clean;
   if ('theme' in p) next.theme = cleanTheme(p.theme);
   if (typeof p.champions === 'boolean') next.champions = p.champions;
+  if (typeof p.themeStrict === 'boolean') next.themeStrict = p.themeStrict;
   return next;
 }
 
@@ -658,9 +660,10 @@ export function act(room, pid, action, now, rng = Math.random) {
   return out;
 }
 
-// Fill in cover/artist/etc. for something typed in by hand. If the details
-// reveal it's a pick someone else already added, the two merge.
-export function applyDetails(room, entryId, details, now) {
+// Fill in cover/artist/etc. for something typed in by hand, or with
+// `replace`, switch a pick to its original release (album, cover, year). If
+// the details reveal it's a pick someone else already added, the two merge.
+export function applyDetails(room, entryId, details, now, { replace = false } = {}) {
   const e = room.entries[entryId];
   if (!e || room.phase !== 'submit' || !details) return false;
   let item;
@@ -675,8 +678,8 @@ export function applyDetails(room, entryId, details, now) {
     delete room.entries[e.id];
   } else {
     e.title = item.title;
-    for (const k of ['artist', 'album', 'year', 'cover', 'deezerId', 'duration']) e[k] = e[k] ?? item[k];
-    e.explicit = e.explicit || item.explicit;
+    for (const k of ['artist', 'album', 'year', 'cover', 'deezerId', 'duration']) e[k] = replace ? item[k] ?? e[k] : e[k] ?? item[k];
+    e.explicit = replace && item.deezerId ? item.explicit : e.explicit || item.explicit;
     if (!e.genres.length) e.genres = item.genres;
   }
   bump(room, now);

@@ -1149,3 +1149,14 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .past-card .grow > .past-meta { font-size: 0.75rem; color: var(--dim); white-space: normal; }
 .past-card .chev { flex: none; font-size: 1.4rem; color: var(--dim); }
 .past-when { text-align: center; font-size: 0.8rem; font-weight: 800; color: var(--dim); margin: 4px 0 -6px; }
+
+/* ---------------------------------------------------------------- off-theme picks */
+
+.suggest-item.off-theme { opacity: 1; }
+.suggest-item.off-theme .cover { filter: grayscale(1); opacity: 0.55; }
+.suggest-item.off-theme strong { color: var(--dim); }
+.suggest-item.off-theme .grow > span { color: var(--coral); white-space: normal; }
+.suggest-item .plus.no { background: rgba(251, 113, 133, 0.18); color: var(--coral); }
+.mini-spin { display: block; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: spin 0.7s linear infinite; }
+.idea.off-theme .cover { filter: grayscale(1); opacity: 0.55; }
+.idea.off-theme .idea-meta { color: var(--coral); white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }

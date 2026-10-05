@@ -7,7 +7,6 @@ let server;
 let base;
 
 before(async () => {
-  // Point iTunes at a closed port so tests never touch the network.
   // Point Deezer and iTunes at a closed port so tests never touch the network.
   const music = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
   ({ server } = createApp({ music, port: 0, rng: () => 0 }));
@@ -153,4 +152,53 @@ test('music endpoints keep working when Deezer is unreachable', async () => {
 
   const preview = await (await fetch(`${base}/api/music/preview?kind=song&title=Hey%20Jude`)).json();
   assert.equal(preview.url, null);
+});
+
+test('with a theme, picks that do not fit are turned away and the rest go in as the original', async () => {
+  // A stand-in music service: anything with "country" in it is Country.
+  const music = {
+    source: 'deezer',
+    async lookup(kind, item) {
+      if (/nowhere/i.test(item.title)) return { item, genres: [], years: [], found: false, missing: true };
+      if (/mystery/i.test(item.title)) return { item, genres: [], years: [], found: false, missing: false };
+      const country = /country/i.test(item.title);
+      return {
+        found: true,
+        item: { ...item, album: country ? 'Twang' : 'Infest', year: 2000 },
+        genres: country ? ['Country'] : ['Rock'],
+        years: [2000],
+      };
+    },
+  };
+  const app = createApp({ music, port: 0, rng: () => 0 });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const at = `http://127.0.0.1:${app.server.address().port}`;
+  const send = (path, body) => fetch(at + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    const host = await (await send('/api/rooms', { name: 'Mom' })).json();
+    const act = (action) => send(`/api/rooms/${host.code}/act`, { p: host.playerId, s: host.secret, action });
+    await act({ type: 'settings', settings: { theme: { genre: 'Rock', decade: '2000s' } } });
+    await act({ type: 'start' });
+
+    const off = await act({ type: 'add', item: { title: 'Country Roads', artist: 'John Denver' } });
+    assert.equal(off.status, 422);
+    assert.match((await off.json()).error, /Country Roads is Country, not Rock/);
+    const unknown = await act({ type: 'add', item: { title: 'Nowhere Song' } });
+    assert.equal(unknown.status, 422);
+    assert.match((await unknown.json()).error, /Couldn't find "Nowhere Song"/);
+    const noDetails = await act({ type: 'add', item: { title: 'Mystery Track', deezerId: 99 } });
+    assert.equal(noDetails.status, 200, 'no details on file: benefit of the doubt');
+
+    const ok = await act({ type: 'add', item: { title: 'Last Resort', artist: 'Papa Roach', album: 'Workout Hits' } });
+    assert.equal(ok.status, 200);
+    const room = app.rooms.get(host.code);
+    assert.deepEqual(Object.values(room.entries).map((e) => [e.title, e.album]), [['Mystery Track', null], ['Last Resort', 'Infest']]);
+
+    // The host can let anything in.
+    await act({ type: 'settings', settings: { themeStrict: false } });
+    assert.equal((await act({ type: 'add', item: { title: 'Country Roads', artist: 'John Denver' } })).status, 200);
+  } finally {
+    app.server.closeAllConnections();
+    app.server.close();
+  }
 });

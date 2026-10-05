@@ -107,13 +107,70 @@ const picture = (url) => (typeof url === 'string' && url && !/\/images\/(artist|
 // Same song (or album, or artist) by the same artist, whatever the version.
 const sameKey = (m) => `${m.kind === 'artist' ? itemKey(m.title) : songKey(m.title)}|${itemKey(m.artist)}`;
 
+// Album names that give away a compilation ("The Ultimate Workout
+// Collection", "Now That's What I Call Music! 47", "Rock Hits 2010").
+const COMPILATION = /\b(hits|workout|collection|now that'?s|greatest|best of|essentials|anthems|party|playlist|ultimate|vol(ume)?\.?\s*\d+|compilation|various|very best|top \d+|karaoke|tribute|covers|cardio|running|gym|fitness|mixed by|dj mix|in the style of)\b/i;
+const looksCompiled = (m) => m.kind !== 'artist' && !!m.album && COMPILATION.test(m.album);
+
+// One card per song, preferring the version from the artist's own album.
 const dedupe = (items) => {
-  const seen = new Set();
-  return items.filter((m) => {
+  const at = new Map();
+  const out = [];
+  for (const m of items) {
     const k = sameKey(m);
-    return !seen.has(k) && seen.add(k);
-  });
+    if (!at.has(k)) {
+      at.set(k, out.length);
+      out.push(m);
+    } else if (looksCompiled(out[at.get(k)]) && !looksCompiled(m)) {
+      out[at.get(k)] = m;
+    }
+  }
+  return out;
 };
+
+const DECADE_RANGE = { '2020s': [2020, 2099], '2010s': [2010, 2019], '2000s': [2000, 2009], '90s': [1990, 1999], '80s': [1980, 1989], '70s': [1970, 1979], '60s': [0, 1969] };
+
+// Close genres count for each other: a Rock night takes Alternative and Metal.
+const GENRE_FAMILY = {
+  rock: ['rock', 'alternative', 'metal'],
+  alternative: ['alternative', 'rock'],
+  'r&b': ['r&b', 'soul & funk'],
+  'soul & funk': ['soul & funk', 'r&b'],
+  dance: ['dance', 'electro'],
+  electro: ['electro', 'dance'],
+};
+
+// Apple's genre names, in Deezer's words.
+const APPLE_GENRES = {
+  rock: 'Rock', 'hard rock': 'Rock', alternative: 'Alternative', metal: 'Metal', 'heavy metal': 'Metal', pop: 'Pop',
+  'hip-hop/rap': 'Rap/Hip Hop', 'hip-hop': 'Rap/Hip Hop', rap: 'Rap/Hip Hop', 'r&b/soul': 'R&B', soul: 'Soul & Funk', funk: 'Soul & Funk',
+  dance: 'Dance', electronic: 'Electro', country: 'Country', latin: 'Latin Music', reggae: 'Reggae', jazz: 'Jazz', blues: 'Blues',
+  folk: 'Folk', 'singer/songwriter': 'Folk', classical: 'Classical', soundtrack: 'Films/Games', "children's music": 'Kids',
+  'k-pop': 'Asian Music', afrobeats: 'African Music', brazilian: 'Brazilian Music', bollywood: 'Indian Music',
+};
+
+// Does a pick fit the party's theme? Only says no when it knows: a pick with
+// no genre or year on file gets the benefit of the doubt.
+export function checkTheme(info, theme) {
+  const title = info.item?.title || 'That one';
+  if (theme?.genre && info.genres.length) {
+    const want = new Set(GENRE_FAMILY[theme.genre.toLowerCase()] || [theme.genre.toLowerCase()]);
+    if (!info.genres.some((g) => want.has(g.toLowerCase()))) {
+      return { ok: false, message: `${title} is ${info.genres.slice(0, 2).join(' / ')}, not ${theme.genre}` };
+    }
+  }
+  if (theme?.decade && info.years.length) {
+    const [from, to] = DECADE_RANGE[theme.decade];
+    if (!info.years.some((y) => y >= from && y <= to)) {
+      const era = theme.decade === '60s' ? '60s or earlier' : theme.decade;
+      return {
+        ok: false,
+        message: info.item?.kind === 'artist' || info.years.length > 1 ? `${title} didn't release anything in the ${era}` : `${title} is from ${info.years[0]}, not the ${era}`,
+      };
+    }
+  }
+  return { ok: true };
+}
 
 // Filter first, then merge versions, so a clean version isn't lost behind
 // an explicit one with the same name.
@@ -347,7 +404,6 @@ export function createMusic({
 
   const catalogFor = (kind) => ({ song: SONG_CATALOG, album: ALBUM_CATALOG, artist: ARTIST_CATALOG })[kind];
   const fromRow = (r) => ({ kind: r.kind, title: r.title, artist: r.artist, album: null, year: r.year, cover: null, deezerId: null, explicit: r.explicit, duration: null, genres: [r.genre] });
-  const DECADE_RANGE = { '2020s': [2020, 2099], '2010s': [2010, 2019], '2000s': [2000, 2009], '90s': [1990, 1999], '80s': [1980, 1989], '70s': [1970, 1979], '60s': [0, 1969] };
   const VIBE_TAG = { party: 'p', singalong: 's', love: 'l', chill: 'c', feelgood: 'f', workout: 'w', roadtrip: 'r' };
 
   function catalogBrowse(o, rand) {
@@ -456,7 +512,7 @@ export function createMusic({
   }
 
   // Best match for something typed in by hand, e.g. "thriller michael jackson".
-  async function details(kind, title, { clean = false } = {}) {
+  function matchTyped(kind, title, results) {
     const typed = itemKey(title);
     if (!typed) return null;
     const keyOf = (m) => (kind === 'artist' ? itemKey(m.title) : songKey(m.title));
@@ -468,8 +524,142 @@ export function createMusic({
     const halves = splitQuery(String(title));
     const fitsSplit = (m) =>
       halves && itemKey(m.artist) && [0, 1].some((i) => keyOf(m) === itemKey(halves[i]) && itemKey(m.artist) === itemKey(halves[1 - i]));
-    const { results } = await search(kind, title, { clean });
     return results.find((m) => fits(m) || fitsSplit(m)) || null;
+  }
+
+  async function details(kind, title, { clean = false } = {}) {
+    if (!itemKey(title)) return null;
+    return matchTyped(kind, title, (await search(kind, title, { clean })).results);
+  }
+
+  // ---------------------------------------------------------------- the original release
+  //
+  // Songs often turn up on compilations ("The Ultimate Workout Collection"),
+  // which brings the wrong album, cover and year. lookup() finds the version
+  // on the artist's own album, plus the genres and years it's filed under, so
+  // picks can be checked against the party's theme.
+
+  const TYPE_RANK = { album: 0, ep: 1, single: 2 };
+  const unique = (list) => [...new Set(list.filter(Boolean))];
+
+  async function genreNames() {
+    return new Map(await genres());
+  }
+
+  async function ownAlbums(artistId) {
+    const data = await deezer(`/artist/${artistId}/albums`, { limit: 100 }, 24 * HOUR);
+    return (data.data || []).filter((a) => a.record_type !== 'compile');
+  }
+
+  // What an artist is mostly filed under, going by their own albums.
+  function artistGenres(albums, names) {
+    const count = new Map();
+    for (const a of albums) if (a.genre_id > 0) count.set(a.genre_id, (count.get(a.genre_id) || 0) + 1);
+    const total = [...count.values()].reduce((x, y) => x + y, 0);
+    return [...count].filter(([, n]) => n >= Math.max(1, total * 0.2)).map(([id]) => names.get(id));
+  }
+
+  const firstRelease = (a, b) => String(a.release_date || '9999').localeCompare(String(b.release_date || '9999'));
+
+  async function lookup(kind, input, { clean = false } = {}) {
+    const item = { ...input, kind };
+    // `missing`: searched for it and it doesn't exist (as opposed to no details on file).
+    const out = { item, genres: [], years: [], found: false, missing: false };
+    let deezerId = parseInt(item.deezerId, 10) || null;
+
+    if (!deezerId) {
+      // Typed in by hand (or found on Apple): find it first.
+      const typed = [item.title, item.artist].filter(Boolean).join(' ');
+      const { results, source } = await search(kind, typed, { clean });
+      const hit = matchTyped(kind, typed, results);
+      if (!hit) return { ...out, missing: source !== 'offline' };
+      Object.assign(item, Object.fromEntries(Object.entries(hit).filter(([, v]) => v != null && v !== '')));
+      out.found = true;
+      deezerId = hit.deezerId;
+      if (!deezerId) {
+        out.genres = unique((hit.genres || []).map((g) => APPLE_GENRES[g.toLowerCase()]));
+        out.years = hit.year ? [hit.year] : [];
+        return out;
+      }
+    }
+
+    const names = await genreNames();
+    if (kind === 'artist') {
+      const albums = await ownAlbums(deezerId);
+      if (!albums.length) return out;
+      out.found = true;
+      out.genres = unique(artistGenres(albums, names));
+      out.years = unique(albums.map((a) => yearOf(a.release_date))).sort();
+      return out;
+    }
+
+    if (kind === 'album') {
+      const a = await deezer(`/album/${deezerId}`, {}, 24 * HOUR);
+      if (!a?.id) return out;
+      out.found = true;
+      const albums = a.artist?.id ? await ownAlbums(a.artist.id) : [];
+      // The first edition, not this year's deluxe remaster.
+      const first = albums
+        .filter((x) => songKey(x.title) === songKey(a.title) && (!clean || !x.explicit_lyrics))
+        .sort((x, y) => (TYPE_RANK[x.record_type] ?? 3) - (TYPE_RANK[y.record_type] ?? 3) || firstRelease(x, y))[0];
+      const year = yearOf(first?.release_date) || yearOf(a.release_date);
+      out.item = {
+        ...item,
+        title: first?.title || a.title,
+        artist: a.artist?.name || item.artist,
+        cover: picture(first?.cover_big || a.cover_big) || item.cover,
+        year: year || item.year || null,
+        deezerId: first?.id || a.id,
+        explicit: first ? !!first.explicit_lyrics : !!a.explicit_lyrics,
+      };
+      out.genres = unique([...(a.genres?.data || []).map((g) => g.name), ...artistGenres(albums, names)]);
+      out.years = year ? [year] : [];
+      return out;
+    }
+
+    const t = await deezer(`/track/${deezerId}`, {}, 24 * HOUR);
+    if (!t?.id) return out;
+    out.found = true;
+    const artist = t.artist || {};
+    const title = t.title_short || t.title;
+    const quote = (s) => `"${String(s).replace(/"/g, '')}"`;
+    const [albums, versions] = await Promise.all([
+      artist.id ? ownAlbums(artist.id) : [],
+      deezer('/search/track', { q: `track:${quote(title)} artist:${quote(artist.name)}`, limit: 50 }, 24 * HOUR)
+        .then((d) => d.data || [])
+        .catch(() => []),
+    ]);
+    // Every release of this song on the artist's own albums, best first:
+    // a proper album over an EP over a single, then the earliest.
+    const own = new Map(albums.map((a) => [a.id, a]));
+    const releases = [t, ...versions]
+      .filter((v) => v.artist?.id === artist.id && songKey(v.title_short || v.title) === songKey(title) && own.has(v.album?.id))
+      .filter((v) => !clean || !v.explicit_lyrics);
+    const rank = (v) => TYPE_RANK[own.get(v.album.id).record_type] ?? 3;
+    const best = [...releases].sort(
+      (x, y) => rank(x) - rank(y) || firstRelease(own.get(x.album.id), own.get(y.album.id)) || Number(x.explicit_lyrics !== t.explicit_lyrics) - Number(y.explicit_lyrics !== t.explicit_lyrics),
+    )[0];
+    const album = best ? own.get(best.album.id) : null;
+    const years = releases.map((v) => yearOf(own.get(v.album.id).release_date)).filter(Boolean);
+    const info = await deezer(`/album/${album?.id || t.album?.id}`, {}, 24 * HOUR).catch(() => null);
+    // Still on a compilation? Then its year says nothing about the song.
+    const compiled = !album && (info?.record_type === 'compile' || COMPILATION.test(t.album?.title || ''));
+    const year = years.length ? Math.min(...years) : compiled ? null : yearOf(t.album?.release_date || t.release_date);
+    const pick = best || t;
+    out.item = {
+      ...item,
+      title: pick.title_short || pick.title,
+      artist: artist.name || item.artist,
+      album: album?.title || t.album?.title || item.album,
+      cover: picture(album?.cover_big || album?.cover_medium) || picture(t.album?.cover_big) || item.cover,
+      year: year || (compiled ? null : item.year) || null,
+      deezerId: pick.id,
+      explicit: !!pick.explicit_lyrics,
+      duration: pick.duration || item.duration || null,
+    };
+    out.genres = unique([...(info?.genres?.data || []).map((g) => g.name), ...artistGenres(albums, names)]);
+    out.years = year ? [year] : [];
+    return out;
   }
 
   // ---------------------------------------------------------------- endless ideas
@@ -825,5 +1015,5 @@ export function createMusic({
     });
   }
 
-  return { source: 'deezer', search, details, browse, meta, preview, about, status };
+  return { source: 'deezer', search, details, lookup, browse, meta, preview, about, status };
 }

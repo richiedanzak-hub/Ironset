@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createMusic } from '../src/music.js';
+import { checkTheme, createMusic } from '../src/music.js';
 import { SONG_CATALOG, ALBUM_CATALOG, ARTIST_CATALOG } from '../src/catalog.js';
 
 // A stand-in for Deezer and iTunes that records what it was asked.
@@ -24,6 +24,20 @@ const queen = artist(412, 'Queen');
 const eminem = artist(13, 'Eminem');
 const sum41 = artist(41000, 'Sum 41');
 const saga = artist(53000, 'Saga');
+// Papa Roach's "Last Resort": picked from a workout compilation, but it's
+// from Infest (2000). Deezer also has a clean Infest, a deluxe reissue, the
+// single, a Greatest Hits and a cover band's version.
+const roach = { id: 7200, name: 'Papa Roach' };
+const onAlbum = (id, albumId, title, extra = {}) => track(id, 'Last Resort', roach, albumId, { explicit_lyrics: true, ...extra, album: { id: albumId, title, cover_big: cover(albumId) } });
+const ROACH_TRACKS = [
+  onAlbum(7001, 7100, 'The Ultimate Workout Collection: Blood Sweat And Tears'),
+  onAlbum(7003, 7302, 'Last Resort'),
+  onAlbum(7002, 7300, 'Infest'),
+  onAlbum(7007, 7305, 'Infest', { explicit_lyrics: false }),
+  onAlbum(7004, 7303, 'Greatest Hits'),
+  track(7006, 'Last Resort', artist(9999, 'Tribute Kids'), 9998),
+];
+const roachAlbum = (id, title, date, type, genre, extra = {}) => ({ id, title, cover_big: cover(id), release_date: date, record_type: type, genre_id: genre, explicit_lyrics: true, ...extra });
 const QUOTA = { error: { type: 'Exception', message: 'Quota limit exceeded', code: 4 } };
 let flaky = 0;
 
@@ -46,7 +60,20 @@ const DYNAMIC = [
 const nopic = { id: 77, name: 'Fan Band', picture_big: 'https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg' };
 
 const DEEZER = {
-  '/genre': { data: [{ id: 0, name: 'All' }, { id: 132, name: 'Pop' }, { id: 152, name: 'Rock' }, { id: 116, name: 'Rap/Hip Hop' }] },
+  '/genre': { data: [{ id: 0, name: 'All' }, { id: 132, name: 'Pop' }, { id: 152, name: 'Rock' }, { id: 116, name: 'Rap/Hip Hop' }, { id: 85, name: 'Alternative' }] },
+  '/track/7001': { ...ROACH_TRACKS[0], release_date: '2010-07-17' },
+  '/artist/7200/albums': {
+    data: [
+      roachAlbum(7300, 'Infest', '2000-04-25', 'album', 152),
+      roachAlbum(7305, 'Infest', '2000-04-25', 'album', 152, { explicit_lyrics: false }),
+      roachAlbum(7301, 'Infest (Deluxe Edition)', '2020-04-24', 'album', 152),
+      roachAlbum(7302, 'Last Resort', '2000-02-01', 'single', 85),
+      roachAlbum(7303, 'Greatest Hits', '2010-06-08', 'compile', 116),
+      roachAlbum(7304, 'Getting Away With Murder', '2004-08-31', 'album', 85),
+    ],
+  },
+  '/album/7300': { id: 7300, title: 'Infest', record_type: 'album', genres: { data: [{ name: 'Rock' }, { name: 'Alternative' }] } },
+  '/album/7301': { id: 7301, title: 'Infest (Deluxe Edition)', release_date: '2020-04-24', record_type: 'album', cover_big: cover(7301), artist: roach, genres: { data: [{ name: 'Rock' }] } },
   '/search/track': (q) => {
     if (q === 'quota') return QUOTA;
     if (q === 'flaky' && flaky++ === 0) return QUOTA;
@@ -58,6 +85,8 @@ const DEEZER = {
     if (q === 'on the loose') {
       return { data: [track(51, 'On the Loose Tonight', artist(5100, 'Party Crew'), 5101), track(52, 'On the Loose', artist(5200, 'Niall Horan'), 5201), track(53, 'On the Loose', saga, 5301)] };
     }
+    if (q === 'track:"Last Resort" artist:"Papa Roach"') return { data: ROACH_TRACKS };
+    if (q === 'last resort') return { data: [ROACH_TRACKS[0], ROACH_TRACKS[2]] };
     if (q === 'dirty') {
       return { data: [track(61, 'Still Waiting', sum41, 6100, { explicit_lyrics: true }), track(62, 'Still Waiting', sum41, 6200), track(63, 'Only Dirty', eminem, 6300, { explicit_lyrics: true })] };
     }
@@ -301,6 +330,67 @@ test('artist ideas keep going through related artists', async () => {
   }
   assert.ok(seen.size >= 150, `only ${seen.size}`);
   assert.ok([...seen].some((t) => t.startsWith('Related')));
+});
+
+test('a song picked from a compilation becomes the original: album, cover and year', async () => {
+  const m = music();
+  const info = await m.lookup('song', { title: 'Last Resort', artist: 'Papa Roach', deezerId: 7001, album: 'The Ultimate Workout Collection: Blood Sweat And Tears', year: 2010 });
+  assert.equal(info.found, true);
+  assert.equal(info.item.album, 'Infest');
+  assert.equal(info.item.cover, cover(7300));
+  assert.equal(info.item.year, 2000);
+  assert.equal(info.item.deezerId, 7002, 'previews and facts follow the original track');
+  assert.equal(info.item.explicit, true, 'keeps the version that was picked');
+  assert.deepEqual(info.genres.sort(), ['Alternative', 'Rock']);
+  assert.deepEqual(info.years, [2000]);
+
+  const clean = await m.lookup('song', { title: 'Last Resort', artist: 'Papa Roach', deezerId: 7001 }, { clean: true });
+  assert.equal(clean.item.deezerId, 7007, 'clean parties get the clean original');
+  assert.equal(clean.item.explicit, false);
+});
+
+test('search shows the version from the artist’s own album over a compilation', async () => {
+  const { results } = await music().search('song', 'last resort');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].album, 'Infest');
+});
+
+test('albums become their first edition, artists get their genres and active years', async () => {
+  const m = music();
+  const album = await m.lookup('album', { title: 'Infest (Deluxe Edition)', artist: 'Papa Roach', deezerId: 7301 });
+  assert.equal(album.item.deezerId, 7300);
+  assert.equal(album.item.year, 2000);
+  const band = await m.lookup('artist', { title: 'Papa Roach', deezerId: 7200 });
+  assert.deepEqual(band.genres.sort(), ['Alternative', 'Rock'], 'compilations do not count');
+  assert.deepEqual(band.years, [2000, 2004, 2020]);
+});
+
+test('typed picks are found first; unknown ones say so', async () => {
+  const m = music();
+  const typed = await m.lookup('song', { title: 'last resort' });
+  assert.equal(typed.item.album, 'Infest');
+  const unknown = await m.lookup('song', { title: 'Definitely Not A Song' });
+  assert.equal(unknown.found, false);
+  assert.equal(unknown.missing, true, 'Deezer answered, it just has no such song');
+  const noDetails = await m.lookup('song', { title: 'Mystery Track', deezerId: 123456 });
+  assert.deepEqual([noDetails.found, noDetails.missing], [false, false], 'a Deezer song with no details on file is unknown, not missing');
+  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
+  const nothing = await offline.lookup('song', { title: 'Definitely Not A Song' });
+  assert.equal(nothing.missing, false, "can't tell without a music service");
+});
+
+test('theme check: genre (with close relatives) and decade', () => {
+  const info = { item: { title: 'Last Resort', kind: 'song' }, genres: ['Rock', 'Alternative'], years: [2000] };
+  assert.deepEqual(checkTheme(info, { genre: 'Country' }), { ok: false, message: 'Last Resort is Rock / Alternative, not Country' });
+  assert.equal(checkTheme(info, { genre: 'Rock' }).ok, true);
+  assert.equal(checkTheme(info, { genre: 'Alternative' }).ok, true);
+  assert.equal(checkTheme({ ...info, genres: ['Alternative'] }, { genre: 'Rock' }).ok, true, 'a Rock night takes Alternative');
+  assert.equal(checkTheme(info, { genre: 'Metal' }).ok, false);
+  assert.deepEqual(checkTheme(info, { decade: '90s' }), { ok: false, message: 'Last Resort is from 2000, not the 90s' });
+  assert.equal(checkTheme(info, { decade: '2000s', genre: 'rock' }).ok, true);
+  const band = { item: { title: 'Papa Roach', kind: 'artist' }, genres: ['Rock'], years: [2000, 2004] };
+  assert.equal(checkTheme(band, { decade: '90s' }).message, "Papa Roach didn't release anything in the 90s");
+  assert.equal(checkTheme({ item: { title: 'Mystery' }, genres: [], years: [] }, { genre: 'Rock', decade: '80s' }).ok, true, 'unknown gets the benefit of the doubt');
 });
 
 test('previews: a song, an album’s biggest track, an artist’s top track', async () => {

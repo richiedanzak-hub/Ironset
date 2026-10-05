@@ -130,13 +130,17 @@ function Party({ code, go }) {
     if (prev.hostId !== view.hostId && view.me.host) toast("👑 You're the host now", 'good');
   }, [view]);
 
+  // Returns null when a move is refused (after a toast saying why). With
+  // `inline`, a pick that doesn't fit the theme comes back as { offTheme }
+  // instead, so it can be shown right on the song.
   const act = useCallback(
-    async (action) => {
+    async (action, { inline = false } = {}) => {
       try {
         const out = await sendAction(code, sess, action);
         if (out.notice) toast(out.notice, 'good', 3400);
         return out;
       } catch (err) {
+        if (inline && err.status === 422) return { offTheme: err.message };
         toast(err.message, 'error');
         return null;
       }

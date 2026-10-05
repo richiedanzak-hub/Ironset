@@ -14,6 +14,8 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 
 - **Songs, albums or artists.** The host picks one in the lobby; songs are the default.
 - **A theme for the night (optional).** The host taps a ready-made theme (90s Rock, 80s Party, Road trip, Sing-along…) or makes one from a genre, decade, vibe and a name. Everyone sees it on the invite, in the lobby and while adding songs, and the ideas browser sticks to it.
+- **Off-theme picks are blocked** when the theme has a genre or decade (the host can switch this to "Allowed"). Each pick is checked as it goes in, against the genres Deezer files the song and artist under and the year of its first release. Close genres count: a Rock night takes Alternative and Metal. A song that doesn't fit is marked right on it ("Shake It Off is Pop, not Rock") instead of going in.
+- **The original album, every time.** A song picked from a compilation ("The Ultimate Workout Collection") is switched to the version on the artist's own album, with that album's cover and year. Search also prefers the original version.
 - **Champions round (optional).** When the hat is empty, every pick that won at least one matchup comes back, and they play king of the hill against each other for the real crown.
 - **Clean-only parties.** One switch hides explicit songs and albums everywhere and blocks them from the hat.
 - **30-second previews** on every cover. **Play the matchup** plays 15 seconds of each, back to back, which is handy on a speaker.

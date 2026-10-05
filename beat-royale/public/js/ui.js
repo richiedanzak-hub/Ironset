@@ -46,6 +46,15 @@ export function themeTitle(t) {
   const text = themeParts(t).join(' ');
   return text[0].toUpperCase() + text.slice(1);
 }
+// "Only 90s Rock songs get in", when off-theme picks are blocked.
+export function themeRule(t, kind) {
+  if (!t || (!t.genre && !t.decade)) return null;
+  const era = t.decade === '60s' ? '60s or earlier' : t.decade;
+  const nouns = noun(kind, 2);
+  if (t.genre && t.decade) return `Only ${t.decade} ${t.genre} ${nouns} get in`;
+  if (t.genre) return `Only ${t.genre} ${nouns} get in`;
+  return `Only ${nouns} from the ${era} get in`;
+}
 export const themeEmoji = (t) => (t?.vibe ? VIBE_EMOJI[t.vibe] : GENRE_EMOJI[t?.genre] || '🎨');
 
 export function ThemeBanner({ theme, sub }) {

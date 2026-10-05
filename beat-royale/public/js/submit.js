@@ -1,7 +1,7 @@
 // Filling the hat: search or type a title, browse ideas, remove picks, "I'm done".
 import { html, useState, useEffect } from './lib.js';
 import { request } from './api.js';
-import { Avatar, Countdown, Cover, PlayButton, ThemeBanner, findPick, itemKey, itemMeta, noun, stopPreview, toast, useGame } from './ui.js';
+import { Avatar, Countdown, Cover, PlayButton, ThemeBanner, findPick, itemKey, itemMeta, noun, stopPreview, themeRule, toast, useGame } from './ui.js';
 import { IdeasSheet } from './ideas.js';
 import { sfx } from './sfx.js';
 
@@ -19,8 +19,12 @@ const itemFields = (m) => ({
 
 const PLACEHOLDER = { song: 'Search a song or artist…', album: 'Search an album…', artist: 'Search an artist or band…' };
 
-function SearchBox({ onAdd, mine, full, kind, clean }) {
+const rowKey = (m) => `${m.deezerId || m.title}-${m.artist}`;
+
+function SearchBox({ onAdd, mine, full, kind, clean, placeholder }) {
   const [q, setQ] = useState('');
+  const [checking, setChecking] = useState(null); // the row being checked against the theme
+  const [blocked, setBlocked] = useState({});     // row -> why it doesn't fit
   const [results, setResults] = useState(null);
   const [found, setFound] = useState(null); // where the results came from, and how many explicit ones were hidden
   const [loading, setLoading] = useState(false);
@@ -51,8 +55,14 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
     };
   }, [q]);
 
-  const pick = async (m) => {
-    if (await onAdd(m)) {
+  const pick = async (m, key = rowKey(m)) => {
+    if (checking) return;
+    setChecking(key);
+    const out = await onAdd(m);
+    setChecking(null);
+    if (out?.offTheme) {
+      setBlocked((b) => ({ ...b, [key]: out.offTheme }));
+    } else if (out) {
       setQ('');
       setResults(null);
     }
@@ -61,7 +71,7 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
     const typed = q.trim();
     if (!typed) return;
     const exact = results?.find((m) => itemKey(m.title) === itemKey(typed) || itemKey(`${m.title}${m.artist || ''}`) === itemKey(typed));
-    pick(exact || { title: typed });
+    pick(exact || { title: typed }, exact ? rowKey(exact) : `typed:${typed}`);
   };
 
   const typed = q.trim();
@@ -72,7 +82,7 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
       <input
         class="input"
         type="search"
-        placeholder=${full ? "You've hit the limit" : PLACEHOLDER[kind]}
+        placeholder=${full ? "You've hit the limit" : placeholder || PLACEHOLDER[kind]}
         value=${q}
         disabled=${full}
         autocomplete="off"
@@ -89,10 +99,15 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
           ${loading && !results ? html`<div class="load-more"><div class="spinner" /></div>` : null}
           ${(results || []).map((m) => {
             const had = findPick(mine, m);
-            return html`<button class="suggest-item" key=${`${m.deezerId || m.title}-${m.artist}`} disabled=${!!had} onClick=${() => pick(m)}>
+            const key = rowKey(m);
+            const why = blocked[key];
+            return html`<button class="suggest-item ${why ? 'off-theme' : ''}" key=${key} disabled=${!!had || !!why} onClick=${() => pick(m, key)}>
               <${Cover} item=${m} tiny />
-              <span class="grow"><strong>${m.title}${m.explicit ? html` <span class="e-tag">E</span>` : null}</strong><span>${itemMeta(m) || noun(kind)}</span></span>
-              <span class="plus ${had ? 'done' : ''}">${had ? '✓' : '+'}</span>
+              <span class="grow">
+                <strong>${m.title}${m.explicit ? html` <span class="e-tag">E</span>` : null}</strong>
+                <span>${why ? `🚫 ${why}` : itemMeta(m) || noun(kind)}</span>
+              </span>
+              <span class="plus ${had ? 'done' : why ? 'no' : ''}">${had ? '✓' : why ? '✕' : checking === key ? html`<i class="mini-spin" />` : '+'}</span>
             </button>`;
           })}
           ${results && !results.length ? html`<div class="suggest-empty">No matches. You can still add it as typed 👇</div>` : null}
@@ -107,10 +122,10 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
           ${results?.length && kind === 'song' && typed.split(/\s+/).length < 5
             ? html`<div class="suggest-note">💡 Not here? Add the artist too, like “still waiting sum 41”</div>`
             : null}
-          <button class="suggest-item" onClick=${addTyped}>
+          <button class="suggest-item ${blocked[`typed:${typed}`] ? 'off-theme' : ''}" disabled=${!!blocked[`typed:${typed}`]} onClick=${addTyped}>
             <span class="how-num" style=${{ width: '40px', height: '40px', fontSize: '20px', borderRadius: '10px' }}>✍️</span>
-            <span class="grow"><strong>Add “${typed}”</strong><span>Exactly as typed</span></span>
-            <span class="plus">+</span>
+            <span class="grow"><strong>Add “${typed}”</strong><span>${blocked[`typed:${typed}`] ? `🚫 ${blocked[`typed:${typed}`]}` : 'Exactly as typed'}</span></span>
+            <span class="plus">${checking === `typed:${typed}` ? html`<i class="mini-spin" />` : '+'}</span>
           </button>
         </div>`
       : null}
@@ -128,13 +143,19 @@ export function Submit() {
   const need = Math.max(0, s.minPerPlayer - mine.length);
   const waiting = view.players.filter((p) => p.online && !p.ready);
 
+  // Resolves to true when it's in, { offTheme } when it doesn't fit the theme.
   const add = async (m, { quiet = false } = {}) => {
-    const out = await act({ type: 'add', item: itemFields(m) });
+    const out = await act({ type: 'add', item: itemFields(m) }, { inline: true });
     if (!out) return false;
+    if (out.offTheme) {
+      sfx.tap();
+      return out;
+    }
     sfx.drop();
     if (!out.notice && !quiet) toast(`🎩 ${m.title} is in the hat!`, 'good', 1600);
     return true;
   };
+  const rule = s.themeStrict ? themeRule(s.theme, s.kind) : null;
   const remove = async (entry) => {
     sfx.tap();
     return !!(await act({ type: 'remove', entryId: entry.id }));
@@ -169,10 +190,11 @@ export function Submit() {
 
     <h1 class="screen-title section" style=${{ marginTop: '22px' }}>Toss in your ${noun(s.kind, 2)}</h1>
     <p class="screen-sub">${limitText}. Your picks stay secret until they're drawn 🤫</p>
-    ${s.theme ? html`<div class="section" style=${{ marginTop: '14px' }}><${ThemeBanner} theme=${s.theme} sub="Keep it on theme!" /></div>` : null}
+    ${s.theme ? html`<div class="section" style=${{ marginTop: '14px' }}><${ThemeBanner} theme=${s.theme} sub=${rule || 'Keep it on theme!'} /></div>` : null}
 
     <div class="stack section" style=${{ marginTop: '16px' }}>
-      <${SearchBox} onAdd=${add} mine=${mine} full=${full} kind=${s.kind} clean=${s.clean} />
+      <${SearchBox} onAdd=${add} mine=${mine} full=${full} kind=${s.kind} clean=${s.clean}
+        placeholder=${rule ? `Search ${[s.theme.decade, s.theme.genre].filter(Boolean).join(' ')} ${noun(s.kind, 2)}…` : null} />
       <button class="ideas-cta" onClick=${() => (sfx.tap(), setIdeas(true))}>
         <span class="big">✨</span>
         <span><strong>Need ideas?</strong><span>${s.theme ? 'Endless picks that fit the theme' : "Today's charts, classics, genres, decades & vibes"}</span></span>
