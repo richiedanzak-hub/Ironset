@@ -1,7 +1,9 @@
-// The champion: confetti, a preview, where to listen, and how it got here.
-import { html, useState, useEffect } from './lib.js';
+// The champion: confetti, a preview, where to listen, everyone's picks and
+// how it got here. The same recap shows past parties saved on this phone.
+import { html, useState, useEffect, useMemo } from './lib.js';
 import { request } from './api.js';
 import { Avatar, Confetti, Cover, PlayButton, durationText, itemMeta, noun, prefetchPreviews, stopPreview, themeEmoji, themeTitle, useGame } from './ui.js';
+import { saveParty, snapshot } from './past.js';
 import { sfx } from './sfx.js';
 
 const HEADLINE = { song: "Tonight's anthem is…", album: 'Album of the night…', artist: 'Artist of the night…' };
@@ -58,6 +60,72 @@ function Podium({ pickers, meId }) {
   </section>`;
 }
 
+// How far a pick got: the crown, the champions round, wins, and when it went out.
+function fateOf(id, data) {
+  const { history, wins, champions } = data.battle;
+  const w = wins[id] || 0;
+  const out = [...history].reverse().find((h) => h.losers.includes(id));
+  const crowned = id === data.final.winner;
+  const inChamps = !!champions?.ids.includes(id);
+  const text = crowned
+    ? '👑 Champion'
+    : [inChamps ? '🏆 Champions round' : null, w ? `⭐ ${w} ${w === 1 ? 'win' : 'wins'}` : null, out ? `out in round ${out.round}` : null]
+        .filter(Boolean)
+        .join(' · ');
+  return { crowned, text, sort: [crowned ? 0 : 1, inChamps ? 0 : 1, -w, -(out?.round || 0)] };
+}
+
+// Best result first: the champion, then the champions round, then most wins.
+const byFate = (data) => (x, y) => {
+  const a = fateOf(x.id, data).sort;
+  const b = fateOf(y.id, data).sort;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+};
+
+function PickRow({ e, data, person }) {
+  const fate = fateOf(e.id, data);
+  const others = (e.by || []).filter((p) => p.id !== person?.id);
+  return html`<div class="pick-row ${fate.crowned ? 'crowned' : ''}">
+    <${Cover} item=${e} tiny />
+    <span class="grow">
+      <span class="w">${e.title}</span>
+      <span class="sub">${[e.artist, fate.text].filter(Boolean).join(' · ')}</span>
+      ${others.length ? html`<span class="sub">🤝 Also picked by ${listNames(others.map((p) => (p.id === data.meId ? 'you' : p.name)))}</span>` : null}
+    </span>
+    <${PlayButton} item=${e} />
+  </div>`;
+}
+
+function EveryonesPicks({ data }) {
+  const all = Object.values(data.entries);
+  const kind = data.settings.kind;
+  if (!data.final.pickers) {
+    const mine = all.filter((e) => e.mine).sort(byFate(data));
+    if (!mine.length) return null;
+    return html`<section class="section">
+      <div class="section-head"><h2>🤫 Your picks</h2><span class="tag">picks stayed secret tonight</span></div>
+      <div class="card picks-card">${mine.map((e) => html`<${PickRow} key=${e.id} e=${e} data=${data} />`)}</div>
+    </section>`;
+  }
+  return html`<section class="section">
+    <div class="section-head"><h2>🎶 Everyone's picks</h2><span class="tag">${all.length} ${noun(kind, all.length)}</span></div>
+    <div class="stack">
+      ${data.final.pickers.map((p) => {
+        const picks = all.filter((e) => e.by?.some((x) => x.id === p.id)).sort(byFate(data));
+        return html`<div class="card picks-card" key=${p.id}>
+          <div class="picks-head">
+            <${Avatar} p=${p} size=${36} crown=${p.champ} />
+            <strong class="grow">${p.id === data.meId ? 'You' : p.name}</strong>
+            <span class="tag">${picks.length} ${noun(kind, picks.length)} · ⭐ ${p.points}</span>
+          </div>
+          ${picks.map((e) => html`<${PickRow} key=${e.id} e=${e} data=${data} person=${p} />`)}
+        </div>`;
+      })}
+    </div>
+  </section>`;
+}
+
 function Road({ history, entries }) {
   return html`<section class="section">
     <details class="fold card">
@@ -89,21 +157,22 @@ function Road({ history, entries }) {
   </section>`;
 }
 
-export function Final() {
-  const { view, act } = useGame();
-  const b = view.battle;
-  const E = view.entries;
-  const champ = E[view.final.winner];
-  const kind = champ.kind || view.settings.kind;
+// The whole recap, from a snapshot of the final view. `live` adds the
+// confetti and fanfare for the party that just ended.
+export function Recap({ data, live = false }) {
+  const b = data.battle;
+  const E = data.entries;
+  const champ = E[data.final.winner];
+  const kind = champ.kind || data.settings.kind;
   const [about, setAbout] = useState(null);
 
   useEffect(() => {
-    sfx.fanfare();
+    if (live) sfx.fanfare();
     prefetchPreviews([champ]);
     const q = new URLSearchParams({ kind, id: champ.deezerId || '', title: champ.title, artist: champ.artist || '' });
     request(`/api/music/about?${q}`).then(setAbout).catch(() => {});
     return stopPreview;
-  }, [view.final.winner]);
+  }, [data.id]);
 
   const facts = about?.facts || {};
   const item = { ...champ, cover: facts.cover || champ.cover, year: champ.year || facts.year || null };
@@ -128,7 +197,7 @@ export function Final() {
   ].filter(Boolean);
 
   return html`<div>
-    <${Confetti} burst=${view.final.winner} />
+    ${live ? html`<${Confetti} burst=${data.final.winner} />` : null}
     <div class="final-hero">
       <div class="rays-wrap" aria-hidden="true"><div class="rays" /></div>
       <p class="eyebrow">${b.champions ? 'Champion of champions…' : HEADLINE[kind]}</p>
@@ -142,9 +211,9 @@ export function Final() {
       <h1 class="champ-title">${champ.title}</h1>
       <p class="champ-meta">${kind === 'artist' ? itemMeta(item) : champ.artist || ''}</p>
       ${factPills.length ? html`<div class="champ-stats">${factPills.map((t) => html`<span class="pill">${t}</span>`)}</div>` : null}
-      ${view.settings.theme || b.champions
+      ${data.settings.theme || b.champions
         ? html`<div class="champ-stats">
-            ${view.settings.theme ? html`<span class="pill">${themeEmoji(view.settings.theme)} ${themeTitle(view.settings.theme)}</span>` : null}
+            ${data.settings.theme ? html`<span class="pill">${themeEmoji(data.settings.theme)} ${themeTitle(data.settings.theme)}</span>` : null}
             ${b.champions ? html`<span class="pill pill-gold">🏆 Beat ${b.champions.ids.length - 1} other ${b.champions.ids.length === 2 ? 'champion' : 'champions'}</span>` : null}
           </div>`
         : null}
@@ -152,7 +221,7 @@ export function Final() {
         ? html`<div class="champ-stats">
             <span class="pill pill-gold">
               ${champ.by.slice(0, 3).map((p) => html`<${Avatar} key=${p.id} p=${p} size=${22} />`)}
-              Picked by ${champ.by.map((p) => (p.id === view.me.id ? 'you' : p.name)).join(' & ')}
+              Picked by ${champ.by.map((p) => (p.id === data.meId ? 'you' : p.name)).join(' & ')}
             </span>
           </div>`
         : champ.mine
@@ -170,9 +239,19 @@ export function Final() {
     </div>
 
     <${ListenCard} links=${links} />
-    ${view.final.pickers?.length > 1 ? html`<${Podium} pickers=${view.final.pickers} meId=${view.me.id} />` : null}
+    ${data.final.pickers?.length > 1 ? html`<${Podium} pickers=${data.final.pickers} meId=${data.meId} />` : null}
+    <${EveryonesPicks} data=${data} />
     <${Road} history=${b.history} entries=${E} />
+  </div>`;
+}
 
+export function Final() {
+  const { view, act } = useGame();
+  const data = useMemo(() => snapshot(view), [view]);
+  // Keep a copy on this phone for "Past parties".
+  useEffect(() => saveParty(data), [data.id]);
+  return html`<div>
+    <${Recap} data=${data} live />
     <div class="dock">
       ${view.me.host
         ? html`<div class="row">

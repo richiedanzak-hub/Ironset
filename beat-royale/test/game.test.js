@@ -526,6 +526,7 @@ test('champions round: every pick that won a matchup battles again at the end', 
   assert.equal(room.phase, 'final');
   assert.equal(room.final.winner, order[1]);
   assert.equal(b.wins[order[1]], 2);
+  assert.equal(game.viewFor(room, ids[0], T0).final.at, T0, 'when it ended, for the saved recap');
 });
 
 test('champions round: a bigger field plays king of the hill too, and ties still work', () => {

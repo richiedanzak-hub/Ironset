@@ -31,8 +31,11 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 - **Duplicates merge,** including remasters and live versions ("Bohemian Rhapsody - Remastered 2011" is the same song).
 - **Champion screen:**
   - cover, year, album, length and BPM
-  - listen-on links
-  - a "best taste" podium and the full road to the crown
+  - listen-on links that open the song itself on Spotify, Apple Music and YouTube (found through Apple's catalog and [song.link](https://odesli.co), both keyless), or a search when there's no exact match
+  - a "best taste" podium
+  - everyone's picks, grouped by person, with how far each one got (unless the host chose to keep picks secret; then you see only your own)
+  - the full road to the crown
+- **Past parties.** Each phone keeps the recap of every party it finished (up to 30), under 📜 Past parties on the home screen or in the party menu. They're stored on the phone, so they survive the server restarting.
 
 ## Where the music data comes from
 

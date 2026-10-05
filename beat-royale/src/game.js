@@ -793,6 +793,7 @@ export function viewFor(room, pid, now) {
   if (room.phase === 'final') {
     view.final = {
       winner: room.final.winner,
+      at: room.final.at,
       pickers: s.reveal === 'hidden' ? null : pickerBoard(room),
     };
   }

@@ -2,6 +2,7 @@
 import { html, useState, useEffect } from './lib.js';
 import { request, session, profile } from './api.js';
 import { Avatar, ProfileForm, Sheet, Loading, toast, randomAvatar, themeEmoji, themeTitle } from './ui.js';
+import { pastParties } from './past.js';
 import { sfx } from './sfx.js';
 
 const savedProfile = () => {
@@ -27,6 +28,7 @@ export function Home({ go }) {
   const [form, setForm] = useState(savedProfile);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const past = pastParties().length;
 
   const host = async () => {
     if (!form.name.trim()) return toast('Pop your name in first 👆', 'error');
@@ -55,6 +57,9 @@ export function Home({ go }) {
     <div class="stack" style=${{ marginTop: '26px' }}>
       <button class="btn btn-hot btn-xl btn-block" onClick=${() => (sfx.tap(), setMode('host'))}>🎧 Host a music battle</button>
       <button class="btn btn-ghost btn-xl btn-block" onClick=${() => (sfx.tap(), setMode('join'))}>🎟️ I have a party code</button>
+      ${past
+        ? html`<button class="btn btn-quiet btn-block" onClick=${() => (sfx.tap(), go('/past'))}>📜 Past parties (${past})</button>`
+        : null}
     </div>
 
     <section class="section card">

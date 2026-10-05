@@ -1044,7 +1044,7 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 }
 .play-btn:active { transform: scale(0.92); }
 .play-btn.playing, .play-btn.loading { background: var(--grad-hot); color: #fff; padding: 0; }
-.pick .play-btn, .suggest-item .play-btn { position: static; flex: none; width: 36px; height: 36px; font-size: 0.8rem; background: rgba(255, 255, 255, 0.1); color: var(--text); box-shadow: none; border: 1px solid var(--line); }
+.pick .play-btn, .suggest-item .play-btn, .pick-row .play-btn { position: static; flex: none; width: 36px; height: 36px; font-size: 0.8rem; background: rgba(255, 255, 255, 0.1); color: var(--text); box-shadow: none; border: 1px solid var(--line); }
 .idea .play-btn { width: 34px; height: 34px; right: 6px; bottom: 6px; font-size: 0.8rem; }
 .duel.n3 .play-btn, .duel.n4 .play-btn { width: 32px; height: 32px; right: 6px; bottom: 6px; font-size: 0.75rem; }
 .spinner.small { width: 16px; height: 16px; border-width: 2px; border-top-color: #fff; }
@@ -1125,3 +1125,27 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .champ-stack .cover:nth-child(6) { animation-delay: 0.4s; }
 
 .road-divider { margin: 8px 0 2px; text-align: center; font: 700 0.95rem var(--font-display); color: var(--gold); letter-spacing: 0.04em; }
+
+/* ---------------------------------------------------------------- everyone's picks, past parties */
+
+.picks-card { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.picks-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.picks-head strong { font: 700 1.1rem var(--font-display); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picks-head .tag { flex: none; }
+.pick-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); }
+.pick-row.crowned { background: rgba(252, 211, 77, 0.1); border-color: rgba(252, 211, 77, 0.5); }
+.pick-row .cover { width: 40px; flex: none; border-radius: 8px; }
+.pick-row .grow { min-width: 0; line-height: 1.25; }
+.pick-row .w { display: block; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-row .sub { display: block; font-size: 0.8rem; font-weight: 700; color: var(--dim); }
+.pick-row.crowned .sub:first-of-type { color: var(--gold); }
+
+.past-card { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--grad-card); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.past-card:active { transform: scale(0.98); }
+.past-card .cover { width: 58px; flex: none; border-radius: 12px; }
+.past-card .grow { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.past-card strong { font: 700 1.05rem var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.past-card .grow > span { font-size: 0.85rem; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.past-card .grow > .past-meta { font-size: 0.75rem; color: var(--dim); white-space: normal; }
+.past-card .chev { flex: none; font-size: 1.4rem; color: var(--dim); }
+.past-when { text-align: center; font-size: 0.8rem; font-weight: 800; color: var(--dim); margin: 4px 0 -6px; }

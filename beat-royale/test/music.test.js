@@ -98,14 +98,27 @@ const DEEZER = {
 
 const itunesFor = (term) =>
   /still waiting/i.test(term)
-    ? { results: [{ trackName: 'Still Waiting', artistName: 'Sum 41', collectionName: 'Does This Look Infected?', releaseDate: '2002-11-26T08:00:00Z', trackExplicitness: 'explicit' }] }
+    ? { results: [{ trackName: 'Still Waiting', artistName: 'Sum 41', collectionName: 'Does This Look Infected?', releaseDate: '2002-11-26T08:00:00Z', trackExplicitness: 'explicit', trackViewUrl: 'https://music.apple.com/us/album/still-waiting/1440?i=1441&uo=4' }] }
     : ITUNES;
+
+// song.link knows Bohemian Rhapsody (Deezer track 1) only.
+const songLink = (page) =>
+  page === 'https://www.deezer.com/track/1'
+    ? {
+        linksByPlatform: {
+          spotify: { url: 'https://open.spotify.com/track/4u7EnebtmKWzUH433cf5Qv' },
+          appleMusic: { url: 'https://geo.music.apple.com/us/album/_/1440806041?i=1440806768' },
+          youtube: { url: 'https://www.youtube.com/watch?v=fJ9rUzIMcZQ' },
+        },
+      }
+    : { statusCode: 404, code: 'NOT_FOUND' };
 
 const ITUNES = {
   results: [{
     trackName: 'Hey Jude', artistName: 'The Beatles', collectionName: 'Past Masters', releaseDate: '1968-08-26T07:00:00Z',
     artworkUrl100: 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/source/100x100bb.jpg', primaryGenreName: 'Rock',
     trackExplicitness: 'notExplicit', trackTimeMillis: 431000, previewUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/heyjude.m4a',
+    trackViewUrl: 'https://music.apple.com/us/album/hey-jude/1441?i=1442&uo=4',
   }],
 };
 
@@ -114,7 +127,7 @@ before(async () => {
     const url = new URL(req.url, 'http://x');
     const q = url.searchParams.get('q') || url.searchParams.get('term');
     calls.push({ path: url.pathname, q, params: Object.fromEntries(url.searchParams) });
-    let body = url.pathname === '/search' ? itunesFor(q) : DEEZER[url.pathname];
+    let body = url.pathname === '/search' ? itunesFor(q) : url.pathname === '/v1-alpha.1/links' ? songLink(url.searchParams.get('url')) : DEEZER[url.pathname];
     if (typeof body === 'function') body = body(q);
     for (const [re, make] of DYNAMIC) {
       const m = !body && url.pathname.match(re);
@@ -129,7 +142,7 @@ before(async () => {
 
 after(() => fake.close());
 
-const music = () => createMusic({ deezerBase: base, itunesBase: base, retryDelays: [1, 1, 1], deezerBudget: 10_000 });
+const music = () => createMusic({ deezerBase: base, itunesBase: base, odesliBase: base, retryDelays: [1, 1, 1], deezerBudget: 10_000 });
 const titles = (list) => list.map((m) => m.title);
 const keys = (list) => list.map((m) => `${m.title}|${m.artist}`);
 const lastCall = (path) => calls.filter((c) => c.path === path).at(-1);
@@ -305,13 +318,24 @@ test('champion facts and listen-on links', async () => {
   assert.equal(song.facts.year, 1975);
   assert.equal(song.facts.bpm, 72);
   assert.equal(song.links.deezer, 'https://www.deezer.com/track/1');
-  assert.equal(song.links.spotify, 'https://open.spotify.com/search/Bohemian%20Rhapsody%20Queen');
+  assert.equal(song.links.spotify, 'https://open.spotify.com/track/4u7EnebtmKWzUH433cf5Qv', 'straight to the song via song.link');
+  assert.equal(song.links.apple, 'https://geo.music.apple.com/us/album/_/1440806041?i=1440806768', "song.link fills in when Apple's search has no match");
+  assert.equal(song.links.youtube, 'https://www.youtube.com/watch?v=fJ9rUzIMcZQ');
+  const sum41 = await m.about({ kind: 'song', id: '41', title: 'Still Waiting', artist: 'Sum 41' });
+  assert.equal(sum41.links.apple, 'https://music.apple.com/us/album/still-waiting/1440?i=1441&uo=4', 'the exact song on Apple Music');
+  assert.equal(sum41.links.spotify, 'https://open.spotify.com/search/Still%20Waiting%20Sum%2041', 'search link when song.link has nothing');
   const album = await m.about({ kind: 'album', id: '10', title: 'A Night at the Opera', artist: 'Queen' });
   assert.equal(album.facts.tracks, 12);
   assert.deepEqual(album.facts.genres, ['Rock']);
   const typed = await m.about({ kind: 'song', title: 'Hey Jude' });
   assert.equal(typed.facts, null);
   assert.match(typed.links.youtube, /Hey%20Jude/);
+  assert.equal(typed.links.apple, 'https://music.apple.com/us/album/hey-jude/1441?i=1442&uo=4');
+  const other = await m.about({ kind: 'song', title: 'Some Other Song', artist: 'Nobody' });
+  assert.equal(other.links.apple, 'https://music.apple.com/us/search?term=Some%20Other%20Song%20Nobody', 'no wrong-song links');
+  const fromApple = (await m.search('song', 'quota')).results;
+  assert.equal(fromApple[0].title, 'Hey Jude');
+  assert.ok(!fromApple.some((r) => 'url' in r), 'store links stay on the server');
 });
 
 test('typed-in picks are matched by title, or title plus artist', async () => {

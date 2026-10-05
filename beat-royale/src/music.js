@@ -139,6 +139,9 @@ class Cache {
 export function createMusic({
   deezerBase = process.env.DEEZER_BASE_URL || 'https://api.deezer.com',
   itunesBase = process.env.ITUNES_BASE_URL || 'https://itunes.apple.com',
+  // song.link (Odesli) turns a Deezer link into Spotify, Apple Music and
+  // YouTube links for the same song. Keyless, about 10 lookups a minute.
+  odesliBase = process.env.ODESLI_BASE_URL || 'https://api.song.link',
   fetchImpl = globalThis.fetch,
   // Deezer allows 50 calls per 5 seconds from one server address. Shared
   // hosting can share that address with other apps, so stay well under it
@@ -325,7 +328,7 @@ export function createMusic({
           kind, title: r.trackName, artist: r.artistName || null, album: r.collectionName || null,
           year: yearOf(r.releaseDate), cover: art(r.artworkUrl100), deezerId: null,
           explicit: r.trackExplicitness === 'explicit', duration: r.trackTimeMillis ? Math.round(r.trackTimeMillis / 1000) : null,
-          genres: r.primaryGenreName ? [r.primaryGenreName] : [], previewUrl: r.previewUrl || null,
+          genres: r.primaryGenreName ? [r.primaryGenreName] : [], previewUrl: r.previewUrl || null, url: r.trackViewUrl || null,
         };
       }
       if (kind === 'album') {
@@ -333,10 +336,10 @@ export function createMusic({
           kind, title: r.collectionName, artist: r.artistName || null, album: null,
           year: yearOf(r.releaseDate), cover: art(r.artworkUrl100), deezerId: null,
           explicit: r.collectionExplicitness === 'explicit', duration: null,
-          genres: r.primaryGenreName ? [r.primaryGenreName] : [],
+          genres: r.primaryGenreName ? [r.primaryGenreName] : [], url: r.collectionViewUrl || null,
         };
       }
-      return { kind, title: r.artistName, artist: null, album: null, year: null, cover: null, deezerId: null, explicit: false, duration: null, genres: r.primaryGenreName ? [r.primaryGenreName] : [] };
+      return { kind, title: r.artistName, artist: null, album: null, year: null, cover: null, deezerId: null, explicit: false, duration: null, genres: r.primaryGenreName ? [r.primaryGenreName] : [], url: r.artistLinkUrl || null };
     }).filter((m) => m.title);
   }
 
@@ -446,7 +449,7 @@ export function createMusic({
     const shown = new Set(results.map(sameKey));
     const hidden = clean ? dedupe(ranked).filter((m) => !shown.has(sameKey(m))).length : 0;
     return {
-      results: results.slice(0, SEARCH_SIZE).map(({ previewUrl, ...m }) => m),
+      results: results.slice(0, SEARCH_SIZE).map(({ previewUrl, url, ...m }) => m),
       source,
       hidden,
     };
@@ -719,10 +722,36 @@ export function createMusic({
     return { url: null };
   }
 
-  // Extra facts and "listen on" links for the champion.
-  async function about({ kind, id, title, artist }) {
+  // The exact song (or album, or artist) on Apple Music, from Apple's own
+  // catalog. Its search page doesn't reliably open in the Music app.
+  async function appleLink(kind, title, artist) {
+    const k = kind === 'artist' ? itemKey(title) : songKey(title);
+    const a = itemKey(artist);
+    const found = await itunes(kind, [title, artist].filter(Boolean).join(' '), 15);
+    const same = (m) => (kind === 'artist' ? itemKey(m.title) : songKey(m.title)) === k;
+    const hit =
+      found.find((m) => m.url && same(m) && (!a || itemKey(m.artist) === a)) ||
+      found.find((m) => m.url && same(m) && a && itemKey(m.artist).includes(a));
+    return hit?.url || null;
+  }
+
+  // Direct Spotify, Apple Music and YouTube links for a Deezer song or album.
+  async function songLinks(kind, deezerId) {
+    const page = `https://www.deezer.com/${kind === 'song' ? 'track' : 'album'}/${deezerId}`;
+    const url = `${odesliBase}/v1-alpha.1/links?${new URLSearchParams({ url: page, userCountry: 'US' })}`;
+    const data = await cache.wrap(url, 24 * HOUR, () => getJson(url));
+    const at = (name) => data?.linksByPlatform?.[name]?.url || null;
+    return { spotify: at('spotify'), apple: at('appleMusic'), youtube: at('youtube') || at('youtubeMusic') };
+  }
+
+  // Extra facts and "listen on" links for the champion. Each lookup is
+  // cached on its own, so a failed one is tried again next time.
+  async function about(query) {
+    const kind = KINDS.includes(query.kind) ? query.kind : 'song';
+    const deezerId = parseInt(query.id, 10) || null;
+    const title = String(query.title || '').slice(0, 150);
+    const artist = String(query.artist || '').slice(0, 120);
     const q = encodeURIComponent([title, artist].filter(Boolean).join(' '));
-    const deezerId = parseInt(id, 10) || null;
     const path = kind === 'song' ? 'track' : kind;
     const out = {
       links: {
@@ -733,32 +762,39 @@ export function createMusic({
       },
       facts: null,
     };
-    if (!deezerId) return out;
-    try {
-      const d = await deezer(`/${path}/${deezerId}`, {}, 6 * HOUR);
-      if (kind === 'song') {
-        out.facts = {
-          year: yearOf(d.release_date || d.album?.release_date),
-          album: d.album?.title || null,
-          duration: d.duration || null,
-          bpm: d.bpm ? Math.round(d.bpm) : null,
-          cover: picture(d.album?.cover_xl || d.album?.cover_big),
-        };
-      } else if (kind === 'album') {
-        out.facts = {
-          year: yearOf(d.release_date),
-          tracks: d.nb_tracks || null,
-          duration: d.duration || null,
-          label: d.label || null,
-          genres: (d.genres?.data || []).map((g) => g.name).slice(0, 3),
-          fans: d.fans || null,
-          cover: picture(d.cover_xl || d.cover_big),
-        };
-      } else {
-        out.facts = { fans: d.nb_fan || null, albums: d.nb_album || null, cover: picture(d.picture_xl || d.picture_big) };
-      }
-    } catch (err) {
-      warnOnce('Deezer details', err);
+    const [direct, apple, details] = await Promise.all([
+      deezerId && kind !== 'artist'
+        ? songLinks(kind, deezerId).catch((err) => warnOnce('song.link', err))
+        : null,
+      title ? appleLink(kind, title, artist).catch((err) => warnOnce('Apple Music links', err)) : null,
+      deezerId ? deezer(`/${path}/${deezerId}`, {}, 6 * HOUR).catch((err) => warnOnce('Deezer details', err)) : null,
+    ]);
+    // Apple's own catalog first; song.link's Apple link is a good second.
+    out.links.apple = apple || direct?.apple || out.links.apple;
+    out.links.spotify = direct?.spotify || out.links.spotify;
+    out.links.youtube = direct?.youtube || out.links.youtube;
+    const d = details;
+    if (!d) return out;
+    if (kind === 'song') {
+      out.facts = {
+        year: yearOf(d.release_date || d.album?.release_date),
+        album: d.album?.title || null,
+        duration: d.duration || null,
+        bpm: d.bpm ? Math.round(d.bpm) : null,
+        cover: picture(d.album?.cover_xl || d.album?.cover_big),
+      };
+    } else if (kind === 'album') {
+      out.facts = {
+        year: yearOf(d.release_date),
+        tracks: d.nb_tracks || null,
+        duration: d.duration || null,
+        label: d.label || null,
+        genres: (d.genres?.data || []).map((g) => g.name).slice(0, 3),
+        fans: d.fans || null,
+        cover: picture(d.cover_xl || d.cover_big),
+      };
+    } else {
+      out.facts = { fans: d.nb_fan || null, albums: d.nb_album || null, cover: picture(d.picture_xl || d.picture_big) };
     }
     return out;
   }

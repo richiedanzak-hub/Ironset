@@ -7,11 +7,16 @@ import { Lobby, RulesCard, ShareBody } from './lobby.js';
 import { Submit } from './submit.js';
 import { Battle } from './battle.js';
 import { Final } from './final.js';
+import { Past } from './past.js';
 import { sfx } from './sfx.js';
 
-const routeCode = () => {
-  const m = location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/);
-  return m ? m[1].toUpperCase() : null;
+// /j/ABCD is a party; /past and /past/<id> are recaps saved on this phone.
+const route = () => {
+  const party = location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/);
+  if (party) return { code: party[1].toUpperCase() };
+  const past = location.pathname.match(/^\/past(?:\/([^/]+))?\/?$/);
+  if (past) return { past: past[1] ? decodeURIComponent(past[1]) : '' };
+  return {};
 };
 
 function TopBar({ open }) {
@@ -56,7 +61,7 @@ function CrewSheet({ open, onClose }) {
   </${Sheet}>`;
 }
 
-function MenuSheet({ open, onClose, show, leave }) {
+function MenuSheet({ open, onClose, show, leave, go }) {
   const { view, act } = useGame();
   const [muted, setMuted] = useState(sfx.muted);
   const canRules = view.me.host && (view.phase === 'lobby' || view.phase === 'submit');
@@ -71,6 +76,9 @@ function MenuSheet({ open, onClose, show, leave }) {
       <button class="menu-item" onClick=${() => show('share')}><span class="ic">🎟️</span>Invite people</button>
       ${canRules ? html`<button class="menu-item" onClick=${() => show('rules')}><span class="ic">📜</span>House rules</button>` : null}
       <button class="menu-item" onClick=${() => setMuted(sfx.toggle())}><span class="ic">${muted ? '🔇' : '🔊'}</span>Sound ${muted ? 'off' : 'on'}</button>
+      ${view.phase === 'lobby' || view.phase === 'final'
+        ? html`<button class="menu-item" onClick=${() => go('/past')}><span class="ic">📜</span>Past parties</button>`
+        : null}
       ${view.me.host && view.phase !== 'lobby' ? html`<button class="menu-item" onClick=${restart}><span class="ic">🔄</span>Start over</button>` : null}
       <button class="menu-item danger" onClick=${leave}><span class="ic">🚪</span>Leave party</button>
     </div>
@@ -161,23 +169,28 @@ function Party({ code, go }) {
     <${Sheet} open=${sheet === 'share'} onClose=${() => setSheet(null)} title="Invite the crew"><${ShareBody} code=${code} /></${Sheet}>
     <${Sheet} open=${sheet === 'rules'} onClose=${() => setSheet(null)} title="House rules"><${RulesCard} /></${Sheet}>
     <${CrewSheet} open=${sheet === 'crew'} onClose=${() => setSheet(null)} />
-    <${MenuSheet} open=${sheet === 'menu'} onClose=${() => setSheet(null)} show=${setSheet} leave=${leave} />
+    <${MenuSheet} open=${sheet === 'menu'} onClose=${() => setSheet(null)} show=${setSheet} leave=${leave} go=${go} />
   </${GameCtx.Provider}>`;
 }
 
 function App() {
-  const [code, setCode] = useState(routeCode);
+  const [where, setWhere] = useState(route);
   useEffect(() => {
-    const onPop = () => setCode(routeCode());
+    const onPop = () => setWhere(route());
     addEventListener('popstate', onPop);
     return () => removeEventListener('popstate', onPop);
   }, []);
   const go = useCallback((path) => {
     history.pushState(null, '', path);
-    setCode(routeCode());
+    setWhere(route());
     window.scrollTo(0, 0);
   }, []);
-  return html`${code ? html`<${Party} key=${code} code=${code} go=${go} />` : html`<${Home} go=${go} />`}<${Toasts} />`;
+  const screen = where.code
+    ? html`<${Party} key=${where.code} code=${where.code} go=${go} />`
+    : where.past !== undefined
+      ? html`<${Past} key=${where.past} id=${where.past} go=${go} />`
+      : html`<${Home} go=${go} />`;
+  return html`${screen}<${Toasts} />`;
 }
 
 const root = document.getElementById('root');
