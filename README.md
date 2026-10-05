@@ -1,3 +1,6 @@
 # Ironset
 
-Also in this repo: **[Reel Royale](reel-royale/)**, a movie-night party game. Toss movies in a hat, vote head-to-head, and crown tonight's movie.
+Also in this repo:
+
+- **[Reel Royale](reel-royale/)**: a movie-night party game. Toss movies in a hat, vote head-to-head, and crown tonight's movie.
+- **[Beat Royale](beat-royale/)**: the music version. Battle songs, albums or artists head-to-head with 30-second previews.

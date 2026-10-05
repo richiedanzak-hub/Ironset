@@ -1,0 +1,100 @@
+# 🎧 Beat Royale
+
+**Toss songs in the hat. Battle them head‑to‑head. The last track standing wins the night.**
+
+The music version of [Reel Royale](../reel-royale/). Same game, but for songs, albums or artists:
+
+1. **Fill the hat.** Everyone secretly adds songs (or albums, or artists) they love, typed in or picked from the ✨ ideas browser.
+2. **Head-to-head.** Two picks come out of the hat. Play the 30-second previews, everyone votes on their own phone, and the winner stays on.
+3. **Crown the champ.** The last one standing wins, with buttons to play it on Spotify, Apple Music, YouTube or Deezer.
+
+Everyone plays on their own phone. The host sends a link (or shows a QR code), and people join by typing their name. There are no accounts or app downloads.
+
+## What's in it
+
+- **Songs, albums or artists.** The host picks one in the lobby; songs are the default.
+- **Clean-only parties.** One switch hides explicit songs and albums everywhere and blocks them from the hat.
+- **30-second previews** on every cover. **Play the matchup** plays 15 seconds of each, back to back, which is handy on a speaker.
+- **Brainstorm helper:**
+  - Lists: 🔥 Top charts (today's), 🆕 New, 🏆 All-time classics, 🎲 Surprise me
+  - Filters: genre, decade (60s to 2020s) and vibe (party, sing-along, feel-good, chill, workout, road trip, love songs)
+  - Previews and one-tap adding
+- **Same house rules as Reel Royale:**
+  - minimum and maximum picks per person, and optional timers
+  - reveal who picked what: never, after each vote, or always
+  - ties: coin flip, champ stays, or 3-way showdown
+- **Duplicates merge,** including remasters and live versions ("Bohemian Rhapsody - Remastered 2011" is the same song).
+- **Champion screen:**
+  - cover, year, album, length and BPM
+  - listen-on links
+  - a "best taste" podium and the full road to the crown
+
+## Where the music data comes from
+
+**[Deezer's public API](https://developers.deezer.com/api).** It's free and needs **no key and no account**:
+
+- charts updated daily, overall and per genre
+- millions of songs, albums and artists
+- album covers and artist photos
+- 30-second previews for nearly every track
+
+If Deezer is ever unreachable, search falls back to Apple's iTunes search (also keyless), and the ideas browser falls back to a built-in list of about 230 classic songs and 70 albums.
+
+Why not the others:
+
+- **Spotify** needs a developer app and no longer gives new apps previews or recommendations.
+- **Last.fm** needs a key and has almost no images.
+- **MusicBrainz** has great facts but no popularity or charts.
+
+## Run it at home
+
+You need [Node.js](https://nodejs.org) 18 or newer. There's nothing else to install.
+
+```sh
+cd beat-royale
+npm start
+```
+
+Open the address it prints. Phones on the same Wi-Fi can join with the invite link.
+
+## Put it online (free) with Render
+
+Make a second web service next to Reel Royale:
+
+1. On **dashboard.render.com**, tap **+ New → Web Service** and pick the **Ironset** repo.
+2. Fill in the settings:
+   - **Name:** `beat-royale`
+   - **Language:** Node
+   - **Branch:** the branch this folder is on
+   - **Root Directory:** `beat-royale`
+   - **Build Command:** `npm install`
+   - **Start Command:** `node server.js`
+   - **Instance Type:** Free
+3. Leave Environment Variables empty, because no key is needed. Then deploy.
+
+The free plan sleeps after 15 quiet minutes, so open the link a minute before you play.
+
+## For developers
+
+```sh
+npm test        # game rules, HTTP + live updates, Deezer/iTunes adapters (against a fake server)
+npm run dev     # restart on changes
+```
+
+```
+server.js          start the server
+src/game.js        the game rules (pure, fully tested)
+src/app.js         HTTP API, static files, live updates (Server-Sent Events)
+src/music.js       Deezer / iTunes / built-in catalog
+src/catalog.js     the built-in backup list
+public/js/         the app screens (lobby, submit, ideas, battle, final)
+```
+
+| Variable | What it does |
+| --- | --- |
+| `PORT` | Port to listen on (default `3000`) |
+| `PUBLIC_URL` | The address used in invite links, if the automatic one is wrong (Render sets this for you) |
+
+## Credits
+
+Music data, covers and previews are from Deezer. Bundled libraries and fonts: Preact (MIT), htm (Apache-2.0), qrcode-generator (MIT), and the Fredoka and Nunito fonts (SIL Open Font License).
