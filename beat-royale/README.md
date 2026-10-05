@@ -13,12 +13,17 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 ## What's in it
 
 - **Songs, albums or artists.** The host picks one in the lobby; songs are the default.
+- **A theme for the night (optional).** The host taps a ready-made theme (90s Rock, 80s Party, Road trip, Sing-along…) or makes one from a genre, decade, vibe and a name. Everyone sees it on the invite, in the lobby and while adding songs, and the ideas browser sticks to it.
+- **Champions round (optional).** When the hat is empty, every pick that won at least one matchup comes back, and they play king of the hill against each other for the real crown.
 - **Clean-only parties.** One switch hides explicit songs and albums everywhere and blocks them from the hat.
 - **30-second previews** on every cover. **Play the matchup** plays 15 seconds of each, back to back, which is handy on a speaker.
 - **Brainstorm helper:**
   - Lists: 🔥 Top charts (today's), 🆕 New, 🏆 All-time classics, 🎲 Surprise me
   - Filters: genre, decade (60s to 2020s) and vibe (party, sing-along, feel-good, chill, workout, road trip, love songs)
+  - It keeps loading as you scroll (up to about 2,000 per list): the chart, then playlist after playlist, then more songs by artists it has shown. Nothing repeats.
+  - Every phone gets its own shuffle, and 🔀 Shuffle mixes it up again
   - Previews and one-tap adding
+- **Search that finds the deep cuts.** Type a title, or a title and artist ("Still Waiting - Sum 41", "on the loose saga"). Exact matches come first, and Apple's catalog fills in when Deezer comes up short.
 - **Same house rules as Reel Royale:**
   - minimum and maximum picks per person, and optional timers
   - reveal who picked what: never, after each vote, or always
@@ -38,7 +43,11 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 - album covers and artist photos
 - 30-second previews for nearly every track
 
-If Deezer is ever unreachable, search falls back to Apple's iTunes search (also keyless), and the ideas browser falls back to a built-in list of about 230 classic songs and 70 albums.
+Apple's iTunes search (also keyless) fills in when Deezer has few results, and takes over if Deezer can't be reached. The ideas browser falls back to a built-in list of about 230 classic songs and 70 albums.
+
+Deezer allows 50 requests every 5 seconds per server. The app stays under that and waits and retries when Deezer says "slow down", which can happen on shared hosting like Render's free plan.
+
+**Is the music data working?** Open `/api/music/status` on your site (for example https://beat-royale.onrender.com/api/music/status). It runs a live test search on Deezer and Apple and shows each one's last error, if any.
 
 Why not the others:
 

@@ -26,6 +26,41 @@ export const durationText = (sec) => (sec ? `${Math.floor(sec / 60)}:${String(se
 export const itemMeta = (m) =>
   (m.kind === 'artist' ? [m.genres?.[0] || 'Artist'] : [m.artist, m.year]).filter(Boolean).join(' · ');
 
+// ------------------------------------------------------------ party theme
+
+export const DECADES = [
+  ['2020s', '2020s'], ['2010s', '2010s'], ['2000s', '2000s'], ['90s', '90s'], ['80s', '80s'], ['70s', '70s'], ['60s', '60s & older'],
+];
+export const VIBES = [
+  ['party', '🎉 Party'], ['singalong', '🎤 Sing-along'], ['feelgood', '☀️ Feel-good'], ['chill', '😌 Chill'],
+  ['workout', '💪 Workout'], ['roadtrip', '🚗 Road trip'], ['love', '💘 Love songs'],
+];
+const VIBE_WORD = { party: 'party', singalong: 'sing-along', feelgood: 'feel-good', chill: 'chill', workout: 'workout', roadtrip: 'road trip', love: 'love songs' };
+const VIBE_EMOJI = { party: '🎉', singalong: '🎤', feelgood: '☀️', chill: '😌', workout: '💪', roadtrip: '🚗', love: '💘' };
+
+// "90s Rock", "80s party", "Road trip", or the name the host gave it.
+export const themeParts = (t) => (t ? [t.decade, t.genre, t.vibe && VIBE_WORD[t.vibe]].filter(Boolean) : []);
+export function themeTitle(t) {
+  if (!t) return null;
+  if (t.name) return t.name;
+  const text = themeParts(t).join(' ');
+  return text[0].toUpperCase() + text.slice(1);
+}
+export const themeEmoji = (t) => (t?.vibe ? VIBE_EMOJI[t.vibe] : GENRE_EMOJI[t?.genre] || '🎨');
+
+export function ThemeBanner({ theme, sub }) {
+  if (!theme) return null;
+  const details = theme.name ? themeParts(theme).join(' · ') : '';
+  return html`<div class="theme-banner">
+    <span class="theme-emoji" aria-hidden="true">${themeEmoji(theme)}</span>
+    <div class="grow">
+      <span class="theme-eyebrow">Tonight's theme</span>
+      <strong>${themeTitle(theme)}</strong>
+      ${details || sub ? html`<span class="theme-sub">${[details, sub].filter(Boolean).join(' · ')}</span>` : null}
+    </div>
+  </div>`;
+}
+
 function hue(text) {
   let h = 7;
   for (const ch of text) h = (h * 31 + ch.codePointAt(0)) >>> 0;

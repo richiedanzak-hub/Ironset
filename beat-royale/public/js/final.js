@@ -1,7 +1,7 @@
 // The champion: confetti, a preview, where to listen, and how it got here.
 import { html, useState, useEffect } from './lib.js';
 import { request } from './api.js';
-import { Avatar, Confetti, Cover, PlayButton, durationText, itemMeta, noun, prefetchPreviews, stopPreview, useGame } from './ui.js';
+import { Avatar, Confetti, Cover, PlayButton, durationText, itemMeta, noun, prefetchPreviews, stopPreview, themeEmoji, themeTitle, useGame } from './ui.js';
 import { sfx } from './sfx.js';
 
 const HEADLINE = { song: "Tonight's anthem is…", album: 'Album of the night…', artist: 'Artist of the night…' };
@@ -67,12 +67,14 @@ function Road({ history, entries }) {
         <span class="tag muted small" style=${{ fontWeight: 800 }}>${history.length} ${history.length === 1 ? 'matchup' : 'matchups'} <span class="chev">›</span></span>
       </summary>
       <div class="road" style=${{ marginTop: '14px' }}>
-        ${history.map((h) => {
+        ${history.map((h, i) => {
           const score = h.fighters.map((id) => h.tally[id]).sort((x, y) => y - x).join('–');
           const kept = h.method === 'keep';
           const top = entries[kept ? h.survivors[0] : h.winner];
           const how = h.method === 'coin' ? (h.fighters.length > 2 ? '🎲' : '🪙') : h.method === 'champ' ? '🤝' : score;
-          return html`<div class="road-row" key=${h.round}>
+          const divider = h.champions && !history[i - 1]?.champions;
+          return html`${divider ? html`<div class="road-divider" key="champions">🏆 Champions round</div>` : null}
+          <div class="road-row" key=${h.round}>
             <span class="r">R${h.round}</span>
             <${Cover} item=${top} tiny />
             <span class="grow">
@@ -129,7 +131,7 @@ export function Final() {
     <${Confetti} burst=${view.final.winner} />
     <div class="final-hero">
       <div class="rays-wrap" aria-hidden="true"><div class="rays" /></div>
-      <p class="eyebrow">${HEADLINE[kind]}</p>
+      <p class="eyebrow">${b.champions ? 'Champion of champions…' : HEADLINE[kind]}</p>
       <div class="champ-frame">
         <span class="crown-top" aria-hidden="true">👑</span>
         <span class="sparkle s1" aria-hidden="true">✨</span>
@@ -140,6 +142,12 @@ export function Final() {
       <h1 class="champ-title">${champ.title}</h1>
       <p class="champ-meta">${kind === 'artist' ? itemMeta(item) : champ.artist || ''}</p>
       ${factPills.length ? html`<div class="champ-stats">${factPills.map((t) => html`<span class="pill">${t}</span>`)}</div>` : null}
+      ${view.settings.theme || b.champions
+        ? html`<div class="champ-stats">
+            ${view.settings.theme ? html`<span class="pill">${themeEmoji(view.settings.theme)} ${themeTitle(view.settings.theme)}</span>` : null}
+            ${b.champions ? html`<span class="pill pill-gold">🏆 Beat ${b.champions.ids.length - 1} other ${b.champions.ids.length === 2 ? 'champion' : 'champions'}</span>` : null}
+          </div>`
+        : null}
       ${champ.by?.length
         ? html`<div class="champ-stats">
             <span class="pill pill-gold">
@@ -158,7 +166,7 @@ export function Final() {
     <div class="section card stats-grid">
       <div><b>${wins}</b><span>${wins === 1 ? 'matchup won' : 'matchups won'}</span></div>
       <div><b>${votes}</b><span>votes earned</span></div>
-      <div><b>${b.total + 1}</b><span>${noun(kind, b.total + 1)} in the hat</span></div>
+      <div><b>${Object.keys(E).length}</b><span>${noun(kind, Object.keys(E).length)} in the hat</span></div>
     </div>
 
     <${ListenCard} links=${links} />

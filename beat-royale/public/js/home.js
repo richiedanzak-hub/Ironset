@@ -1,7 +1,7 @@
 // Screens outside a party: home, joining from a link, and "party's over".
 import { html, useState, useEffect } from './lib.js';
 import { request, session, profile } from './api.js';
-import { Avatar, ProfileForm, Sheet, Loading, toast, randomAvatar } from './ui.js';
+import { Avatar, ProfileForm, Sheet, Loading, toast, randomAvatar, themeEmoji, themeTitle } from './ui.js';
 import { sfx } from './sfx.js';
 
 const savedProfile = () => {
@@ -137,6 +137,7 @@ export function JoinScreen({ code, go, onJoined }) {
         ${info.players} ${info.players === 1 ? 'person' : 'people'} here ·
         ${info.phase === 'lobby' ? ' getting ready' : info.phase === 'submit' ? ' filling the hat' : info.phase === 'battle' ? ' battling now' : ' crowned a champ'}
       </p>
+      ${info.theme ? html`<p style=${{ marginTop: '12px' }}><span class="pill pill-gold">${themeEmoji(info.theme)} Theme: ${themeTitle(info.theme)}</span></p>` : null}
     </div>
     <div class="section">
       <${ProfileForm} value=${form} onChange=${setForm} onSubmit=${join} />

@@ -206,6 +206,8 @@ export function createApp({
           phase: room.phase,
           players: room.order.length,
           host: host ? { name: host.name, avatar: host.avatar } : null,
+          kind: room.settings.kind,
+          theme: room.settings.theme,
         });
       }
 
@@ -259,11 +261,13 @@ export function createApp({
     if (section === 'music' && method === 'GET') {
       musicLimit(req);
       const q = Object.fromEntries(url.searchParams);
-      if (code === 'search') return sendJson(res, 200, { results: await music.search(q.kind, q.q, { clean: q.clean === '1' }) });
+      if (code === 'search') return sendJson(res, 200, await music.search(q.kind, q.q, { clean: q.clean === '1' }));
       if (code === 'browse') return sendJson(res, 200, await music.browse(q));
       if (code === 'meta') return sendJson(res, 200, await music.meta());
       if (code === 'preview') return sendJson(res, 200, await music.preview(q));
       if (code === 'about') return sendJson(res, 200, await music.about(q));
+      // Open this in a browser to see whether Deezer and Apple are answering.
+      if (code === 'status') return sendJson(res, 200, await music.status());
     }
 
     throw new HttpError(404, 'Not found');

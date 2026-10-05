@@ -489,3 +489,87 @@ test('artists are matched by name alone', () => {
   assert.match(out.notice, /Great minds/);
   assert.equal(Object.keys(room.entries).length, 1);
 });
+
+const everyone = (room, ids, entryId) => ids.forEach((pid) => vote(room, pid, entryId));
+
+test('champions round: every pick that won a matchup battles again at the end', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D', 'E'], { champions: true });
+  const b = room.battle;
+  const order = [...b.order];
+  everyone(room, ids, b.challenger); // order[1] wins
+  next(room, ids[0]);
+  everyone(room, ids, b.challenger); // order[2] takes over
+  next(room, ids[0]);
+  everyone(room, ids, b.champ);
+  next(room, ids[0]);
+  everyone(room, ids, b.champ); // the hat is empty now
+  assert.equal(b.result.last, false);
+  assert.equal(b.result.toChampions, 2);
+
+  next(room, ids[0]);
+  assert.equal(room.phase, 'battle');
+  assert.equal(b.round, 5);
+  assert.equal(b.total, 5, 'one more matchup for two champions');
+  assert.deepEqual([...b.fighters].sort(), [order[1], order[2]].sort());
+  assert.equal(b.champ, null, 'everyone starts even');
+  const view = game.viewFor(room, ids[0], T0);
+  assert.deepEqual(view.battle.champions, { from: 5, before: order[2], ids: [order[2], order[1]] });
+  assert.equal(view.battle.left, 0);
+  assert.equal(Object.keys(view.entries).length, 5);
+
+  everyone(room, ids, order[1]);
+  assert.equal(b.result.last, true);
+  assert.equal(b.result.toChampions, 0, 'only one champions round');
+  assert.equal(b.history.at(-1).champions, true);
+  assert.equal(b.history[0].champions, false);
+  next(room, ids[0]);
+  assert.equal(room.phase, 'final');
+  assert.equal(room.final.winner, order[1]);
+  assert.equal(b.wins[order[1]], 2);
+});
+
+test('champions round: a bigger field plays king of the hill too, and ties still work', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D', 'E', 'F'], { champions: true, ties: 'keep' });
+  const b = room.battle;
+  // The challenger wins every time, so five picks each win once.
+  for (let r = 1; r <= 5; r++) {
+    everyone(room, ids, b.challenger);
+    next(room, ids[0]);
+  }
+  assert.equal(b.champions.ids.length, 5);
+  assert.equal(b.total, 9);
+  // A tie keeps both and draws the next champion in.
+  vote(room, ids[0], b.fighters[0]);
+  vote(room, ids[1], b.fighters[1]);
+  game.act(room, ids[0], { type: 'close', round: b.round }, T0, rng);
+  assert.equal(b.result.method, 'keep');
+  next(room, ids[0]);
+  assert.equal(b.fighters.length, 3);
+  assert.equal(game.viewFor(room, ids[0], T0).battle.left, 2);
+});
+
+test('champions round is skipped when one pick won everything', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C'], { champions: true });
+  const b = room.battle;
+  everyone(room, ids, b.fighters[0]);
+  next(room, ids[0]);
+  everyone(room, ids, b.champ);
+  assert.equal(b.result.last, true);
+  assert.equal(b.result.toChampions, 0);
+  next(room, ids[0]);
+  assert.equal(room.phase, 'final');
+});
+
+test('the host can set a theme for the night', () => {
+  const { room, ids } = party();
+  const set = (pid, theme) => game.act(room, pid, { type: 'settings', settings: { theme } }, T0);
+  set(ids[0], { genre: 'Rock', decade: '90s', vibe: 'nope', name: '  Garage   night ' });
+  assert.deepEqual(room.settings.theme, { name: 'Garage night', genre: 'Rock', decade: '90s', vibe: null });
+  assert.equal(game.viewFor(room, ids[1], T0).settings.theme.genre, 'Rock');
+  assert.throws(() => set(ids[1], { genre: 'Pop' }), /Only the host/);
+  set(ids[0], { decade: '1890s' });
+  assert.equal(room.settings.theme, null, 'nothing valid left means no theme');
+  game.act(room, ids[0], { type: 'start' }, T0);
+  set(ids[0], { vibe: 'roadtrip' });
+  assert.equal(room.settings.theme.vibe, 'roadtrip', 'can still change while the hat is open');
+});

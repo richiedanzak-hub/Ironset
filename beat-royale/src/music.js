@@ -2,27 +2,41 @@
 //
 // Deezer's public API needs no key or account and has daily-updated charts,
 // album covers, artist photos and 30-second previews, so it's the main source.
-// If Deezer can't be reached, search falls back to Apple's iTunes search
-// (also keyless) and browsing falls back to a built-in list of classics.
+// Apple's iTunes search (also keyless) fills gaps and takes over if Deezer
+// can't be reached; a built-in list of classics is the last resort.
 
 import { SONG_CATALOG, ALBUM_CATALOG, ARTIST_CATALOG, CATALOG_GENRES } from './catalog.js';
-import { itemKey, songKey } from './game.js';
+import { DECADES, KINDS, itemKey, songKey } from './game.js';
+
+export { DECADES, KINDS };
 
 const PAGE_SIZE = 24;
+const SEARCH_SIZE = 25;
+const FEED_MAX = 2000;        // suggestions per list before it calls it a night
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
-export const KINDS = ['song', 'album', 'artist'];
 export const LISTS = ['top', 'new', 'classics', 'surprise'];
-export const DECADES = ['2020s', '2010s', '2000s', '90s', '80s', '70s', '60s'];
-export const VIBES = {
-  party: 'party hits',
-  singalong: 'sing along',
-  feelgood: 'feel good hits',
-  chill: 'chill hits',
-  workout: 'workout hits',
-  roadtrip: 'road trip songs',
-  love: 'love songs',
+
+// How each vibe reads in a playlist search. The first phrase is the main one;
+// the others keep the ideas coming once it runs dry.
+const VIBE_WORDS = {
+  party: ['party hits', 'party anthems', 'dance party', 'party'],
+  singalong: ['sing along', 'karaoke', 'singalong anthems', 'sing in the car'],
+  feelgood: ['feel good hits', 'good vibes', 'happy hits', 'feel good'],
+  chill: ['chill hits', 'chill vibes', 'chill', 'relax'],
+  workout: ['workout hits', 'gym', 'running', 'workout'],
+  roadtrip: ['road trip songs', 'driving songs', 'road trip', 'car anthems'],
+  love: ['love songs', 'romantic', 'ballads', 'slow jams'],
+};
+export const VIBES = Object.fromEntries(Object.entries(VIBE_WORDS).map(([k, words]) => [k, words[0]]));
+
+// Words added to playlist searches for each list. The first is the main one.
+const LIST_WORDS = {
+  top: ['hits', 'top hits', 'best of', 'anthems', 'essentials', 'favorites', 'greatest hits', 'bangers', 'mix', 'popular'],
+  new: ['new releases', 'new music', 'fresh', 'new music friday', 'brand new', 'release radar', 'latest', 'new hits'],
+  classics: ['classics', 'greatest hits', 'legends', 'all time', 'essentials', 'timeless', 'icons', 'golden hits', 'anthems'],
+  surprise: ['hidden gems', 'deep cuts', 'one hit wonders', 'underrated', 'forgotten hits', 'guilty pleasures', 'b sides', 'cult classics', 'throwback', 'discoveries', 'covers', 'indie'],
 };
 
 // Deezer's genre ids, used if the live genre list can't be fetched.
@@ -55,6 +69,21 @@ const yearOf = (date) => {
   return Number.isFinite(y) && y > 1800 ? y : null;
 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A repeatable random sequence: the same seed always shuffles the same way,
+// so each phone keeps its own order while it scrolls.
+export function seeded(text) {
+  let h = 2166136261;
+  for (const ch of String(text)) h = Math.imul(h ^ ch.codePointAt(0), 16777619);
+  return () => {
+    h = (h + 0x6d2b79f5) | 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function shuffle(list, rng = Math.random) {
   const a = [...list];
   for (let i = a.length - 1; i > 0; i--) {
@@ -64,8 +93,31 @@ function shuffle(list, rng = Math.random) {
   return a;
 }
 
+// Shuffles within small groups, so a chart gets mixed up but the biggest
+// hits still come first.
+const jumble = (list, rng, size = 6) => {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(...shuffle(list.slice(i, i + size), rng));
+  return out;
+};
+
 // Deezer serves a grey placeholder for artists with no photo; treat it as none.
 const picture = (url) => (typeof url === 'string' && url && !/\/images\/(artist|cover)\/\//.test(url) ? url : null);
+
+// Same song (or album, or artist) by the same artist, whatever the version.
+const sameKey = (m) => `${m.kind === 'artist' ? itemKey(m.title) : songKey(m.title)}|${itemKey(m.artist)}`;
+
+const dedupe = (items) => {
+  const seen = new Set();
+  return items.filter((m) => {
+    const k = sameKey(m);
+    return !seen.has(k) && seen.add(k);
+  });
+};
+
+// Filter first, then merge versions, so a clean version isn't lost behind
+// an explicit one with the same name.
+const cleanOnly = (items, clean) => (clean ? items.filter((m) => !m.explicit) : items);
 
 class Cache {
   constructor(max = 800) {
@@ -88,29 +140,27 @@ export function createMusic({
   deezerBase = process.env.DEEZER_BASE_URL || 'https://api.deezer.com',
   itunesBase = process.env.ITUNES_BASE_URL || 'https://itunes.apple.com',
   fetchImpl = globalThis.fetch,
-  rng = Math.random,
+  // Deezer allows 50 calls per 5 seconds from one server address. Shared
+  // hosting can share that address with other apps, so stay well under it
+  // and wait a moment whenever Deezer says to slow down.
+  deezerBudget = 40,
+  retryDelays = [700, 1600, 3000],
 } = {}) {
   const cache = new Cache();
+  const feeds = new Map();
+  const stamps = [];
+  const stat = () => ({ ok: 0, failed: 0, retried: 0, lastOk: null, lastError: null, lastErrorAt: null });
+  const health = { deezer: stat(), itunes: stat() };
 
-  async function getJson(url) {
-    const res = await fetchImpl(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`${new URL(url).host} answered ${res.status}`);
-    return JSON.parse(await res.text());
-  }
-
-  // Deezer reports errors (like "quota exceeded") inside a 200 response.
-  function deezer(path, params = {}, ttl = HOUR) {
-    const url = new URL(deezerBase + path);
-    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-    return cache.wrap(url.toString(), ttl, async () => {
-      const data = await getJson(url.toString());
-      if (data?.error) {
-        if (data.error.code === 800) return { data: [] }; // "no data"
-        throw new Error(`Deezer: ${data.error.message || data.error.type}`);
-      }
-      return data;
-    });
-  }
+  const noteOk = (src) => {
+    health[src].ok += 1;
+    health[src].lastOk = new Date().toISOString();
+  };
+  const noteFail = (src, err) => {
+    health[src].failed += 1;
+    health[src].lastError = err.message;
+    health[src].lastErrorAt = new Date().toISOString();
+  };
 
   const warned = new Set();
   const warnOnce = (what, err) => {
@@ -118,6 +168,66 @@ export function createMusic({
     warned.add(what);
     console.warn(`[music] ${what} unavailable: ${err.message}`);
   };
+
+  async function pace() {
+    for (;;) {
+      const t = Date.now();
+      while (stamps.length && stamps[0] <= t - 5000) stamps.shift();
+      if (stamps.length < deezerBudget) {
+        stamps.push(t);
+        return;
+      }
+      await sleep(stamps[0] + 5000 - t + 5);
+    }
+  }
+
+  async function getJson(url) {
+    const res = await fetchImpl(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      const err = new Error(`${new URL(url).host} answered ${res.status}`);
+      err.retry = res.status === 429 || res.status >= 500;
+      throw err;
+    }
+    return JSON.parse(await res.text());
+  }
+
+  // One Deezer call, retried when Deezer is busy or over its limit.
+  // Deezer reports errors (like "quota exceeded") inside a 200 response.
+  async function deezerCall(url) {
+    for (let attempt = 0; ; attempt++) {
+      await pace();
+      let err;
+      try {
+        const data = await getJson(url);
+        if (!data?.error) {
+          noteOk('deezer');
+          return data;
+        }
+        if (data.error.code === 800) {
+          noteOk('deezer');
+          return { data: [] }; // "no data"
+        }
+        err = new Error(`Deezer: ${data.error.message || data.error.type}`);
+        err.retry = data.error.code === 4 || data.error.code === 700; // over the limit, or busy
+      } catch (e) {
+        err = e;
+      }
+      if (err.retry && attempt < retryDelays.length) {
+        health.deezer.retried += 1;
+        await sleep(retryDelays[attempt]);
+        continue;
+      }
+      noteFail('deezer', err);
+      throw err;
+    }
+  }
+
+  function deezer(path, params = {}, ttl = HOUR) {
+    const url = new URL(deezerBase + path);
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
+    if (!ttl) return deezerCall(url.toString());
+    return cache.wrap(url.toString(), ttl, () => deezerCall(url.toString()));
+  }
 
   // ---------------------------------------------------------------- Deezer → items
 
@@ -161,6 +271,8 @@ export function createMusic({
     fans: a.nb_fan || null,
   });
 
+  const converter = (kind) => ({ song: fromTrack, album: (a) => fromAlbum(a), artist: (a) => fromArtist(a) })[kind];
+
   // Albums or artists drawn from a list of tracks (playlists, charts).
   function tracksTo(kind, tracks) {
     if (kind === 'song') return tracks.map(fromTrack);
@@ -180,14 +292,6 @@ export function createMusic({
     return out;
   }
 
-  const dedupe = (items) => {
-    const seen = new Set();
-    return items.filter((m) => {
-      const k = `${m.kind === 'artist' ? itemKey(m.title) : songKey(m.title)}|${itemKey(m.artist)}`;
-      return !seen.has(k) && seen.add(k);
-    });
-  };
-
   async function genres() {
     try {
       const data = await deezer('/genre', {}, 24 * HOUR);
@@ -199,56 +303,21 @@ export function createMusic({
     return DEEZER_GENRES;
   }
 
-  // Finds a fitting playlist ("90s rock hits") and returns its tracks.
-  // Deezer's own editors' playlists win over fan-made ones.
-  async function playlistTracks(query, { random = false } = {}) {
-    const found = await deezer('/search/playlist', { q: query, limit: 12 }, 6 * HOUR);
-    const lists = (found.data || []).filter((p) => (p.nb_tracks || 0) >= 15);
-    if (!lists.length) return [];
-    const score = (p) => (/deezer|editor/i.test(p.user?.name || '') ? 3 : 0) + (p.nb_tracks >= 40 ? 1 : 0);
-    const ranked = lists.map((p, i) => ({ p, s: score(p) - i * 0.1 })).sort((x, y) => y.s - x.s).map((x) => x.p);
-    const pick = random ? ranked[Math.floor(rng() * Math.min(5, ranked.length))] : ranked[0];
-    const tracks = await deezer(`/playlist/${pick.id}/tracks`, { limit: 150 }, 6 * HOUR);
-    return tracks.data || [];
-  }
+  // ---------------------------------------------------------------- iTunes
 
-  async function deezerBrowse(o) {
-    const genreList = await genres();
-    const genreId = o.genre ? genreList.find(([, name]) => name.toLowerCase() === o.genre.toLowerCase())?.[0] : 0;
-    const plain = !o.decade && !o.vibe;
-    const path = { song: 'tracks', album: 'albums', artist: 'artists' }[o.kind];
-
-    // Today's charts, overall or for one genre.
-    if (o.list === 'top' && plain) {
-      const data = await deezer(`/chart/${genreId || 0}/${path}`, { limit: 100 }, 30 * MIN);
-      const conv = { song: fromTrack, album: (a) => fromAlbum(a), artist: (a) => fromArtist(a) }[o.kind];
-      const items = (data.data || []).map(conv);
-      if (items.length >= 10) return items;
-    }
-    // Fresh albums straight from Deezer's editors.
-    if (o.list === 'new' && plain && o.kind === 'album') {
-      const data = await deezer(`/editorial/${genreId || 0}/releases`, { limit: 60 }, HOUR);
-      const items = (data.data || []).map((a) => fromAlbum(a));
-      if (items.length >= 10) return items;
-    }
-    // Everything else: a matching playlist, e.g. "80s rock party hits".
-    const genreWord = o.genre ? GENRE_WORDS[o.genre] || o.genre.toLowerCase() : '';
-    const tail = {
-      top: o.vibe ? '' : 'hits',
-      new: 'new releases',
-      classics: o.genre ? 'classics' : 'greatest hits of all time',
-      surprise: ['hits', 'classics', 'anthems', 'essentials', 'hidden gems'][Math.floor(rng() * 5)],
-    }[o.list];
-    const query = [o.decade, genreWord, o.vibe ? VIBES[o.vibe] : '', tail].filter(Boolean).join(' ');
-    const tracks = await playlistTracks(query, { random: o.list === 'surprise' });
-    return tracksTo(o.kind, o.list === 'surprise' ? shuffle(tracks, rng) : tracks);
-  }
-
-  // ---------------------------------------------------------------- iTunes (backup search)
-
-  async function itunes(kind, term, limit = 15) {
+  async function itunes(kind, term, limit = 15, ttl = 6 * HOUR) {
     const url = `${itunesBase}/search?${new URLSearchParams({ term, media: 'music', entity: ITUNES_KIND[kind], limit: String(limit), country: 'US' })}`;
-    const data = await cache.wrap(url, 6 * HOUR, () => getJson(url));
+    const load = async () => {
+      try {
+        const out = await getJson(url);
+        noteOk('itunes');
+        return out;
+      } catch (err) {
+        noteFail('itunes', err);
+        throw err;
+      }
+    };
+    const data = await (ttl ? cache.wrap(url, ttl, load) : load());
     const art = (u) => (u ? u.replace(/\/\d+x\d+bb\./, '/500x500bb.') : null);
     return (data.results || []).map((r) => {
       if (kind === 'song') {
@@ -278,7 +347,7 @@ export function createMusic({
   const DECADE_RANGE = { '2020s': [2020, 2099], '2010s': [2010, 2019], '2000s': [2000, 2009], '90s': [1990, 1999], '80s': [1980, 1989], '70s': [1970, 1979], '60s': [0, 1969] };
   const VIBE_TAG = { party: 'p', singalong: 's', love: 'l', chill: 'c', feelgood: 'f', workout: 'w', roadtrip: 'r' };
 
-  function catalogBrowse(o) {
+  function catalogBrowse(o, rand) {
     const [from, to] = o.decade ? DECADE_RANGE[o.decade] : [0, 9999];
     let list = catalogFor(o.kind).filter(
       (r) =>
@@ -288,7 +357,7 @@ export function createMusic({
     );
     if (o.list === 'new') list = [...list].sort((a, b) => (b.year || 0) - (a.year || 0));
     else if (o.list === 'classics') list = list.filter((r) => !r.year || r.year < 2000);
-    else if (o.list === 'surprise') list = shuffle(list, rng);
+    list = o.list === 'surprise' ? shuffle(list, rand) : jumble(list, rand);
     return list.map(fromRow);
   }
 
@@ -301,30 +370,86 @@ export function createMusic({
       .map(fromRow);
   }
 
-  const cleanOnly = (items, clean) => (clean ? items.filter((m) => !m.explicit) : items);
+  // ---------------------------------------------------------------- search
 
-  // ---------------------------------------------------------------- public
+  // "Still Waiting - Sum 41", "Sum 41 – Still Waiting", "still waiting by sum 41"
+  const splitQuery = (q) => q.match(/^(.+?)\s+(?:-|–|—|by)\s+(.+)$/i)?.slice(1, 3) || null;
+
+  // Every typed word should show up somewhere in a result.
+  const words = (text) => String(text || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9]+/g) || [];
+  const STOP = new Set(['the', 'a', 'an', 'by', 'and', 'of']);
+  const mentions = (m, q) => {
+    const have = new Set(words(`${m.title} ${m.artist || ''} ${m.album || ''}`));
+    return words(q).every((w) => STOP.has(w) || have.has(w));
+  };
 
   async function search(kind, q, { clean = false } = {}) {
     const query = String(q || '').trim().slice(0, 80);
-    if (query.length < 2 || !KINDS.includes(kind)) return [];
-    try {
-      const path = { song: '/search/track', album: '/search/album', artist: '/search/artist' }[kind];
-      const data = await deezer(path, { q: query, limit: 20 }, HOUR);
-      const conv = { song: fromTrack, album: (a) => fromAlbum(a), artist: (a) => fromArtist(a) }[kind];
-      return cleanOnly(dedupe((data.data || []).map(conv)), clean).slice(0, 12);
-    } catch (err) {
-      warnOnce('Deezer search', err);
+    if (query.length < 2 || !KINDS.includes(kind)) return { results: [], source: null, hidden: 0 };
+    const path = { song: '/search/track', album: '/search/album', artist: '/search/artist' }[kind];
+    const conv = converter(kind);
+    const parts = kind === 'artist' ? null : splitQuery(query);
+
+    // A plain search, plus exact title + artist searches when it looks like
+    // "title - artist" (in either order).
+    const asks = [deezer(path, { q: query, limit: 50 }, HOUR)];
+    if (parts) {
+      const field = kind === 'song' ? 'track' : 'album';
+      const quote = (s) => `"${s.replace(/"/g, '').trim()}"`;
+      asks.push(deezer(path, { q: `${field}:${quote(parts[0])} artist:${quote(parts[1])}`, limit: 15 }, HOUR));
+      asks.push(deezer(path, { q: `artist:${quote(parts[0])} ${field}:${quote(parts[1])}`, limit: 15 }, HOUR));
     }
-    let found = [];
-    try {
-      found = await itunes(kind, query);
-    } catch (err) {
-      warnOnce('iTunes search', err);
+    const answers = await Promise.allSettled(asks);
+
+    // Best matches first: title + artist, then the exact title, then the rest
+    // in Deezer's own order (most relevant and popular first).
+    const typed = itemKey(query);
+    const halves = parts?.map(itemKey);
+    const fit = (m) => {
+      const k = kind === 'artist' ? itemKey(m.title) : songKey(m.title);
+      const a = itemKey(m.artist);
+      if (a && (typed === k + a || typed === a + k)) return 3;
+      if (halves && a && ((k === halves[0] && a === halves[1]) || (k === halves[1] && a === halves[0]))) return 3;
+      if (k === typed) return 2;
+      if (halves && (k === halves[0] || k === halves[1])) return 1;
+      return 0;
+    };
+
+    let merged = [];
+    let deezerOk = false;
+    for (const [i, a] of answers.entries()) {
+      if (a.status === 'rejected') {
+        warnOnce('Deezer search', a.reason);
+        continue;
+      }
+      deezerOk = true;
+      const items = (a.value.data || []).map(conv);
+      // The exact title + artist searches only add exact hits.
+      merged = i === 0 ? [...merged, ...items] : [...items.filter((m) => fit(m) === 3), ...merged];
     }
-    return cleanOnly(dedupe([...found, ...catalogSearch(kind, query)]), clean)
-      .map(({ previewUrl, ...m }) => m)
-      .slice(0, 12);
+    let source = deezerOk ? 'deezer' : null;
+    // Apple fills in when Deezer is down or comes up short.
+    if (!deezerOk || dedupe(cleanOnly(merged, clean)).length < 8) {
+      try {
+        const extra = await itunes(kind, query.replace(/\s+[-–—]\s+/g, ' '), 25);
+        merged = [...merged, ...(deezerOk ? extra.filter((m) => mentions(m, query)) : extra)];
+        source ||= 'itunes';
+      } catch (err) {
+        warnOnce('iTunes search', err);
+      }
+    }
+    if (!deezerOk) merged = [...merged, ...catalogSearch(kind, query)];
+    source ||= 'offline';
+
+    const ranked = merged.map((m, i) => ({ m, s: fit(m), i })).sort((x, y) => y.s - x.s || x.i - y.i).map((x) => x.m);
+    const results = dedupe(cleanOnly(ranked, clean));
+    const shown = new Set(results.map(sameKey));
+    const hidden = clean ? dedupe(ranked).filter((m) => !shown.has(sameKey(m))).length : 0;
+    return {
+      results: results.slice(0, SEARCH_SIZE).map(({ previewUrl, ...m }) => m),
+      source,
+      hidden,
+    };
   }
 
   // Best match for something typed in by hand, e.g. "thriller michael jackson".
@@ -337,7 +462,175 @@ export function createMusic({
       const a = itemKey(m.artist);
       return k === typed || (a && (typed === k + a || typed === a + k));
     };
-    return (await search(kind, title, { clean })).find(fits) || null;
+    const halves = splitQuery(String(title));
+    const fitsSplit = (m) =>
+      halves && itemKey(m.artist) && [0, 1].some((i) => keyOf(m) === itemKey(halves[i]) && itemKey(m.artist) === itemKey(halves[1 - i]));
+    const { results } = await search(kind, title, { clean });
+    return results.find((m) => fits(m) || fitsSplit(m)) || null;
+  }
+
+  // ---------------------------------------------------------------- endless ideas
+  //
+  // Each list is a "feed" that keeps growing: first the chart (when there is
+  // one), then playlist after playlist from a long list of matching searches
+  // ("90s rock hits", "90s rock anthems", …), then the top songs of artists
+  // it has already shown. Every phone gets its own shuffle (the seed), and a
+  // feed never repeats a song.
+
+  function playlistQueries(o, rand) {
+    const genre = o.genre ? GENRE_WORDS[o.genre] || o.genre.toLowerCase() : '';
+    const vibes = o.vibe ? VIBE_WORDS[o.vibe] : [''];
+    let tails = [...LIST_WORDS[o.list]];
+    if (o.list === 'top' && o.vibe) tails = ['', ...tails]; // "party hits" already says "hits"
+    if (o.list === 'classics' && o.genre && !o.vibe) tails = tails.filter((t) => t !== 'greatest hits');
+    if (o.list === 'classics' && !o.genre && !o.decade) tails[0] = 'greatest hits of all time';
+    const year = new Date().getFullYear();
+    const extra = [];
+    if (!o.decade && (o.list === 'top' || o.list === 'new')) extra.push(`hits ${year}`, `${year}`, `hits ${year - 1}`, 'viral hits', 'trending');
+    if (!o.decade && (o.list === 'classics' || o.list === 'surprise')) extra.push(...['70s', '80s', '90s', '2000s'].map((d) => `${d} ${LIST_WORDS[o.list][0]}`));
+
+    const all = [];
+    for (const tail of [...tails, ...extra]) {
+      for (const vibe of vibes) all.push([o.decade, genre, vibe, tail].filter(Boolean).join(' '));
+    }
+    const unique = [...new Set(all)].filter(Boolean);
+    const [first, ...rest] = unique;
+    return o.list === 'surprise' ? shuffle(unique, rand).slice(0, 24) : [first, ...shuffle(rest, rand)].slice(0, 24);
+  }
+
+  function newFeed(o) {
+    const rand = seeded([o.seed, o.kind, o.list, o.genre, o.decade, o.vibe, o.clean].join('|'));
+    const plain = !o.decade && !o.vibe;
+    const queue = [];
+    if (o.list === 'top' && plain) queue.push({ type: 'chart' });
+    if (o.list === 'new' && plain && o.kind === 'album') queue.push({ type: 'releases' });
+    for (const q of playlistQueries(o, rand)) queue.push({ type: 'search', q });
+    return {
+      o, rand, queue,
+      items: [], seen: new Set(), playlists: new Set(),
+      artists: [], artistIds: new Set(), expanded: 0,
+      done: false, lock: Promise.resolve(), at: Date.now(),
+    };
+  }
+
+  function getFeed(o) {
+    const key = JSON.stringify([o.kind, o.list, o.genre, o.decade, o.vibe, o.clean, o.seed]);
+    let feed = feeds.get(key);
+    if (!feed || Date.now() - feed.at > 30 * MIN) feed = newFeed(o);
+    feed.at = Date.now();
+    feeds.delete(key);
+    feeds.set(key, feed); // most recently used goes last
+    while (feeds.size > 80) feeds.delete(feeds.keys().next().value);
+    return feed;
+  }
+
+  const rememberArtists = (feed, list) => {
+    for (const a of list) {
+      if (a?.id && feed.artists.length < 400 && !feed.artistIds.has(a.id)) {
+        feed.artistIds.add(a.id);
+        feed.artists.push(a);
+      }
+    }
+  };
+
+  // Runs one step of a feed and returns the items it found.
+  async function runStep(feed, step) {
+    const { o, rand } = feed;
+    const path = { song: 'tracks', album: 'albums', artist: 'artists' }[o.kind];
+    if (step.type === 'chart' || step.type === 'releases') {
+      const list = await genres();
+      const genreId = o.genre ? list.find(([, name]) => name.toLowerCase() === o.genre.toLowerCase())?.[0] : 0;
+      if (o.genre && !genreId) return [];
+      const data = step.type === 'chart'
+        ? await deezer(`/chart/${genreId || 0}/${path}`, { limit: 100 }, 30 * MIN)
+        : await deezer(`/editorial/${genreId || 0}/releases`, { limit: 100 }, HOUR);
+      const rows = data.data || [];
+      rememberArtists(feed, o.kind === 'artist' ? rows : rows.map((r) => r.artist));
+      return jumble(rows.map(converter(step.type === 'releases' ? 'album' : o.kind)), rand);
+    }
+    if (step.type === 'search') {
+      const found = await deezer('/search/playlist', { q: step.q, limit: 25 }, 6 * HOUR);
+      const lists = (found.data || []).filter((p) => (p.nb_tracks || 0) >= 15 && !feed.playlists.has(p.id));
+      // Deezer's own editors' playlists first.
+      const score = (p) => (/deezer|editor/i.test(p.user?.name || '') ? 3 : 0) + (p.nb_tracks >= 40 ? 1 : 0);
+      let ranked = lists.map((p, i) => ({ p, s: score(p) - i * 0.1 })).sort((x, y) => y.s - x.s).map((x) => x.p);
+      ranked = o.list === 'surprise' ? shuffle(ranked.slice(0, 15), rand) : [ranked[0], ...shuffle(ranked.slice(1, 10), rand)].filter(Boolean);
+      for (const p of ranked) feed.playlists.add(p.id);
+      const [best, ...others] = ranked.slice(0, 8).map((p) => ({ type: 'playlist', id: p.id }));
+      // The best playlist for this search plays next; the rest wait their
+      // turn behind the other searches, so the mix stays varied.
+      if (best) feed.queue.unshift(best);
+      feed.queue.push(...others);
+      return [];
+    }
+    if (step.type === 'playlist') {
+      const data = await deezer(`/playlist/${step.id}/tracks`, { limit: 100 }, 6 * HOUR);
+      const tracks = data.data || [];
+      rememberArtists(feed, tracks.map((t) => t.artist));
+      return shuffle(tracksTo(o.kind, tracks), rand);
+    }
+    if (step.type === 'artist') {
+      const a = step.artist;
+      if (o.kind === 'song') {
+        const data = await deezer(`/artist/${a.id}/top`, { limit: 25 }, 6 * HOUR);
+        return shuffle((data.data || []).map(fromTrack), rand);
+      }
+      if (o.kind === 'album') {
+        const data = await deezer(`/artist/${a.id}/albums`, { limit: 25 }, 6 * HOUR);
+        const albums = (data.data || []).filter((x) => !x.record_type || x.record_type === 'album');
+        return shuffle(albums.map((x) => fromAlbum(x, a)), rand);
+      }
+      const data = await deezer(`/artist/${a.id}/related`, { limit: 25 }, 6 * HOUR);
+      const related = data.data || [];
+      rememberArtists(feed, related); // and so on, and so on
+      return shuffle(related.map((x) => fromArtist(x)), rand);
+    }
+    return [];
+  }
+
+  // Adds what's new, skipping anything already shown in this feed.
+  function take(feed, items) {
+    let added = 0;
+    for (const m of cleanOnly(items, feed.o.clean)) {
+      const k = sameKey(m);
+      if (!m.title || feed.seen.has(k)) continue;
+      feed.seen.add(k);
+      feed.items.push(m);
+      added += 1;
+      if (feed.items.length >= FEED_MAX) break;
+    }
+    return added;
+  }
+
+  // Grows the feed until it has `want` items. Stops after a handful of calls
+  // so one request never takes too long; the next scroll picks up from there.
+  async function fill(feed, want, budget) {
+    let failures = 0;
+    while (feed.items.length < want && !feed.done && budget > 0) {
+      if (feed.items.length >= FEED_MAX) {
+        feed.done = true;
+        break;
+      }
+      if (!feed.queue.length) {
+        const next = feed.artists[feed.expanded];
+        if (!next) {
+          feed.done = true;
+          break;
+        }
+        feed.expanded += 1;
+        feed.queue.push({ type: 'artist', artist: next });
+      }
+      const step = feed.queue.shift();
+      budget -= 1;
+      try {
+        take(feed, await runStep(feed, step));
+      } catch (err) {
+        warnOnce('Deezer ideas', err);
+        step.tries = (step.tries || 0) + 1;
+        if (step.tries < 3) feed.queue.push(step);
+        if (++failures >= 3) break;
+      }
+    }
   }
 
   async function browse(query = {}) {
@@ -346,26 +639,31 @@ export function createMusic({
       list: LISTS.includes(query.list) ? query.list : 'top',
       genre: String(query.genre || '').slice(0, 40) || null,
       decade: DECADES.includes(query.decade) ? query.decade : null,
-      vibe: VIBES[query.vibe] ? query.vibe : null,
+      vibe: VIBE_WORDS[query.vibe] ? query.vibe : null,
       clean: query.clean === '1' || query.clean === true,
-      page: Math.min(50, Math.max(1, parseInt(query.page, 10) || 1)),
+      seed: String(query.seed || '').slice(0, 24),
     };
-    let all;
-    let source = 'deezer';
-    try {
-      all = await deezerBrowse(o);
-    } catch (err) {
-      warnOnce('Deezer browse', err);
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const offset = Math.min(FEED_MAX, Math.max(0, parseInt(query.offset, 10) || (page - 1) * PAGE_SIZE));
+    const want = offset + PAGE_SIZE;
+
+    const feed = getFeed(o);
+    // One request at a time per feed, so two quick scrolls don't double up.
+    const run = feed.lock.then(() => fill(feed, want, feed.items.length < offset ? 40 : 12));
+    feed.lock = run.catch(() => {});
+    await run;
+
+    if (feed.items.length) {
+      const results = feed.items.slice(offset, want);
+      const more = !feed.done || feed.items.length > offset + results.length;
+      return { results, offset, next: offset + results.length, more, source: 'deezer' };
     }
-    if (!all?.length) {
-      all = catalogBrowse(o);
-      source = 'offline';
-    }
-    all = cleanOnly(dedupe(all), o.clean);
-    const pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
-    const start = (o.page - 1) * PAGE_SIZE;
-    return { results: all.slice(start, start + PAGE_SIZE), page: o.page, pages, source };
+    const all = dedupe(cleanOnly(catalogBrowse(o, seeded(`${o.seed}|${o.kind}|${o.list}`)), o.clean));
+    const results = all.slice(offset, want);
+    return { results, offset, next: offset + results.length, more: all.length > want, source: 'offline' };
   }
+
+  // ---------------------------------------------------------------- other lookups
 
   async function meta() {
     let names = CATALOG_GENRES;
@@ -380,7 +678,7 @@ export function createMusic({
     } catch (err) {
       warnOnce('Deezer genres', err);
     }
-    return { source, genres: names, decades: DECADES, vibes: Object.keys(VIBES) };
+    return { source, genres: names, decades: DECADES, vibes: Object.keys(VIBE_WORDS) };
   }
 
   // A 30-second preview. Deezer preview links expire, so they're fetched fresh.
@@ -465,5 +763,31 @@ export function createMusic({
     return out;
   }
 
-  return { source: 'deezer', search, details, browse, meta, preview, about };
+  // A quick live check of each source, for /api/music/status.
+  function status() {
+    return cache.wrap('status', 30_000, async () => {
+      const probe = async (load) => {
+        const t = Date.now();
+        try {
+          const out = await load();
+          return { ok: true, ms: Date.now() - t, ...out };
+        } catch (err) {
+          return { ok: false, ms: Date.now() - t, error: err.message };
+        }
+      };
+      const name = (m) => (m ? `${m.title} – ${m.artist}` : null);
+      const [deezerNow, itunesNow] = await Promise.all([
+        probe(async () => ({ top: name((await deezer('/search/track', { q: 'still waiting sum 41', limit: 3 }, 0)).data?.map(fromTrack)[0]) })),
+        probe(async () => ({ top: name((await itunes('song', 'still waiting sum 41', 3, 0))[0]) })),
+      ]);
+      return {
+        checkedAt: new Date().toISOString(),
+        deezer: { now: deezerNow, ...health.deezer },
+        itunes: { now: itunesNow, ...health.itunes },
+        ideaLists: feeds.size,
+      };
+    });
+  }
+
+  return { source: 'deezer', search, details, browse, meta, preview, about, status };
 }

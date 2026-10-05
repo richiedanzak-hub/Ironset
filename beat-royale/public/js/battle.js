@@ -96,6 +96,21 @@ function ShuffleIntro({ count, onDone }) {
   </div>`;
 }
 
+function ChampionsIntro({ items, kind, onDone }) {
+  useEffect(() => {
+    sfx.fanfare();
+    const t = setTimeout(onDone, 3800);
+    return () => clearTimeout(t);
+  }, []);
+  return html`<div class="shuffle-overlay" onClick=${onDone}>
+    <div>
+      <div class="champ-stack">${items.slice(0, 6).map((m) => html`<${Cover} key=${m.id} item=${m} tiny />`)}</div>
+      <h2>🏆 Champions round!</h2>
+      <p>${items.length} ${noun(kind, items.length)} won a matchup. Now they battle each other for the crown.</p>
+    </div>
+  </div>`;
+}
+
 function ItemInfo({ item, onClose }) {
   return html`<${Sheet} open=${!!item} onClose=${onClose} title=${item?.title || ''} className="detail-sheet">
     ${item
@@ -164,6 +179,8 @@ function banner(result, b, entries) {
     return result.tied?.length > 2 ? ['🎲 Random draw!', `${w.title} wins the draw`, true] : ['🪙 Coin flip!', `${w.title} wins the toss`, true];
   }
   if (result.method === 'champ') return ['🤝 Dead heat!', `Ties go to the champ. ${w.title} holds on`, true];
+  if (b.champions && result.last) return ['🏆 Champion of champions!', `${w.title} beats the best of the best`, true];
+  if (b.champions && b.round === b.champions.from) return ['⚡ Champions clash!', `${w.title} wins the first champions matchup`, true];
   if (b.round === 1) return ['⚡ First crown!', `${w.title} takes the throne`, true];
   if (n > 2) return ['🏆 Last one standing!', `${w.title} wins the ${n}‑way showdown`, true];
   if (result.winner === b.champ) return ['🛡️ The champ holds!', `${w.title} survives another round`, true];
@@ -183,6 +200,17 @@ export function Battle() {
   const [drawSeen, setDrawSeen] = useState(0); // round whose tie-break animation we've shown
   const [intro, setIntro] = useState(() => b.round === 1 && b.stage === 'voting' && Date.now() + offset.current - b.startedAt < 3000);
   const lastRound = useRef(b.round);
+  const champs = b.champions;
+  const champRound = champs ? b.round - champs.from + 1 : 0;
+  const champTotal = champs ? champs.ids.length - 1 : 0;
+  const [champIntro, setChampIntro] = useState(false);
+  const champIntroShown = useRef(false);
+  useEffect(() => {
+    if (champs && champRound === 1 && b.stage === 'voting' && !champIntroShown.current) {
+      champIntroShown.current = true;
+      setChampIntro(true);
+    }
+  }, [!!champs, b.round]);
 
   useEffect(() => setPending(null), [b.round, b.stage]);
   useEffect(() => {
@@ -220,11 +248,11 @@ export function Battle() {
     result ? Object.entries(result.votes).filter(([, eid]) => eid === id).map(([pid]) => result.voters[pid]).filter(Boolean) : [];
 
   const badgeFor = (id) => {
+    const w = b.wins[id] || 0;
+    const winsText = `${w} ${w === 1 ? 'win' : 'wins'}`;
+    if (champs && (champRound === 1 || id === b.challenger)) return html`<span class="fighter-badge champ">🏆 Champion · ${winsText}</span>`;
     if (b.round === 1) return html`<span class="fighter-badge new">🎩 Fresh from the hat</span>`;
-    if (id === b.champ) {
-      const w = b.wins[id] || 0;
-      return html`<span class="fighter-badge champ">👑 Champ${n > 2 ? '' : ` · ${w} ${w === 1 ? 'win' : 'wins'}`}</span>`;
-    }
+    if (id === b.champ) return html`<span class="fighter-badge champ">👑 Champ${n > 2 ? '' : ` · ${winsText}`}</span>`;
     if (id === b.challenger) return html`<span class="fighter-badge new">🎩 ${n > 2 ? 'New' : 'New challenger'}</span>`;
     return html`<span class="fighter-badge tied">🤝 Still in</span>`;
   };
@@ -234,10 +262,13 @@ export function Battle() {
     if (result.winner === id) return 'won';
     return result.survivors?.includes(id) ? 'kept' : 'lost';
   };
-  const done = b.round - 1 + (result ? 1 : 0);
+  const done = (champs ? champRound : b.round) - 1 + (result ? 1 : 0);
+  const outOf = champs ? champTotal : b.total;
   const [title, sub, gold] = revealed ? banner(result, b, E) : [];
   const heading =
-    b.round === 1 && n === 2
+    champRound === 1 && n === 2
+      ? html`The champions <span class="hl">face off!</span>`
+      : b.round === 1 && n === 2
       ? html`First two out of <span class="hl">the hat!</span>`
       : n > 2
         ? html`<span class="hl">${n}‑way</span> showdown!`
@@ -251,16 +282,21 @@ export function Battle() {
 
   return html`<div>
     <div class="round-row">
-      <span class="pill pill-hot">⚔️ Round ${b.round} of ${b.total}</span>
+      ${champs
+        ? html`<span class="pill pill-gold">🏆 Champions · ${champRound} of ${champTotal}</span>`
+        : html`<span class="pill pill-hot">⚔️ Round ${b.round} of ${b.total}</span>`}
       ${b.endsAt && !result ? html`<${Countdown} endsAt=${b.endsAt} offset=${offset} />` : null}
-      <span class="pill">🎩 ${b.left} left</span>
+      <span class="pill">${champs ? `👑 ${b.left} more ${b.left === 1 ? 'champ' : 'champs'}` : `🎩 ${b.left} left`}</span>
     </div>
-    <div class="progress"><i style=${{ width: `${Math.max(4, (done / b.total) * 100)}%` }} /></div>
+    <div class="progress ${champs ? 'gold' : ''}"><i style=${{ width: `${Math.max(4, (done / outOf) * 100)}%` }} /></div>
 
     ${revealed
       ? html`<div class="banner" key=${`b${b.round}`}>
           <span class="banner-big ${gold ? 'gold' : ''}">${title}</span>
           <span class="banner-sub">${sub}</span>
+          ${result.toChampions
+            ? html`<span class="banner-next">🏆 The hat's empty! ${result.toChampions} champions head to the champions round</span>`
+            : null}
         </div>`
       : html`<h1 class="duel-title">${heading}</h1>`}
 
@@ -309,9 +345,11 @@ export function Battle() {
       ${revealed
         ? result.last
           ? html`<button class="btn btn-gold btn-block btn-xl" onClick=${() => (sfx.pop(), act({ type: 'next', round: b.round }))}>👑 Crown the champion</button>`
-          : result.method === 'keep'
-            ? html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>🎩 Draw one to join the fight</button>`
-            : html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>🎩 Draw the next ${noun(view.settings.kind)}</button>`
+          : result.toChampions
+            ? html`<button class="btn btn-gold btn-block btn-xl" onClick=${advance}>🏆 Start the champions round</button>`
+            : result.method === 'keep'
+              ? html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>${champs ? '🏆 Bring in another champion' : '🎩 Draw one to join the fight'}</button>`
+              : html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>${champs ? '🏆 Bring in the next champion' : `🎩 Draw the next ${noun(view.settings.kind)}`}</button>`
         : !result && myVote && waitingOn.length
           ? html`<div class="card center" style=${{ padding: '14px' }}>
               <strong class="dots">Waiting on ${waitingOn.map((p) => p.name).slice(0, 3).join(', ')}${waitingOn.length > 3 ? ` +${waitingOn.length - 3}` : ''}</strong>
@@ -326,6 +364,9 @@ export function Battle() {
         : html`<${CoinFlip} a=${tied[0]} b=${tied[1]} winner=${result.winner} onDone=${() => setDrawSeen(b.round)} />`
       : null}
     ${intro ? html`<${ShuffleIntro} count=${b.total + 1} onDone=${() => setIntro(false)} />` : null}
+    ${champIntro && champs
+      ? html`<${ChampionsIntro} items=${champs.ids.map((id) => E[id])} kind=${view.settings.kind} onDone=${() => setChampIntro(false)} />`
+      : null}
     <${ItemInfo} item=${info} onClose=${() => setInfo(null)} />
   </div>`;
 }

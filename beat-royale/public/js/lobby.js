@@ -1,10 +1,11 @@
 // The lobby: invite people, set the house rules, open the hat.
 import { html, useState, useEffect, useMemo } from './lib.js';
-import { inviteLink } from './api.js';
-import { Avatar, Seg, Stepper, noun, toast, useGame } from './ui.js';
+import { inviteLink, request } from './api.js';
+import { Avatar, DECADES, Seg, Stepper, ThemeBanner, VIBES, noun, themeTitle, toast, useGame } from './ui.js';
 import { sfx } from './sfx.js';
 
 export function ShareBody({ code }) {
+  const theme = useGame()?.view?.settings?.theme;
   const [link, setLink] = useState('');
   const [showQr, setShowQr] = useState(false);
   useEffect(() => {
@@ -23,7 +24,8 @@ export function ShareBody({ code }) {
     sfx.tap();
     if (!navigator.share) return copy();
     try {
-      await navigator.share({ title: 'Beat Royale', text: `🎧 Join our music battle! Party code: ${code}`, url: link });
+      const about = theme ? ` Theme: ${themeTitle(theme)}.` : '';
+      await navigator.share({ title: 'Beat Royale', text: `🎧 Join our music battle!${about} Party code: ${code}`, url: link });
     } catch {}
   };
 
@@ -64,6 +66,72 @@ const TIE_HELP = {
 
 const KIND_LABEL = { song: '🎵 Song', album: '💿 Album', artist: '🎤 Artist' };
 
+// One-tap themes. Genres use Deezer's names so the ideas can follow them.
+const PRESETS = [
+  ['🎸 90s Rock', { decade: '90s', genre: 'Rock' }],
+  ['🪩 80s Party', { decade: '80s', vibe: 'party' }],
+  ['💿 2000s Throwbacks', { decade: '2000s', name: '2000s Throwbacks' }],
+  ['🔥 Hits right now', { decade: '2020s', name: 'Hits right now' }],
+  ['🎤 Sing-along', { vibe: 'singalong' }],
+  ['🚗 Road trip', { vibe: 'roadtrip' }],
+  ['🤠 Country', { genre: 'Country' }],
+  ['🎙️ Hip hop', { genre: 'Rap/Hip Hop', name: 'Hip hop' }],
+  ['🕺 Soul & Funk', { genre: 'Soul & Funk' }],
+  ['💘 Love songs', { vibe: 'love' }],
+];
+const FALLBACK_GENRES = ['Pop', 'Rock', 'Rap/Hip Hop', 'R&B', 'Dance', 'Alternative', 'Country', 'Latin Music', 'Soul & Funk', 'Electro', 'Metal', 'Reggae', 'Jazz', 'Folk', 'Blues', 'Films/Games'];
+
+const sameTheme = (a, b) => ['name', 'genre', 'decade', 'vibe'].every((k) => (a?.[k] || null) === (b?.[k] || null));
+
+function ThemePicker({ theme, set }) {
+  const preset = PRESETS.find(([, t]) => sameTheme(t, theme));
+  const [custom, setCustom] = useState(!!theme && !preset);
+  const [genres, setGenres] = useState(null);
+  const [name, setName] = useState(theme?.name || '');
+  useEffect(() => setName(theme?.name || ''), [theme?.name]);
+  useEffect(() => {
+    if (custom && !genres) {
+      request('/api/music/meta')
+        .then((m) => setGenres(m.genres?.length ? m.genres : FALLBACK_GENRES))
+        .catch(() => setGenres(FALLBACK_GENRES));
+    }
+  }, [custom]);
+
+  const change = (patch) => set({ theme: { ...(theme || {}), ...patch } });
+  const toggle = (k, v) => change({ [k]: theme?.[k] === v ? null : v });
+  const saveName = () => name.trim() !== (theme?.name || '') && change({ name: name.trim() || null });
+
+  return html`<div>
+    <div class="wrap-chips">
+      <button class="chip ${!theme ? 'on' : ''}" onClick=${() => (setCustom(false), set({ theme: null }))}>🎲 Anything goes</button>
+      ${PRESETS.map(
+        ([label, t]) => html`<button class="chip ${preset?.[1] === t ? 'on' : ''}" key=${label}
+          onClick=${() => (setCustom(false), set({ theme: t }))}>${label}</button>`,
+      )}
+      <button class="chip soft ${custom ? 'on' : ''}" onClick=${() => setCustom(!custom)} aria-expanded=${custom}>✏️ Make your own</button>
+    </div>
+    ${custom
+      ? html`<div class="filter-panel theme-panel">
+          <h3>Name it (optional)</h3>
+          <input class="input" placeholder="e.g. Mom's birthday bangers" maxlength="40" value=${name}
+            onInput=${(e) => setName(e.target.value)} onBlur=${saveName} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} />
+          <h3>Genre</h3>
+          <div class="wrap-chips">
+            ${(genres || FALLBACK_GENRES).map((g) => html`<button class="chip ${theme?.genre === g ? 'on' : ''}" key=${g} onClick=${() => toggle('genre', g)}>${g}</button>`)}
+          </div>
+          <h3>Decade</h3>
+          <div class="wrap-chips">
+            ${DECADES.map(([v, label]) => html`<button class="chip ${theme?.decade === v ? 'on' : ''}" key=${v} onClick=${() => toggle('decade', v)}>${label}</button>`)}
+          </div>
+          <h3>Vibe</h3>
+          <div class="wrap-chips">
+            ${VIBES.map(([v, label]) => html`<button class="chip ${theme?.vibe === v ? 'on' : ''}" key=${v} onClick=${() => toggle('vibe', v)}>${label}</button>`)}
+          </div>
+        </div>`
+      : null}
+  </div>`;
+}
+
 export function rulesSummary(s) {
   const n = (count) => noun(s.kind, count);
   const each = s.maxPerPlayer
@@ -74,6 +142,7 @@ export function rulesSummary(s) {
       ? `${s.minPerPlayer}+ ${n(2)} each`
       : `As many ${n(2)} as you like`;
   return [
+    s.theme ? `🎨 ${themeTitle(s.theme)}` : null,
     `${KIND_LABEL[s.kind]} battle`,
     `🎶 ${each}`,
     s.clean ? '🧼 Clean picks only' : null,
@@ -81,6 +150,7 @@ export function rulesSummary(s) {
     { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
     { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
     s.voteSeconds ? `⚡ ${s.voteSeconds}s to vote` : null,
+    s.champions ? '🏆 Champions round at the end' : null,
   ].filter(Boolean);
 }
 
@@ -100,6 +170,13 @@ export function RulesCard() {
   const noCap = s.maxPerPlayer === 0;
   const inLobby = view.phase === 'lobby';
   return html`<div class="card">
+    <div class="rule rule-col">
+      <div class="rule-text">
+        <strong>Theme for the night</strong>
+        <span>${s.theme ? 'Everyone sees it, and the ideas stick to it' : 'Optional: steer everyone to a genre, decade or vibe'}</span>
+      </div>
+      <${ThemePicker} theme=${s.theme} set=${set} />
+    </div>
     <div class="rule rule-col">
       <div class="rule-text"><strong>What are we battling?</strong><span>${inLobby ? 'Songs are the classic pick' : 'Locked in once the hat opens'}</span></div>
       <${Seg} label="What to battle" value=${s.kind} disabled=${!inLobby}
@@ -151,6 +228,15 @@ export function RulesCard() {
         onChange=${(v) => set({ ties: v })} />
     </div>
     <div class="rule rule-col">
+      <div class="rule-text">
+        <strong>Champions round</strong>
+        <span>${s.champions ? `Every ${noun(s.kind)} that wins a matchup comes back for one last showdown` : 'Off: the last one standing wins'}</span>
+      </div>
+      <${Seg} label="Champions round" value=${s.champions ? 'on' : 'off'}
+        options=${[['off', 'Off'], ['on', '🏆 On']]}
+        onChange=${(v) => set({ champions: v === 'on' })} />
+    </div>
+    <div class="rule rule-col">
       <div class="rule-text"><strong>Time to vote</strong><span>Keeps things moving if someone wanders off</span></div>
       <${Seg} label="Vote timer" value=${s.voteSeconds}
         options=${[[0, 'No timer'], [15, '15s'], [30, '30s'], [60, '60s']]}
@@ -171,6 +257,7 @@ export function Lobby() {
     <p class="eyebrow">Party lobby</p>
     <h1 class="screen-title">Get the crew in here</h1>
     <p class="screen-sub">Everyone joins on their own phone. Send the link, or they can type the code.</p>
+    ${view.settings.theme ? html`<div class="section"><${ThemeBanner} theme=${view.settings.theme} /></div>` : null}
 
     <div class="card card-glow share-card section"><${ShareBody} code=${code} /></div>
 

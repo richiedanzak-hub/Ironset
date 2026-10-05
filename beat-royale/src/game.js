@@ -9,7 +9,9 @@
 //   lobby   players gather, the host sets the house rules
 //   submit  everyone tosses songs (or albums, or artists) into the hat, secretly
 //   battle  king of the hill: two picks face off, the group votes, the winner
-//           stays on and faces the next pick drawn from the hat
+//           stays on and faces the next pick drawn from the hat. With the
+//           champions round on, every pick that won a matchup then goes
+//           again, king of the hill among the champions.
 //   final   the last pick standing is crowned
 
 import { randomBytes } from 'node:crypto';
@@ -27,9 +29,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
   ties: 'coin',        // 'coin' | 'champ' (reigning champ keeps the crown) | 'keep' (tied picks stay, next one joins)
   kind: 'song',        // what's being battled: 'song' | 'album' | 'artist' (set in the lobby)
   clean: false,        // true = no explicit songs or albums
+  theme: null,         // { name, genre, decade, vibe }: the host's theme for the night
+  champions: false,    // true = every pick that won a matchup battles again at the end
 });
 
 export const KINDS = ['song', 'album', 'artist'];
+export const DECADES = ['2020s', '2010s', '2000s', '90s', '80s', '70s', '60s'];
+export const VIBES = ['party', 'singalong', 'feelgood', 'chill', 'workout', 'roadtrip', 'love'];
 
 const REVEAL = ['hidden', 'reveal', 'open'];
 const TIES = ['coin', 'champ', 'keep'];
@@ -105,6 +111,18 @@ export function cleanItem(input) {
   };
 }
 
+// "90s Rock", "Road trip songs", or just a name like "Mom's birthday".
+export function cleanTheme(input) {
+  if (!input || typeof input !== 'object') return null;
+  const theme = {
+    name: cleanText(input.name, 40) || null,
+    genre: cleanText(input.genre, 40) || null,
+    decade: DECADES.includes(input.decade) ? input.decade : null,
+    vibe: VIBES.includes(input.vibe) ? input.vibe : null,
+  };
+  return theme.name || theme.genre || theme.decade || theme.vibe ? theme : null;
+}
+
 export function cleanSettings(current, patch) {
   const next = { ...current };
   const p = patch && typeof patch === 'object' ? patch : {};
@@ -121,6 +139,8 @@ export function cleanSettings(current, patch) {
   if (TIES.includes(p.ties)) next.ties = p.ties;
   if (KINDS.includes(p.kind)) next.kind = p.kind;
   if (typeof p.clean === 'boolean') next.clean = p.clean;
+  if ('theme' in p) next.theme = cleanTheme(p.theme);
+  if (typeof p.champions === 'boolean') next.champions = p.champions;
   return next;
 }
 
@@ -292,8 +312,9 @@ function startBattle(room, now, rng) {
   room.phase = 'battle';
   room.final = null;
   room.battle = {
-    order,
-    next: 2,               // index of the next pick to draw from the hat
+    order,                 // every pick, in the order drawn from the hat
+    pool: order,           // what's being drawn from now (the champions, later on)
+    next: 2,               // index of the next pick to draw from the pool
     round: 1,
     total: order.length - 1, // every round after the first draws exactly one pick
     fighters: [order[0], order[1]],
@@ -305,9 +326,30 @@ function startBattle(room, now, rng) {
     result: null,
     history: [],
     wins: {},
+    champions: null,       // { from: round, ids } once the champions round starts
     startedAt: now,
   };
   for (const p of playerList(room)) p.ready = false;
+}
+
+// Every pick that won at least one matchup, in the order they were drawn.
+const championsOf = (b) => b.order.filter((id) => b.wins[id] > 0);
+
+function startChampions(room, now, rng) {
+  const b = room.battle;
+  const ids = shuffle(championsOf(b), rng);
+  b.pool = ids;
+  b.next = 2;
+  b.total += ids.length - 1;
+  b.round += 1;
+  b.champions = { from: b.round, ids, before: b.result.winner };
+  b.fighters = [ids[0], ids[1]];
+  b.champ = null;
+  b.challenger = ids[1];
+  b.stage = 'voting';
+  b.votes = {};
+  b.result = null;
+  b.endsAt = voteDeadline(room, now);
 }
 
 function closeVoting(room, now, rng) {
@@ -329,7 +371,7 @@ function closeVoting(room, now, rng) {
   let method = 'votes';
   if (leaders.length === 1) {
     winner = leaders[0];
-  } else if (ties === 'keep' && b.next < b.order.length && leaders.length < MAX_FIGHTERS) {
+  } else if (ties === 'keep' && b.next < b.pool.length && leaders.length < MAX_FIGHTERS) {
     survivors = leaders;   // they all stay in and the next pick joins them
     method = 'keep';
   } else if (ties === 'champ' && b.champ && leaders.includes(b.champ)) {
@@ -342,13 +384,18 @@ function closeVoting(room, now, rng) {
   const losers = fighters.filter((id) => id !== winner && !survivors?.includes(id));
   if (winner) b.wins[winner] = (b.wins[winner] || 0) + 1;
   const tied = leaders.length > 1 ? leaders : null;
-  b.result = { winner, losers, survivors, tied, tally, votes, method, last: !survivors && b.next >= b.order.length };
-  b.history.push({ round: b.round, fighters: [...fighters], champ: b.champ, winner, losers, survivors, tally, method });
+  const empty = !survivors && b.next >= b.pool.length;
+  // The hat is empty: on to the champions round, if it's on and there's
+  // more than one champion to battle.
+  const champions = empty && room.settings.champions && !b.champions ? championsOf(b).length : 0;
+  const toChampions = champions >= 2 ? champions : 0;
+  b.result = { winner, losers, survivors, tied, tally, votes, method, last: empty && !toChampions, toChampions };
+  b.history.push({ round: b.round, fighters: [...fighters], champ: b.champ, winner, losers, survivors, tally, method, champions: !!b.champions });
   b.stage = 'result';
   b.endsAt = null;
 }
 
-function nextMatchup(room, now) {
+function nextMatchup(room, now, rng) {
   const b = room.battle;
   const r = b.result;
   if (r.last) {
@@ -356,7 +403,11 @@ function nextMatchup(room, now) {
     room.final = { winner: r.winner, at: now };
     return;
   }
-  const newcomer = b.order[b.next];
+  if (r.toChampions) {
+    startChampions(room, now, rng);
+    return;
+  }
+  const newcomer = b.pool[b.next];
   b.next += 1;
   if (r.survivors) {
     b.fighters = [...r.survivors, newcomer];
@@ -553,7 +604,7 @@ export function act(room, pid, action, now, rng = Math.random) {
       requirePhase(room, 'battle');
       const b = room.battle;
       // Anyone can advance; the round number makes a double tap harmless.
-      if (b.stage === 'result' && action.round === b.round) nextMatchup(room, now);
+      if (b.stage === 'result' && action.round === b.round) nextMatchup(room, now, rng);
       break;
     }
 
@@ -711,14 +762,14 @@ export function viewFor(room, pid, now) {
 
   if (b && (room.phase === 'battle' || room.phase === 'final')) {
     // Only picks already drawn from the hat are sent; the rest stay a surprise.
-    const drawn = b.order.slice(0, b.next);
+    const drawn = b.champions ? b.order : b.order.slice(0, b.next);
     const decided = new Set(b.history.flatMap((h) => h.fighters));
     const showBy = (id) => s.reveal === 'open' || (s.reveal === 'reveal' && (room.phase === 'final' || decided.has(id)));
     view.entries = Object.fromEntries(drawn.map((id) => [id, entryView(room, room.entries[id], pid, showBy(id))]));
     view.battle = {
       round: b.round,
       total: b.total,
-      left: b.order.length - b.next,
+      left: b.pool.length - b.next,
       stage: b.stage,
       endsAt: b.endsAt,
       fighters: b.fighters,
@@ -731,6 +782,10 @@ export function viewFor(room, pid, now) {
         : null,
       history: b.history,
       wins: b.wins,
+      // The champions are listed most wins first, not in the order they'll come up.
+      champions: b.champions
+        ? { from: b.champions.from, before: b.champions.before, ids: [...b.champions.ids].sort((x, y) => b.wins[y] - b.wins[x]) }
+        : null,
       startedAt: b.startedAt,
     };
   }

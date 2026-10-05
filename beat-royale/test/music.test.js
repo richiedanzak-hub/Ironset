@@ -22,31 +22,67 @@ const track = (id, title, artistObj, albumId, extra = {}) => ({
 
 const queen = artist(412, 'Queen');
 const eminem = artist(13, 'Eminem');
+const sum41 = artist(41000, 'Sum 41');
+const saga = artist(53000, 'Saga');
+const QUOTA = { error: { type: 'Exception', message: 'Quota limit exceeded', code: 4 } };
+let flaky = 0;
+
+// Endless playlists for "pop" searches: five per search, fifty songs each,
+// with a few hits that show up in every playlist.
+const hash = (text) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7);
+const popPlaylists = (q) => ({ data: Array.from({ length: 5 }, (_, j) => ({ id: 100000 + hash(q) * 10 + j, title: `${q} ${j}`, nb_tracks: 50, user: { name: j ? 'fan' : 'Deezer Pop Editor' } })) });
+const popTracks = (id) => ({
+  data: Array.from({ length: 50 }, (_, i) =>
+    i < 5
+      ? track(id * 100 + i, `Shared Hit ${i}`, artist(90000 + i, 'Shared Star'), 91000 + i)
+      : track(id * 100 + i, `Pop Song ${id}-${i}`, artist(id * 10 + (i % 7), `Pop Star ${id}-${i % 7}`), id * 10 + i),
+  ),
+});
+const DYNAMIC = [
+  [/^\/playlist\/(\d+)\/tracks$/, (id) => (id >= 100000 ? popTracks(id) : null)],
+  [/^\/artist\/(\d+)\/related$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => ({ ...artist((id * 10 + k + 1) % 1e9, `Related ${id}-${k}`) })) })],
+  [/^\/artist\/(\d+)\/top$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => track(id * 100 + k, `Top ${id}-${k}`, artist(id, `Artist ${id}`), id)) })],
+];
 const nopic = { id: 77, name: 'Fan Band', picture_big: 'https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg' };
 
 const DEEZER = {
   '/genre': { data: [{ id: 0, name: 'All' }, { id: 132, name: 'Pop' }, { id: 152, name: 'Rock' }, { id: 116, name: 'Rap/Hip Hop' }] },
-  '/search/track': (q) => (q === 'quota' ? { error: { type: 'Exception', message: 'Quota limit exceeded', code: 4 } } : {
-    data: [
-      track(1, 'Bohemian Rhapsody', queen, 10),
-      track(2, 'Bohemian Rhapsody (Remastered 2011)', queen, 11),
-      track(3, 'Lose Yourself', eminem, 20, { explicit_lyrics: true }),
-    ],
-  }),
+  '/search/track': (q) => {
+    if (q === 'quota') return QUOTA;
+    if (q === 'flaky' && flaky++ === 0) return QUOTA;
+    if (q === 'track:"Still Waiting" artist:"Sum 41"') return { data: [track(41, 'Still Waiting', sum41, 4100, { explicit_lyrics: true })] };
+    if (/^still waiting/i.test(q)) {
+      // Lots of songs share the name; Sum 41's isn't in the first page.
+      return { data: Array.from({ length: 50 }, (_, i) => track(4200 + i, i % 2 ? 'Still Waiting' : 'Still Waiting for You', artist(4300 + i, `Band ${i}`), 4400 + i)) };
+    }
+    if (q === 'on the loose') {
+      return { data: [track(51, 'On the Loose Tonight', artist(5100, 'Party Crew'), 5101), track(52, 'On the Loose', artist(5200, 'Niall Horan'), 5201), track(53, 'On the Loose', saga, 5301)] };
+    }
+    if (q === 'dirty') {
+      return { data: [track(61, 'Still Waiting', sum41, 6100, { explicit_lyrics: true }), track(62, 'Still Waiting', sum41, 6200), track(63, 'Only Dirty', eminem, 6300, { explicit_lyrics: true })] };
+    }
+    return {
+      data: [
+        track(1, 'Bohemian Rhapsody', queen, 10),
+        track(2, 'Bohemian Rhapsody (Remastered 2011)', queen, 11),
+        track(3, 'Lose Yourself', eminem, 20, { explicit_lyrics: true }),
+      ],
+    };
+  },
   '/search/album': () => ({ data: [{ id: 10, title: 'A Night at the Opera', cover_big: cover(10), explicit_lyrics: false, artist: queen, type: 'album' }] }),
   '/search/artist': () => ({ data: [{ ...queen, nb_fan: 5000000 }, nopic] }),
   '/chart/0/tracks': { data: Array.from({ length: 30 }, (_, i) => track(100 + i, `Chart Song ${i}`, artist(500 + i, `Star ${i}`), 600 + i)) },
   '/chart/0/albums': { data: Array.from({ length: 12 }, (_, i) => ({ id: 700 + i, title: `Hot Album ${i}`, cover_big: cover(700 + i), artist: artist(800 + i, `Band ${i}`) })) },
-  '/chart/0/artists': { data: Array.from({ length: 12 }, (_, i) => ({ ...artist(900 + i, `Chart Artist ${i}`), nb_fan: 1000 * i })) },
   '/chart/152/tracks': { data: Array.from({ length: 12 }, (_, i) => track(300 + i, `Rock Chart ${i}`, artist(310 + i, `Rocker ${i}`), 320 + i)) },
   '/editorial/0/releases': { data: Array.from({ length: 12 }, (_, i) => ({ id: 1000 + i, title: `Fresh ${i}`, release_date: '2026-09-26', cover_big: cover(1000 + i), artist: artist(1100 + i, `New Act ${i}`) })) },
-  '/search/playlist': () => ({
+  '/search/playlist': (q) => (/\bpop\b/.test(q) ? popPlaylists(q) : {
     data: [
       { id: 51, title: 'my 80s mix', nb_tracks: 20, user: { name: 'jimbo' } },
       { id: 52, title: '80s Rock Anthems', nb_tracks: 80, user: { name: 'Deezer Rock Editor' } },
       { id: 53, title: 'tiny list', nb_tracks: 4, user: { name: 'Deezer Pop Editor' } },
     ],
   }),
+  '/chart/0/artists': { data: Array.from({ length: 12 }, (_, i) => ({ ...artist(900 + i, `Chart Artist ${i}`), nb_fan: 1000 * i })) },
   '/playlist/52/tracks': {
     data: [
       track(201, 'Sweet Child O\' Mine', artist(41, "Guns N' Roses", false), 210),
@@ -59,6 +95,11 @@ const DEEZER = {
   '/artist/412/top': { data: [{ id: 1, title: 'Bohemian Rhapsody', preview: 'https://cdnt-preview.dzcdn.net/top.mp3', artist: queen }] },
   '/album/10': { id: 10, title: 'A Night at the Opera', release_date: '1975-11-21', nb_tracks: 12, duration: 2600, label: 'EMI', genres: { data: [{ name: 'Rock' }] }, fans: 123456, cover_xl: cover('opera') },
 };
+
+const itunesFor = (term) =>
+  /still waiting/i.test(term)
+    ? { results: [{ trackName: 'Still Waiting', artistName: 'Sum 41', collectionName: 'Does This Look Infected?', releaseDate: '2002-11-26T08:00:00Z', trackExplicitness: 'explicit' }] }
+    : ITUNES;
 
 const ITUNES = {
   results: [{
@@ -73,8 +114,12 @@ before(async () => {
     const url = new URL(req.url, 'http://x');
     const q = url.searchParams.get('q') || url.searchParams.get('term');
     calls.push({ path: url.pathname, q, params: Object.fromEntries(url.searchParams) });
-    let body = url.pathname === '/search' ? ITUNES : DEEZER[url.pathname];
+    let body = url.pathname === '/search' ? itunesFor(q) : DEEZER[url.pathname];
     if (typeof body === 'function') body = body(q);
+    for (const [re, make] of DYNAMIC) {
+      const m = !body && url.pathname.match(re);
+      if (m) body = make(Number(m[1]));
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body || { error: { type: 'DataException', message: 'no data', code: 800 } }));
   });
@@ -84,13 +129,16 @@ before(async () => {
 
 after(() => fake.close());
 
-const music = () => createMusic({ deezerBase: base, itunesBase: base, rng: () => 0 });
+const music = () => createMusic({ deezerBase: base, itunesBase: base, retryDelays: [1, 1, 1], deezerBudget: 10_000 });
+const titles = (list) => list.map((m) => m.title);
+const keys = (list) => list.map((m) => `${m.title}|${m.artist}`);
 const lastCall = (path) => calls.filter((c) => c.path === path).at(-1);
 
 test('song search maps Deezer tracks, merges remasters, and can hide explicit ones', async () => {
   const m = music();
-  const all = await m.search('song', 'bohemian');
-  assert.deepEqual(all.map((s) => s.title), ['Bohemian Rhapsody', 'Lose Yourself']);
+  const { results: all, source } = await m.search('song', 'bohemian');
+  assert.equal(source, 'deezer');
+  assert.deepEqual(titles(all), ['Bohemian Rhapsody', 'Lose Yourself']);
   const first = all[0];
   assert.equal(first.artist, 'Queen');
   assert.equal(first.album, 'Album 10');
@@ -98,57 +146,102 @@ test('song search maps Deezer tracks, merges remasters, and can hide explicit on
   assert.equal(first.deezerId, 1);
   assert.equal(first.kind, 'song');
   const clean = await m.search('song', 'bohemian', { clean: true });
-  assert.ok(!clean.some((s) => s.explicit));
+  assert.ok(!clean.results.some((s) => s.explicit));
+  assert.equal(clean.hidden, 1, 'tells the player an explicit song was hidden');
 });
 
-test('album and artist search, with Deezer’s blank artist photos dropped', async () => {
+test('clean parties keep the clean version even when the explicit one comes first', async () => {
+  const { results, hidden } = await music().search('song', 'dirty', { clean: true });
+  assert.deepEqual(results.map((s) => [s.title, s.deezerId]), [['Still Waiting', 62]]);
+  assert.equal(hidden, 1, 'only the song with no clean version counts as hidden');
+});
+
+test('"title - artist" searches find the exact song, even when the title is common', async () => {
   const m = music();
-  const albums = await m.search('album', 'opera');
-  assert.equal(albums[0].title, 'A Night at the Opera');
-  assert.equal(albums[0].artist, 'Queen');
-  const artists = await m.search('artist', 'queen');
-  assert.equal(artists[0].title, 'Queen');
-  assert.match(artists[0].cover, /a412/);
-  assert.equal(artists[1].cover, null, 'placeholder photo becomes our own art');
+  const { results } = await m.search('song', 'Still Waiting - Sum 41');
+  assert.equal(results[0].artist, 'Sum 41');
+  assert.equal(results[0].deezerId, 41);
+  assert.ok(results.length >= 20, 'still shows plenty of other matches');
+  assert.ok(calls.some((c) => c.q === 'track:"Still Waiting" artist:"Sum 41"'));
+  assert.ok(calls.some((c) => c.q === 'artist:"Still Waiting" track:"Sum 41"'), 'tries "artist - title" too');
+  assert.equal((await m.details('song', 'Still Waiting - Sum 41')).deezerId, 41);
+});
+
+test('exact titles come before longer ones, and less common songs still make the list', async () => {
+  const { results } = await music().search('song', 'on the loose');
+  assert.deepEqual(keys(results).slice(0, 3), ['On the Loose|Niall Horan', 'On the Loose|Saga', 'On the Loose Tonight|Party Crew']);
+});
+
+test('Apple fills in when Deezer comes up short, but only with real matches', async () => {
+  const m = music();
+  const few = await m.search('song', 'on the loose');
+  assert.ok(!few.results.some((s) => s.title === 'Hey Jude'), 'unrelated Apple results are dropped');
+  assert.ok(calls.some((c) => c.path === '/search' && c.q === 'on the loose'));
 });
 
 test('when Deezer refuses, search falls back to iTunes', async () => {
   const m = music();
-  const results = await m.search('song', 'quota');
+  const { results, source } = await m.search('song', 'quota');
+  assert.equal(source, 'itunes');
   assert.equal(results[0].title, 'Hey Jude');
   assert.equal(results[0].cover, 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/source/500x500bb.jpg');
   assert.equal(results[0].year, 1968);
   assert.equal(results[0].previewUrl, undefined, 'preview links are fetched fresh, not stored');
 });
 
-test('top charts for songs, albums and artists, paged 24 at a time', async () => {
+test('a "slow down" from Deezer is retried instead of giving up', async () => {
+  const m = music();
+  const { results, source } = await m.search('song', 'flaky');
+  assert.equal(source, 'deezer');
+  assert.equal(results[0].title, 'Bohemian Rhapsody');
+  const status = await m.status();
+  assert.ok(status.deezer.retried >= 1);
+  assert.equal(status.deezer.now.ok, true);
+  assert.equal(status.deezer.now.top, 'Still Waiting for You – Band 0');
+  assert.equal(status.itunes.now.top, 'Still Waiting – Sum 41');
+});
+
+test('top charts for songs, albums and artists, mixed up a little for each phone', async () => {
   const m = music();
   const songs = await m.browse({ kind: 'song', list: 'top' });
   assert.equal(songs.source, 'deezer');
   assert.equal(songs.results.length, 24);
-  assert.equal(songs.pages, 2);
-  assert.equal((await m.browse({ kind: 'song', list: 'top', page: '2' })).results.length, 6);
-  assert.equal((await m.browse({ kind: 'album', list: 'top' })).results[0].title, 'Hot Album 0');
-  assert.equal((await m.browse({ kind: 'artist', list: 'top' })).results[0].title, 'Chart Artist 0');
+  assert.equal(songs.more, true);
+  assert.ok(titles(songs.results.slice(0, 6)).every((t) => /^Chart Song [0-5]$/.test(t)), 'the biggest hits still come first');
+  const next = await m.browse({ kind: 'song', list: 'top', offset: songs.next });
+  assert.ok(titles(next.results).includes('Chart Song 29'));
+  assert.ok(!next.results.some((s) => titles(songs.results).includes(s.title)), 'no repeats');
+  assert.ok(titles((await m.browse({ kind: 'album', list: 'top' })).results).includes('Hot Album 0'));
+  assert.ok(titles((await m.browse({ kind: 'artist', list: 'top' })).results).includes('Chart Artist 0'));
   const rock = await m.browse({ kind: 'song', list: 'top', genre: 'Rock' });
-  assert.equal(rock.results[0].title, 'Rock Chart 0', 'genre charts use the genre id');
+  assert.match(rock.results[0].title, /^Rock Chart/, 'genre charts use the genre id');
+
+  const a = await m.browse({ kind: 'song', list: 'top', seed: 'alice' });
+  const b = await m.browse({ kind: 'song', list: 'top', seed: 'bob' });
+  assert.notDeepEqual(titles(a.results), titles(b.results), 'each phone gets its own order');
+  const again = await music().browse({ kind: 'song', list: 'top', seed: 'alice' });
+  assert.deepEqual(titles(again.results), titles(a.results), 'the same phone keeps its order');
 });
 
 test('new releases come from Deezer editors for albums', async () => {
   const fresh = await music().browse({ kind: 'album', list: 'new' });
-  assert.equal(fresh.results[0].title, 'Fresh 0');
+  assert.match(fresh.results[0].title, /^Fresh/);
   assert.equal(fresh.results[0].year, 2026);
 });
 
-test('decade, genre and vibe filters find a matching playlist, preferring Deezer editors', async () => {
+test('decade, genre and vibe filters search matching playlists, preferring Deezer editors', async () => {
   const m = music();
+  let from = calls.length;
+  const firstSearch = () => calls.slice(from).find((c) => c.path === '/search/playlist').q;
   const out = await m.browse({ kind: 'song', list: 'top', genre: 'Rock', decade: '80s' });
-  assert.equal(lastCall('/search/playlist').q, '80s rock hits');
-  assert.equal(lastCall('/playlist/52/tracks').path, '/playlist/52/tracks', 'the editor list beats the fan mix');
-  assert.deepEqual(out.results.map((s) => s.title), ["Sweet Child O' Mine", "Livin' on a Prayer", 'Paradise City']);
+  assert.equal(firstSearch(), '80s rock hits');
+  assert.equal(calls.slice(from).find((c) => c.path.startsWith('/playlist/')).path, '/playlist/52/tracks', 'the editor list beats the fan mix');
+  assert.deepEqual(titles(out.results).sort(), ["Livin' on a Prayer", 'Paradise City', "Sweet Child O' Mine"]);
+  assert.ok(calls.slice(from).filter((c) => c.path === '/search/playlist').length > 3, 'keeps looking for more');
 
+  from = calls.length;
   await m.browse({ kind: 'song', list: 'classics', genre: 'Rap/Hip Hop', vibe: 'party' });
-  assert.equal(lastCall('/search/playlist').q, 'hip hop party hits classics');
+  assert.equal(firstSearch(), 'hip hop party hits classics');
 
   const clean = await m.browse({ kind: 'song', list: 'top', genre: 'Rock', decade: '80s', clean: '1' });
   assert.ok(!clean.results.some((s) => s.title === 'Paradise City'));
@@ -156,8 +249,45 @@ test('decade, genre and vibe filters find a matching playlist, preferring Deezer
   const albums = await m.browse({ kind: 'album', list: 'top', decade: '80s', genre: 'Rock' });
   assert.equal(albums.results.length, 2, 'one card per album');
   const artists = await m.browse({ kind: 'artist', list: 'top', decade: '80s', genre: 'Rock' });
-  assert.deepEqual(artists.results.map((a) => a.title), ["Guns N' Roses", 'Bon Jovi']);
-  assert.equal(artists.results[0].cover, cover(210), 'album art stands in for a missing artist photo');
+  assert.deepEqual(titles(artists.results).sort(), ['Bon Jovi', "Guns N' Roses"]);
+  assert.equal(artists.results.find((a) => a.title === "Guns N' Roses").cover, cover(210), 'album art stands in for a missing artist photo');
+});
+
+test('ideas keep coming: hundreds of songs, no repeats, a different mix for each phone', async () => {
+  const m = music();
+  const seen = new Set();
+  let offset = 0;
+  let res;
+  for (let i = 0; i < 12; i++) {
+    res = await m.browse({ kind: 'song', list: 'classics', genre: 'Pop', seed: 'alice', offset });
+    assert.equal(res.results.length, 24);
+    for (const k of keys(res.results)) {
+      assert.ok(!seen.has(k), `repeat: ${k}`);
+      seen.add(k);
+    }
+    offset = res.next;
+  }
+  assert.equal(seen.size, 288);
+  assert.equal(res.more, true);
+  assert.equal([...seen].filter((k) => k.startsWith('Shared Hit 0|')).length, 1, 'a song in many playlists shows once');
+
+  const bob = await m.browse({ kind: 'song', list: 'classics', genre: 'Pop', seed: 'bob' });
+  const alice = await m.browse({ kind: 'song', list: 'classics', genre: 'Pop', seed: 'alice' });
+  assert.notDeepEqual(keys(bob.results), keys(alice.results));
+});
+
+test('artist ideas keep going through related artists', async () => {
+  const m = music();
+  const seen = new Set();
+  let offset = 0;
+  for (let i = 0; i < 8; i++) {
+    const res = await m.browse({ kind: 'artist', list: 'top', seed: 'x', offset });
+    for (const a of res.results) seen.add(a.title);
+    assert.equal(res.more, true);
+    offset = res.next;
+  }
+  assert.ok(seen.size >= 150, `only ${seen.size}`);
+  assert.ok([...seen].some((t) => t.startsWith('Related')));
 });
 
 test('previews: a song, an album’s biggest track, an artist’s top track', async () => {
@@ -193,20 +323,27 @@ test('typed-in picks are matched by title, or title plus artist', async () => {
 });
 
 test('the built-in list takes over when Deezer is down', async () => {
-  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9', rng: () => 0 });
+  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
   const top = await offline.browse({ kind: 'song', list: 'top' });
   assert.equal(top.source, 'offline');
-  assert.equal(top.results[0].title, 'Bohemian Rhapsody');
+  assert.ok(titles(top.results.slice(0, 6)).includes('Bohemian Rhapsody'));
+  assert.equal(top.more, true);
   const eighties = await offline.browse({ kind: 'song', decade: '80s', vibe: 'party' });
   assert.ok(eighties.results.length > 3);
   assert.ok(eighties.results.every((s) => s.year >= 1980 && s.year <= 1989));
   const clean = await offline.browse({ kind: 'song', genre: 'Rap/Hip Hop', clean: '1' });
   assert.ok(clean.results.every((s) => !s.explicit));
   assert.ok((await offline.browse({ kind: 'artist' })).results.length > 20);
-  assert.equal((await offline.search('song', 'thriller'))[0].artist, 'Michael Jackson');
+  const thriller = await offline.search('song', 'thriller');
+  assert.equal(thriller.results[0].artist, 'Michael Jackson');
+  assert.equal(thriller.source, 'offline');
   const meta = await offline.meta();
   assert.equal(meta.source, 'offline');
   assert.ok(meta.genres.includes('Rock'));
+  const status = await offline.status();
+  assert.equal(status.deezer.now.ok, false);
+  assert.equal(status.itunes.now.ok, false);
+  assert.ok(status.deezer.lastError);
 });
 
 test('catalog rows are well formed', () => {

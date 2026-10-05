@@ -1,7 +1,7 @@
 // Filling the hat: search or type a title, browse ideas, remove picks, "I'm done".
 import { html, useState, useEffect } from './lib.js';
 import { request } from './api.js';
-import { Avatar, Countdown, Cover, PlayButton, findPick, itemKey, itemMeta, noun, stopPreview, toast, useGame } from './ui.js';
+import { Avatar, Countdown, Cover, PlayButton, ThemeBanner, findPick, itemKey, itemMeta, noun, stopPreview, toast, useGame } from './ui.js';
 import { IdeasSheet } from './ideas.js';
 import { sfx } from './sfx.js';
 
@@ -22,6 +22,7 @@ const PLACEHOLDER = { song: 'Search a song or artist…', album: 'Search an albu
 function SearchBox({ onAdd, mine, full, kind, clean }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState(null);
+  const [found, setFound] = useState(null); // where the results came from, and how many explicit ones were hidden
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -36,7 +37,11 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
     setLoading(true);
     const t = setTimeout(() => {
       request(`/api/music/search?${new URLSearchParams({ kind, q: query, clean: clean ? '1' : '' })}`)
-        .then((d) => live && setResults(d.results))
+        .then((d) => {
+          if (!live) return;
+          setResults(d.results);
+          setFound(d);
+        })
         .catch(() => live && setResults([]))
         .finally(() => live && setLoading(false));
     }, 280);
@@ -91,6 +96,17 @@ function SearchBox({ onAdd, mine, full, kind, clean }) {
             </button>`;
           })}
           ${results && !results.length ? html`<div class="suggest-empty">No matches. You can still add it as typed 👇</div>` : null}
+          ${results && found?.hidden
+            ? html`<div class="suggest-note">🧼 ${found.hidden} explicit ${found.hidden === 1 ? 'result' : 'results'} hidden (clean party)</div>`
+            : null}
+          ${results && found?.source === 'itunes'
+            ? html`<div class="suggest-note">Deezer isn't answering right now, so these are from Apple Music.</div>`
+            : results && found?.source === 'offline'
+              ? html`<div class="suggest-note">Can't reach the music services right now. Showing the built-in list.</div>`
+              : null}
+          ${results?.length && kind === 'song' && typed.split(/\s+/).length < 5
+            ? html`<div class="suggest-note">💡 Not here? Add the artist too, like “still waiting sum 41”</div>`
+            : null}
           <button class="suggest-item" onClick=${addTyped}>
             <span class="how-num" style=${{ width: '40px', height: '40px', fontSize: '20px', borderRadius: '10px' }}>✍️</span>
             <span class="grow"><strong>Add “${typed}”</strong><span>Exactly as typed</span></span>
@@ -153,12 +169,13 @@ export function Submit() {
 
     <h1 class="screen-title section" style=${{ marginTop: '22px' }}>Toss in your ${noun(s.kind, 2)}</h1>
     <p class="screen-sub">${limitText}. Your picks stay secret until they're drawn 🤫</p>
+    ${s.theme ? html`<div class="section" style=${{ marginTop: '14px' }}><${ThemeBanner} theme=${s.theme} sub="Keep it on theme!" /></div>` : null}
 
     <div class="stack section" style=${{ marginTop: '16px' }}>
       <${SearchBox} onAdd=${add} mine=${mine} full=${full} kind=${s.kind} clean=${s.clean} />
       <button class="ideas-cta" onClick=${() => (sfx.tap(), setIdeas(true))}>
         <span class="big">✨</span>
-        <span><strong>Need ideas?</strong><span>Today's charts, classics, genres, decades & vibes</span></span>
+        <span><strong>Need ideas?</strong><span>${s.theme ? 'Endless picks that fit the theme' : "Today's charts, classics, genres, decades & vibes"}</span></span>
         <span class="chev">›</span>
       </button>
     </div>
@@ -222,6 +239,7 @@ export function Submit() {
       open=${ideas}
       kind=${s.kind}
       clean=${s.clean}
+      theme=${s.theme}
       onClose=${() => setIdeas(false)}
       mine=${mine}
       full=${full}
