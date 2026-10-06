@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as game from '../src/game.js';
-import { COUNTDOWN_MS, QUIZ_POINTS, WAGER_MS, clipSong, decadeOf } from '../src/quiz.js';
+import { COUNTDOWN_MS, QUIZ_POINTS, WAGER_MS, clipSong, decadeOf, sameAnswer } from '../src/quiz.js';
 
 const T0 = 1_700_000_000_000;
 const rng = () => 0;
@@ -10,7 +10,7 @@ function party(names = ['Mom', 'Dad', 'Kid'], settings = {}) {
   const room = game.createRoom('QZQZ', T0, { game: 'quiz' });
   const ids = names.map((name) => game.joinRoom(room, { name, avatar: '🎤' }, T0).player.id);
   for (const id of ids) game.connect(room, id, T0);
-  if (Object.keys(settings).length) game.act(room, ids[0], { type: 'settings', settings }, T0);
+  game.act(room, ids[0], { type: 'settings', settings: { seconds: 20, ...settings } }, T0);
   return { room, ids };
 }
 
@@ -37,9 +37,10 @@ const right = (room) => (room.quiz.ask === 'song' ? room.quiz.songs[room.quiz.ro
 const wrong = (room) => room.quiz.options.find((o) => o !== right(room));
 
 test('who sings it: its own kind of party, with its own rules', () => {
+  const fresh = game.createRoom('ABCD', T0, { game: 'quiz' });
+  assert.equal(fresh.game, 'quiz');
+  assert.deepEqual([fresh.settings.ask, fresh.settings.answers, fresh.settings.rounds, fresh.settings.seconds, fresh.settings.wager], ['artist', 'type', 10, 30, true]);
   const { room, ids } = party();
-  assert.equal(room.game, 'quiz');
-  assert.deepEqual([room.settings.ask, room.settings.rounds, room.settings.seconds, room.settings.wager], ['artist', 10, 20, true]);
   game.act(room, ids[0], { type: 'settings', settings: { ask: 'mix', rounds: 5, seconds: 15, sound: 'all', theme: { decade: '80s' }, rounds2: 9 } }, T0);
   assert.deepEqual([room.settings.ask, room.settings.rounds, room.settings.seconds, room.settings.sound, room.settings.theme.decade], ['mix', 5, 15, 'all', '80s']);
   game.act(room, ids[0], { type: 'settings', settings: { rounds: 7, seconds: 3, ask: 'lyrics' } }, T0);
@@ -79,17 +80,20 @@ test('a round: answers stay secret, right ones score more when fast, then the re
   const q = room.quiz;
   const [mom, dad, kid] = ids;
 
-  // What a phone sees while the song plays: four names, no title, no song id.
+  // What a phone sees while the song plays: a box to type in. No title, no
+  // song id, and no choices (those are a hint).
   const view = game.viewFor(room, dad, T0 + 4000);
   const seen = JSON.stringify(view);
   assert.ok(!seen.includes('Tune 1'), 'no title');
+  assert.ok(!seen.includes('Singer 1'), 'no artist');
   assert.ok(!seen.includes('1001'), 'no Deezer id to look up');
   assert.ok(!seen.includes('Record 1'), 'no album');
+  assert.deepEqual(view.quiz.options, []);
   assert.equal(view.quiz.result, null);
 
   assert.throws(() => answer(room, mom, right(room), T0), /Wait for the song/);
-  assert.throws(() => answer(room, mom, 'Somebody Else', T0 + 4000), /four answers/);
-  answer(room, mom, right(room), q.startsAt + 2000); // 18 of 20 seconds left
+  assert.throws(() => answer(room, mom, '   ', T0 + 4000), /Type an answer/);
+  answer(room, mom, 'singer 1', q.startsAt + 2000); // 18 of 20 seconds left
   assert.throws(() => answer(room, mom, wrong(room), q.startsAt + 3000), /locked in/);
   answer(room, dad, wrong(room), q.startsAt + 1000);
   assert.equal(q.stage, 'play');
@@ -107,6 +111,7 @@ test('a round: answers stay secret, right ones score more when fast, then the re
   assert.equal(r.points[kid], QUIZ_POINTS.right + 3);
   assert.equal(r.points[dad], 0);
   assert.equal(r.choices[dad], wrong(room));
+  assert.equal(r.choices[mom], 'singer 1', 'everyone sees what everyone typed');
   const scores = game.viewFor(room, dad, T0).quiz.scores;
   assert.deepEqual(scores.map((s) => s.id), [mom, kid, dad]);
   assert.equal(scores[0].delta, 145);
@@ -117,6 +122,70 @@ test('a round: answers stay secret, right ones score more when fast, then the re
   assert.equal(q.stage, 'play');
   game.act(room, mom, { type: 'next', round: 1, stage: 'reveal' }, T0, rng);
   assert.equal(q.round, 2, 'a double tap does nothing');
+});
+
+test('typed answers: close enough counts, and a hint costs half the points', () => {
+  const { room, ids } = party();
+  const list = songs(4);
+  list[0] = song(1, { artist: "Guns N' Roses", title: "Sweet Child O' Mine" });
+  begin(room, ids, list);
+  const q = room.quiz;
+  const [mom, dad, kid] = ids;
+  const t = q.startsAt + 2000;
+
+  assert.throws(() => game.act(room, dad, { type: 'hint', round: q.round }, T0), /Wait for the song/);
+  game.act(room, dad, { type: 'hint', round: q.round }, t, rng);
+  const dadSees = game.viewFor(room, dad, t).quiz;
+  assert.equal(dadSees.hinted, true);
+  assert.equal(dadSees.options.length, 4, 'four choices for the one who asked');
+  assert.ok(dadSees.options.includes("Guns N' Roses"));
+  assert.deepEqual(game.viewFor(room, mom, t).quiz.options, [], 'nobody else');
+  assert.throws(() => answer(room, dad, 'guns and roses', t), /four answers/, 'with a hint, pick one of the four');
+
+  answer(room, mom, 'guns and roses', t);
+  answer(room, dad, "Guns N' Roses", t);
+  answer(room, kid, 'Guns', t);
+  assert.throws(() => game.act(room, kid, { type: 'hint', round: q.round }, t, rng), /Too late/);
+  assert.deepEqual(q.result.right, [mom, dad]);
+  assert.equal(q.result.points[mom], 145);
+  assert.equal(q.result.points[dad], Math.round(145 * QUIZ_POINTS.hint));
+  assert.equal(q.result.points[kid], 0);
+  assert.deepEqual(q.result.hints, [dad]);
+  next(room, mom, T0);
+  assert.deepEqual(game.viewFor(room, dad, T0).quiz.options, [], 'hints reset each song');
+});
+
+test('what counts as the same name', () => {
+  const yes = [
+    ['artist', 'the beatles', 'The Beatles'],
+    ['artist', 'Beatles', 'The Beatles'],
+    ['artist', 'earth wind and fire', 'Earth, Wind & Fire'],
+    ['artist', 'Beyonce', 'Beyoncé'],
+    ['artist', 'Micheal Jackson', 'Michael Jackson'],
+    ['song', 'bohemian rhapsody', 'Bohemian Rhapsody - Remastered 2011'],
+    ['song', 'Hey Jud', 'Hey Jude'],
+    ['song', 'dont stop believin', "Don't Stop Believin'"],
+  ];
+  const no = [
+    ['artist', 'Queen', 'Queens of the Stone Age'],
+    ['artist', 'ABBY', 'ABBA'],
+    ['artist', 'Taylor', 'Taylor Swift'],
+    ['song', 'Hey', 'Hey Jude'],
+    ['artist', '', 'Queen'],
+  ];
+  for (const [ask, given, answer] of yes) assert.ok(sameAnswer(ask, given, answer), `${given} = ${answer}`);
+  for (const [ask, given, answer] of no) assert.ok(!sameAnswer(ask, given, answer), `${given} ≠ ${answer}`);
+});
+
+test('multiple choice for everyone, when the host picks it', () => {
+  const { room, ids } = party(['Mom', 'Dad'], { answers: 'choice' });
+  begin(room, ids, songs(3));
+  const q = room.quiz;
+  assert.equal(game.viewFor(room, ids[1], T0).quiz.options.length, 4);
+  assert.throws(() => answer(room, ids[1], 'Somebody Else', q.startsAt), /four answers/);
+  answer(room, ids[0], right(room), q.startsAt);
+  answer(room, ids[1], wrong(room), q.startsAt);
+  assert.equal(q.result.points[ids[0]], 150, 'full points: no hint involved');
 });
 
 test("time's up: whoever answered scores, and the host can reveal early", () => {
@@ -192,13 +261,14 @@ test('the finale: bet some or all of your points, double them or lose them', () 
 
   answer(room, mom, wrong(room), q.startsAt + 1000);
   answer(room, dad, right(room), q.startsAt + 1000);
+  game.act(room, kid, { type: 'hint', round: q.round }, q.startsAt + 1000, rng);
   answer(room, kid, right(room), q.startsAt + 1000);
   assert.equal(q.stage, 'reveal');
   assert.equal(q.result.points[mom], -750, 'all in, and lost it');
   assert.equal(q.result.points[dad], 100, 'no speed bonus: just the bet');
-  assert.equal(q.result.points[kid], 100);
+  assert.equal(q.result.points[kid], 50, 'a hint wins half the bet');
   assert.deepEqual(q.result.wagers, { [mom]: 750, [dad]: 100, [kid]: 100 });
-  assert.deepEqual([q.scores[mom].points, q.scores[dad].points, q.scores[kid].points], [0, 225, 100]);
+  assert.deepEqual([q.scores[mom].points, q.scores[dad].points, q.scores[kid].points], [0, 225, 50]);
 
   next(room, mom, T0);
   assert.equal(room.phase, 'final');
@@ -206,6 +276,7 @@ test('the finale: bet some or all of your points, double them or lose them', () 
   assert.equal(fin.quiz.history.length, 6);
   assert.equal(fin.quiz.history[5].final, true);
   assert.deepEqual(fin.quiz.scores.map((s) => s.name), ['Dad', 'Kid', 'Mom']);
+  assert.deepEqual(fin.quiz.history[5].hints, [kid]);
   assert.ok(fin.final.at);
 });
 

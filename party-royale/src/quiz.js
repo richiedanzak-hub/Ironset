@@ -1,10 +1,14 @@
 // Who Sings It? A music quiz for the whole party.
 //
-// Every round, a song plays (a 30-second preview) and everyone picks who
-// sings it, or what it's called, from four choices on their own phone. A
+// Every round, a song plays (a 30-second preview) and everyone types who
+// sings it, or what it's called, on their own phone (with suggestions as they
+// type). Stuck? A hint turns it into four choices, for half the points. A
 // right answer scores 100, plus up to 50 more for answering fast. With the
 // finale on, the last song is double or nothing: before it plays, everyone
 // bets some or all of their points on getting it right.
+//
+// The host can also make every round multiple choice (no typing), for
+// little ones.
 //
 // Like the battle, this is pure: `now` for time and `rng` for randomness. The
 // server finds the songs (with the answers and the wrong choices) and hands
@@ -14,13 +18,14 @@
 //   Each song:  play (a 3-2-1, then answers open) -> reveal
 //   Before the last song, with the finale on:  wager
 
-import { GameError, cleanTheme } from './game.js';
+import { GameError, cleanTheme, itemKey, songKey } from './game.js';
 
 export const QUIZ_DEFAULTS = Object.freeze({
   kind: 'song',    // always songs (shared screens read this)
   ask: 'artist',   // what to name: 'artist' | 'song' (the title) | 'mix' (take turns)
+  answers: 'type', // 'type' (type it, or take a hint for half points) | 'choice' (always four choices)
   rounds: 10,      // songs before the finale
-  seconds: 20,     // time to answer each one
+  seconds: 30,     // time to answer each one
   sound: 'host',   // 'host' (one phone plays it: best in one room) | 'all' (every phone)
   wager: true,     // the double-or-nothing finale
   theme: null,     // { name, genre, decade, vibe }: what kind of songs
@@ -30,10 +35,12 @@ export const QUIZ_DEFAULTS = Object.freeze({
 export const QUIZ_POINTS = {
   right: 100,      // a right answer
   speed: 50,       // up to this much more for answering fast
+  hint: 0.5,       // a hint (four choices) is worth this share of the points
   minBet: 100,     // anyone can bet at least this much in the finale
 };
 
 export const ASKS = ['artist', 'song', 'mix'];
+export const ANSWER_MODES = ['type', 'choice'];
 export const ROUND_COUNTS = [5, 10, 15, 20];
 export const ANSWER_SECONDS = [10, 15, 20, 30];
 export const COUNTDOWN_MS = 3000;   // the 3-2-1 before each song
@@ -43,6 +50,7 @@ export function cleanQuizSettings(current, patch) {
   const next = { ...current };
   const p = patch && typeof patch === 'object' ? patch : {};
   if (ASKS.includes(p.ask)) next.ask = p.ask;
+  if (ANSWER_MODES.includes(p.answers)) next.answers = p.answers;
   if (ROUND_COUNTS.includes(Number(p.rounds))) next.rounds = Number(p.rounds);
   if (ANSWER_SECONDS.includes(Number(p.seconds))) next.seconds = Number(p.seconds);
   if (p.sound === 'host' || p.sound === 'all') next.sound = p.sound;
@@ -102,6 +110,33 @@ const publicSong = (s) => ({ kind: 'song', title: s.title, artist: s.artist, alb
 
 const answerOf = (song, ask) => (ask === 'song' ? song.title : song.artist);
 
+// Typed answers count when they're the same name, give or take capitals,
+// punctuation, "the", "&" and a typo or two in a long name. Song titles also
+// ignore "(Remastered)", "(feat. …)" and the like.
+const keyFor = (ask, value) => (ask === 'song' ? songKey(value) : itemKey(value));
+
+function typos(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cur = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+  }
+  return row[b.length];
+}
+
+export function sameAnswer(ask, given, answer) {
+  const [a, b] = [keyFor(ask, given), keyFor(ask, answer)];
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const allowed = b.length >= 10 ? 2 : b.length >= 5 ? 1 : 0;
+  return allowed > 0 && Math.abs(a.length - b.length) <= allowed && typos(a, b) <= allowed;
+}
+
 // "Mix" takes turns: artist, then title, then artist… A song without three
 // wrong choices for its turn asks the other question.
 function askFor(setting, song, round) {
@@ -145,7 +180,8 @@ export function startQuiz(room, songs, now, rng = Math.random) {
     options: [],
     startsAt: null,      // the song starts (after the 3-2-1)
     endsAt: null,        // answers (or bets) close
-    answers: {},         // pid -> { choice, at }
+    answers: {},         // pid -> { choice, at }: what they typed or picked
+    hints: {},           // pid -> true: asked for the four choices this round
     wagers: {},          // pid -> points bet on the final song
     scores: {},          // pid -> { points, right }
     result: null,
@@ -164,6 +200,7 @@ function beginRound(room, now, rng) {
   const decoys = song.decoys[q.ask].slice(0, 3);
   q.options = shuffle([answerOf(song, q.ask), ...decoys], rng);
   q.answers = {};
+  q.hints = {};
   q.result = null;
   q.stage = 'play';
   q.startsAt = now + COUNTDOWN_MS;
@@ -175,6 +212,7 @@ function startWager(room, now) {
   q.stage = 'wager';
   q.wagers = {};
   q.answers = {};
+  q.hints = {};
   q.options = [];
   q.result = null;
   q.finalAsk = askFor(room.settings.ask, q.songs[q.total], q.total + 1);
@@ -192,16 +230,18 @@ function reveal(room, now) {
   const right = [];
   const choices = {};
   const answered = Object.entries(q.answers).filter(([pid]) => room.players[pid]).sort((x, y) => x[1].at - y[1].at);
+  // A hint halves what a right answer wins (not what a wrong one loses).
+  const share = (pid) => (q.hints[pid] && room.settings.answers === 'type' ? QUIZ_POINTS.hint : 1);
   for (const [pid, a] of answered) {
-    const ok = a.choice === answer;
+    const ok = sameAnswer(q.ask, a.choice, answer);
     const score = scoreOf(q, pid);
     let delta = 0;
     if (final) {
       const bet = q.wagers[pid] || 0;
-      delta = ok ? bet : -Math.min(bet, score.points);
+      delta = ok ? Math.round(bet * share(pid)) : -Math.min(bet, score.points);
     } else if (ok) {
       const left = Math.max(0, q.endsAt - a.at) / (room.settings.seconds * 1000);
-      delta = QUIZ_POINTS.right + Math.round(QUIZ_POINTS.speed * Math.min(1, left));
+      delta = Math.round((QUIZ_POINTS.right + QUIZ_POINTS.speed * Math.min(1, left)) * share(pid));
     }
     if (ok) {
       right.push(pid);
@@ -220,11 +260,12 @@ function reveal(room, now) {
       score.points += points[pid];
     }
   }
+  const hints = Object.keys(q.hints).filter((pid) => room.players[pid]);
   q.result = {
-    answer, ask: q.ask, song: publicSong(song), choices, right, points,
+    answer, ask: q.ask, song: publicSong(song), choices, right, points, hints,
     fastest: right[0] || null, final, wagers: final ? { ...q.wagers } : null,
   };
-  q.history.push({ round: q.round, ask: q.ask, answer, song: publicSong(song), right, points, choices, final });
+  q.history.push({ round: q.round, ask: q.ask, answer, song: publicSong(song), right, points, choices, hints, final });
   q.stage = 'reveal';
   q.endsAt = null;
 }
@@ -262,6 +303,7 @@ export function forgetPlayer(room, pid) {
   if (!room.quiz) return;
   delete room.quiz.answers[pid];
   delete room.quiz.wagers[pid];
+  delete room.quiz.hints[pid];
 }
 
 const requireHost = (room, pid) => {
@@ -284,12 +326,24 @@ export function quizAct(room, pid, action, now, rng = Math.random) {
       // The server finds the songs first and then calls startQuiz.
       throw new GameError('Hang on, still picking the songs', 409);
 
+    case 'hint': {
+      // The four choices, for half the points.
+      if (room.phase !== 'quiz' || q.stage !== 'play' || action.round !== q.round) throw new GameError('Too late for a hint', 409);
+      if (room.settings.answers !== 'type') return {};
+      if (q.answers[pid]) throw new GameError("You're locked in", 409);
+      if (now < q.startsAt - 1000) throw new GameError('Wait for the song! 🎵', 409);
+      q.hints[pid] = true;
+      return {};
+    }
+
     case 'answer': {
       if (room.phase !== 'quiz' || q.stage !== 'play' || action.round !== q.round) throw new GameError("Too late, answers for that one are closed", 409);
       if (q.answers[pid]) throw new GameError("You're locked in", 409);
       if (now < q.startsAt - 1000) throw new GameError('Wait for the song! 🎵', 409);
-      if (!q.options.includes(action.choice)) throw new GameError('Pick one of the four answers');
-      q.answers[pid] = { choice: action.choice, at: Math.max(now, q.startsAt) };
+      const choice = text(action.choice, 120);
+      const choosing = room.settings.answers === 'choice' || q.hints[pid];
+      if (choosing ? !q.options.includes(choice) : !choice) throw new GameError(choosing ? 'Pick one of the four answers' : 'Type an answer first');
+      q.answers[pid] = { choice, at: Math.max(now, q.startsAt) };
       return {};
     }
 
@@ -392,7 +446,10 @@ export function quizView(room, pid, now) {
     startsAt: q.startsAt,
     endsAt: q.endsAt,
     ask: q.stage === 'wager' ? q.finalAsk : q.ask,
-    options: q.stage === 'play' || q.stage === 'reveal' ? q.options : [],
+    // The four choices: for everyone in a multiple-choice game, otherwise
+    // only for someone who asked for a hint.
+    options: q.stage === 'play' && (room.settings.answers === 'choice' || q.hints[pid]) ? q.options : [],
+    hinted: !!q.hints[pid],
     myAnswer: q.answers[pid]?.choice ?? null,
     done: people.filter((p) => quizDone(room, p.id)).length,
     result: q.stage === 'reveal' || q.stage === 'done' ? q.result : null,

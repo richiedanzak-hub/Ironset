@@ -6,7 +6,7 @@ Three games:
 
 - **🎬 Movie night.** Everyone adds movies they'd like to watch. The winner is tonight's movie, with where to stream it.
 - **🎧 Music battle.** Everyone adds songs (or albums, or artists) they love. Play the 30-second previews and crown the anthem of the night.
-- **🎤 Who sings it?** A music quiz. A song plays and everyone races to name the artist (or the song). Bet your points on the last one. [More below](#-who-sings-it).
+- **🎤 Who sings it?** A music quiz. A song plays and everyone races to type the artist (or the song). Bet your points on the last one. [More below](#-who-sings-it).
 
 How a battle goes:
 
@@ -34,19 +34,21 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 A separate game from the battles: no hat, no picks. The game brings the songs.
 
 1. **A song plays.** After a 3‑2‑1, a 30-second preview starts. By default it plays on the host's phone, so everyone in the room hears one clean sound (hook it up to a speaker). Playing from different places? Switch it to every phone. Anyone can also tap "Play it here too".
-2. **Pick the answer.** Four big buttons on every phone. No changing your mind once you tap.
-3. **The reveal.** The cover, title, artist and original album, who picked what, who was fastest, and the scores.
-4. **Double or nothing.** Before the last song, you see a hint (say "The 80s · Rock"), then everyone secretly bets some or all of their points. Get it right and win what you bet, get it wrong and lose it. Anyone low on points can still bet up to 100.
+2. **Type the answer.** Names pop up as you type (real artists or songs, from Deezer), and a tap locks one in. You can also lock in exactly what you typed. Close enough counts: capitals, punctuation, "the", "&" and a typo or two in a long name don't matter ("guns and roses" is Guns N' Roses).
+3. **Stuck? 💡 Need a hint?** Four choices show up on your phone only, and a right answer is worth half.
+4. **The reveal.** The cover, title, artist and original album, what everyone typed (and who used a hint), who was fastest, and the scores.
+5. **Double or nothing.** Before the last song, you see a hint (say "The 80s · Rock"), then everyone secretly bets some or all of their points. Get it right and win what you bet, get it wrong and lose it. Anyone low on points can still bet up to 100.
 
 | Points | How you earn them |
 | --- | --- |
 | ✓ 100 | A right answer |
 | ⚡ up to +50 | Answering fast (the full 50 right away, less as the clock runs down) |
+| 💡 half | A right answer after a hint (in the finale: half your bet) |
 | 💰 ± your bet | The last song, with the finale on |
 
-House rules: what to name (🎤 the artist, 🎵 the song, or 🔀 take turns), how many songs (5, 10, 15 or 20), time to answer (10–30 seconds), the theme (the same ready-made ones as the music battle, or your own genre, decade and vibe), clean songs only, and where the music plays.
+House rules: what to name (🎤 the artist, 🎵 the song, or 🔀 take turns), how to answer (⌨️ type it, with hints, or 🔘 pick from four every time, for little ones, at full points), how many songs (5, 10, 15 or 20), time to answer (10–30 seconds, 30 by default), the theme (the same ready-made ones as the music battle, or your own genre, decade and vibe), clean songs only, and where the music plays.
 
-The songs: well-known ones that fit the theme, one per artist, each checked to make sure its preview plays. The wrong choices sound right on purpose: other well-known artists from the same kind of music and time, and, when you name the song, other songs by the same artist. Each song is switched to its original album and year once the game starts. Your phone never gets the answer before the reveal (not even a song id to look up).
+The songs: well-known ones that fit the theme, one per artist, each checked to make sure its preview plays. The wrong choices sound right on purpose: other well-known artists from the same kind of music and time, and, when you name the song, other songs by the same artist. Each song is switched to its original album and year once the game starts. Your phone never gets the answer before the reveal (not even a song id to look up), and only gets the four choices if you ask for a hint.
 
 ## What's in a battle
 

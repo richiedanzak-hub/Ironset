@@ -272,7 +272,7 @@ test('who sings it: the server finds the songs, plays clips, and never sends the
     const view = await openStream(host.code, dad, at);
     const v = await view.next((x) => x.phase === 'quiz');
     view.close();
-    assert.equal(v.quiz.options.length, 4);
+    assert.deepEqual(v.quiz.options, [], 'type the answer: no choices unless you ask for a hint');
     assert.ok(!JSON.stringify(v).includes('Tune 0'), 'the title stays on the server');
 
     const clip = (who, round) => fetch(`${at}/api/rooms/${host.code}/clip?round=${round}&p=${who.playerId}&s=${who.secret}`);

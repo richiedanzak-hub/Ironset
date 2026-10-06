@@ -1236,6 +1236,41 @@ export function createMusic({
     );
   }
 
+  // Names that pop up while someone types an answer in Who Sings It?: one
+  // quick lookup each time, so it keeps up with typing. Apple and the
+  // built-in list fill in when Deezer comes up short.
+  async function suggest(kind, q) {
+    const query = String(q || '').trim().slice(0, 80);
+    const song = kind === 'song';
+    if (query.length < 2) return { results: [] };
+    const out = [];
+    const seen = new Set();
+    const add = (title, artist, cover) => {
+      const key = song ? `${songKey(title)}|${itemKey(artist)}` : itemKey(title);
+      if (!title || !key || seen.has(key) || out.length >= 8) return;
+      seen.add(key);
+      out.push({ title: song ? plainTitle(title) || title : title, artist: song ? artist || null : null, cover: cover || null });
+    };
+    try {
+      const data = await deezer(song ? '/search/track' : '/search/artist', { q: query, limit: 15 }, 6 * HOUR);
+      for (const r of data.data || []) {
+        if (song) add(r.title_short || r.title, r.artist?.name, picture(r.album?.cover_medium || r.album?.cover_big));
+        else add(r.name, null, picture(r.picture_medium || r.picture_big));
+      }
+    } catch (err) {
+      warnOnce('Deezer suggestions', err);
+    }
+    if (out.length < 3) {
+      try {
+        for (const m of await itunes(song ? 'song' : 'artist', query, 10)) add(m.title, m.artist, m.cover);
+      } catch (err) {
+        warnOnce('iTunes suggestions', err);
+      }
+    }
+    if (out.length < 3) for (const m of catalogSearch(song ? 'song' : 'artist', query)) add(m.title, m.artist, null);
+    return { results: out };
+  }
+
   // A quick live check of each source, for /api/music/status.
   function status() {
     return cache.wrap('status', 30_000, async () => {
@@ -1267,5 +1302,5 @@ export function createMusic({
     });
   }
 
-  return { source: 'deezer', search, details, lookup, browse, meta, preview, about, status, quizSongs, quizClip };
+  return { source: 'deezer', search, details, lookup, browse, meta, preview, about, status, quizSongs, quizClip, suggest };
 }

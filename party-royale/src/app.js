@@ -115,6 +115,7 @@ export function createApp({
   const streams = new Map(); // room code -> Set of { res, pid }
   const dirty = new Set();
   const lookupLimit = limiter(300);
+  const suggestLimit = limiter(1200); // a whole family typing answers on one Wi-Fi
 
   // -------------------------------------------------------------- rooms
 
@@ -350,6 +351,11 @@ export function createApp({
       if (code === 'browse') return sendJson(res, 200, await movies.browse(q));
       if (code === 'meta') return sendJson(res, 200, await movies.meta(q.region));
       if (code === 'watch') return sendJson(res, 200, await movies.watch(q));
+    }
+
+    if (section === 'music' && method === 'GET' && code === 'suggest') {
+      suggestLimit(req);
+      return sendJson(res, 200, await music.suggest(url.searchParams.get('kind'), url.searchParams.get('q')));
     }
 
     if (section === 'music' && method === 'GET') {

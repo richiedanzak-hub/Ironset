@@ -1,5 +1,6 @@
 // Who Sings It? The music quiz: the lobby and its rules, each song (a 3-2-1,
-// four choices, the reveal), the double-or-nothing bet, and the final scores.
+// type the answer with names popping up as you go, or take a hint for four
+// choices; then the reveal), the double-or-nothing bet, and the final scores.
 import { html, useState, useEffect, useMemo, useRef } from './lib.js';
 import { request } from './api.js';
 import { Avatar, Confetti, Countdown, Cover, PlayButton, Seg, Sheet, ThemeBanner, places, playClip, stopPreview, themeEmoji, themeTitle, toast, useGame, useNow, usePreview } from './ui.js';
@@ -13,6 +14,11 @@ const signed = (n) => (n > 0 ? `+${fmt(n)}` : n < 0 ? `−${fmt(-n)}` : '±0');
 const SHAPES = ['▲', '◆', '●', '■'];
 const listNames = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names.at(-1)}` : names[0]);
 
+const ANSWER_HELP = {
+  type: 'Type it: names pop up as you type. Stuck? A hint shows four choices, for half the points',
+  choice: 'Four choices every time, no typing. Easiest for little ones',
+};
+
 const ASK_HELP = {
   artist: 'A song plays: who sings it?',
   song: 'A song plays: what is it called? (The choices are all by the same artist)',
@@ -25,6 +31,7 @@ export function quizSummary(s) {
   return [
     s.theme ? `${themeEmoji(s.theme)} ${themeTitle(s.theme)}` : '🎲 Hits and classics',
     { artist: '🎤 Name the artist', song: '🎵 Name the song', mix: '🔀 Artist or song' }[s.ask],
+    s.answers === 'choice' ? '🔘 Pick from four' : '⌨️ Type it (💡 hints for half points)',
     `🎶 ${s.rounds} songs`,
     `⏱ ${s.seconds}s to answer`,
     s.wager ? '💰 Double or nothing to finish' : null,
@@ -58,6 +65,14 @@ export function QuizRules() {
           ([v, emoji, text]) => [v, html`<span class="seg-emoji">${emoji}</span>${text}`],
         )}
         onChange=${(v) => set({ ask: v })} />
+    </div>
+    <div class="rule rule-col">
+      <div class="rule-text"><strong>How do you answer?</strong><span>${ANSWER_HELP[s.answers]}</span></div>
+      <${Seg} label="How to answer" value=${s.answers} className="stacked"
+        options=${[['type', '⌨️', 'Type it'], ['choice', '🔘', 'Pick from 4']].map(
+          ([v, emoji, text]) => [v, html`<span class="seg-emoji">${emoji}</span>${text}`],
+        )}
+        onChange=${(v) => set({ answers: v })} />
     </div>
     <div class="rule rule-col">
       <div class="rule-text"><strong>How many songs?</strong><span>${s.wager ? 'Plus one more for the double-or-nothing finale' : 'About half a minute each'}</span></div>
@@ -131,29 +146,99 @@ export function QuizLobby() {
 
 // ------------------------------------------------------------ the game
 
-function Options({ q, mine, onPick, result, players, waiting }) {
-  return html`<div class="qz-options ${result ? 'revealed' : mine ? 'locked' : ''}">
-    ${q.options.map((o, i) => {
-      const right = result && o === result.answer;
-      const chosen = mine === o;
-      const who = result
-        ? Object.entries(result.choices).filter(([, c]) => c === o).map(([pid]) => players.find((p) => p.id === pid)).filter(Boolean)
-        : [];
-      return html`<button
-        class="qz-option o${i} ${chosen ? 'chosen' : ''} ${right ? 'right' : ''} ${result && chosen && !right ? 'wrong' : ''}"
-        key=${o}
-        disabled=${!!result || !!mine || waiting}
-        onClick=${() => onPick(o)}
-      >
+// Four big buttons: a multiple-choice game, or after a hint.
+function Options({ q, mine, onPick, waiting }) {
+  const options = q.options.length ? q.options : ['', '', '', ''];
+  return html`<div class="qz-options ${mine ? 'locked' : ''}">
+    ${options.map(
+      (o, i) => html`<button class="qz-option o${i} ${mine === o ? 'chosen' : ''}" key=${o || i} disabled=${!!mine || waiting || !o} onClick=${() => onPick(o)}>
         <span class="shape" aria-hidden="true">${SHAPES[i]}</span>
-        <span class="label">${waiting ? '· · ·' : o}</span>
-        ${result
-          ? html`<span class="who">${right ? html`<b>✓</b>` : chosen ? html`<b>✗</b>` : null}${who.slice(0, 5).map((p) => html`<${Avatar} key=${p.id} p=${p} size=${22} />`)}</span>`
-          : chosen
-            ? html`<span class="who"><b>🔒</b></span>`
-            : null}
-      </button>`;
-    })}
+        <span class="label">${waiting || !o ? '· · ·' : o}</span>
+        ${mine === o ? html`<span class="who"><b>🔒</b></span>` : null}
+      </button>`,
+    )}
+  </div>`;
+}
+
+// Type the answer: names pop up as you type, and a tap locks one in.
+const suggestCache = new Map();
+function AnswerBox({ ask, waiting, onSubmit, onHint, canHint, onFocus }) {
+  const [text, setText] = useState('');
+  const [list, setList] = useState([]);
+  const box = useRef(null);
+  const kind = ask === 'song' ? 'song' : 'artist';
+  const query = text.trim();
+  useEffect(() => {
+    if (query.length < 2) return setList([]);
+    const key = `${kind}:${query.toLowerCase()}`;
+    if (suggestCache.has(key)) return setList(suggestCache.get(key));
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const { results } = await request(`/api/music/suggest?${new URLSearchParams({ kind, q: query })}`);
+        if (suggestCache.size > 300) suggestCache.clear();
+        suggestCache.set(key, results);
+        if (live) setList(results);
+      } catch {}
+    }, 220);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [query, kind]);
+  const submit = (value) => value.trim() && onSubmit(value.trim());
+  const focus = () => {
+    onFocus?.();
+    // Keep the box and its suggestions above the keyboard.
+    setTimeout(() => box.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 250);
+  };
+  return html`<div class="qz-answer" ref=${box}>
+    <form onSubmit=${(e) => (e.preventDefault(), submit(text))}>
+      <div class="input-icon">
+        <span>🔍</span>
+        <input class="input qz-input" type="search" value=${text} disabled=${waiting}
+          placeholder=${waiting ? 'Get ready…' : ask === 'song' ? 'Type the song name…' : 'Type the artist…'}
+          aria-label=${ask === 'song' ? 'The song' : 'The artist'}
+          autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="send"
+          onFocus=${focus} onInput=${(e) => setText(e.target.value)} />
+      </div>
+    </form>
+    ${list.length
+      ? html`<div class="qz-suggest" role="listbox">
+          ${list.map(
+            (m) => html`<button class="qz-suggest-item" role="option" key=${`${m.title}|${m.artist || ''}`} onClick=${() => submit(m.title)}>
+              <span class="qz-sg-pic">${m.cover ? html`<img src=${m.cover} alt="" loading="lazy" />` : kind === 'song' ? '🎵' : '🎤'}</span>
+              <span class="grow"><strong>${m.title}</strong>${m.artist ? html`<span>${m.artist}</span>` : null}</span>
+              <span class="qz-sg-go" aria-hidden="true">→</span>
+            </button>`,
+          )}
+        </div>`
+      : null}
+    ${query.length >= 2
+      ? html`<button class="btn btn-hot btn-block" onClick=${() => submit(text)}>🔒 Lock in “${query}”</button>`
+      : null}
+    ${canHint
+      ? html`<button class="btn btn-quiet btn-block qz-hint-btn" disabled=${waiting} onClick=${onHint}>💡 Need a hint? See 4 choices (half points)</button>`
+      : null}
+  </div>`;
+}
+
+// Everyone's answers, right ones first (fastest at the top).
+function Answers({ r, players, meId }) {
+  const rows = players
+    .map((p) => ({ p, choice: r.choices[p.id], right: r.right.indexOf(p.id), points: r.points[p.id] || 0, hint: r.hints?.includes(p.id) }))
+    .sort((x, y) => (x.right < 0) - (y.right < 0) || x.right - y.right || (x.choice == null) - (y.choice == null));
+  return html`<div class="card qz-answers">
+    ${rows.map(
+      ({ p, choice, right, points, hint }) => html`<div class="qz-answer-row ${right >= 0 ? 'good' : choice == null ? 'none' : 'bad'}" key=${p.id}>
+        <${Avatar} p=${p} size=${30} />
+        <span class="grow">
+          <span class="w">${p.id === meId ? 'You' : p.name}${hint ? html` <span class="tag">💡 hint</span>` : null}</span>
+          <span class="qz-said">${choice == null ? 'No answer' : `“${choice}”`}</span>
+        </span>
+        <span class="qz-mark">${right >= 0 ? (points ? signed(points) : '✓') : points ? signed(points) : choice == null ? '' : '✗'}</span>
+      </div>`,
+    )}
   </div>`;
 }
 
@@ -183,7 +268,7 @@ function Verdict({ q, meId }) {
       ? delta ? `💰 Right! You win ${fmt(delta)}` : '✓ Right! (you bet nothing)'
       : delta ? `💸 Wrong! You lose ${fmt(-delta)}` : answered ? '✗ Wrong, but you bet nothing' : '⏱ No answer';
   } else {
-    text = got ? `✓ You got it! +${fmt(delta)}` : answered ? '✗ Not this time' : '⏱ Too slow!';
+    text = got ? `✓ You got it! +${fmt(delta)}${r.hints?.includes(meId) ? ' (💡 half for the hint)' : ''}` : answered ? `✗ Not this time: it's ${r.answer}` : `⏱ Too slow! It's ${r.answer}`;
   }
   return html`<div class="qz-verdict ${got ? 'good' : 'bad'}">${text}</div>`;
 }
@@ -240,6 +325,7 @@ export function QuizGame() {
   const [sheet, setSheet] = useState(false);
   const [alsoHere, setAlsoHere] = useState(false); // play on this phone too, when the host's phone is the speaker
   const [blocked, setBlocked] = useState(false); // the phone wants a tap before it plays
+  const [typing, setTyping] = useState(false); // the answer box has the keyboard up
   const urls = useRef({});
   const host = view.players.find((p) => p.host);
   const listen = s.sound === 'all' || view.me.host || alsoHere;
@@ -262,6 +348,7 @@ export function QuizGame() {
   useEffect(() => {
     setPending(null);
     setBlocked(false);
+    setTyping(false);
     if (!playing || !listen) return;
     clip(q.round).catch(() => {});
     const t = setTimeout(play, Math.max(0, q.startsAt - (Date.now() + offset.current)));
@@ -294,6 +381,11 @@ export function QuizGame() {
     setPending(choice);
     if (!(await act({ type: 'answer', round: q.round, choice }))) setPending(null);
   };
+  const choosing = s.answers === 'choice' || q.hinted;
+  const hint = () => {
+    sfx.tap();
+    act({ type: 'hint', round: q.round });
+  };
   const advance = () => {
     sfx.tap();
     act({ type: 'next', round: q.round, stage: q.stage });
@@ -323,7 +415,7 @@ export function QuizGame() {
         ? html`<div key=${`play${q.round}`}>
             <h1 class="duel-title">${question}</h1>
             ${q.final ? html`<p class="center"><span class="pill pill-gold">💰 Your bet: ${fmt(q.bet?.mine || 0)}</span></p>` : null}
-            <div class="qz-stage">
+            <div class="qz-stage ${typing && !before ? 'small' : ''}">
               <div class="qz-disc ${playingHere ? 'spin' : ''}" aria-hidden="true">${before ? null : html`<span>?</span>`}</div>
               ${before ? html`<div class="qz-count" key=${count}>${count}</div>` : null}
             </div>
@@ -338,10 +430,19 @@ export function QuizGame() {
                 : html`<span>🔈 Listen to ${host ? `${host.name}'s` : "the host's"} phone</span>
                     <button class="chip soft" onClick=${() => (setAlsoHere(true), play())}>Play it here too</button>`}
             </div>
-            <${Options} q=${q} mine=${mine} onPick=${pick} players=${view.players} waiting=${before} />
+            ${choosing
+              ? html`${q.hinted ? html`<p class="center small muted qz-hint-note">💡 Hint: it's one of these (half points)</p>` : null}
+                  <${Options} q=${q} mine=${mine} onPick=${pick} waiting=${before} />`
+              : mine
+                ? html`<div class="card center qz-locked"><span class="big">🔒</span><strong>“${mine}”</strong><span class="small muted">Locked in! Let's see…</span></div>`
+                : html`<${AnswerBox} key=${q.round} ask=${q.ask} waiting=${before} onSubmit=${pick} onHint=${hint} canHint=${!before} onFocus=${() => setTyping(true)} />`}
             <div class="voters">
               <p class="small muted" style=${{ fontWeight: 800 }}>
-                ${mine ? `🔒 Locked in! ${q.done} of ${here.length} answered` : before ? 'The choices show up when the song starts' : 'Tap your answer. Faster scores more!'}
+                ${mine
+                  ? `${q.done} of ${here.length} answered`
+                  : before
+                    ? choosing ? 'The choices show up when the song starts' : 'Get ready to type!'
+                    : choosing ? 'Tap your answer. Faster scores more!' : 'Faster scores more!'}
               </p>
               <div class="face-row">
                 ${here.map((p) => html`<${Avatar} key=${p.id} p=${p} size=${36} className=${p.voted ? '' : 'waiting'} badge=${p.voted ? '✓' : null} />`)}
@@ -362,7 +463,7 @@ export function QuizGame() {
               </div>
             </div>
             <${Verdict} q=${q} meId=${meId} />
-            <${Options} q=${q} mine=${q.result.choices[meId]} result=${r} players=${view.players} />
+            <${Answers} r=${r} players=${view.players} meId=${meId} />
             ${r.fastest && !r.final
               ? html`<p class="center qz-fast"><span class="pill">⚡ Fastest: ${r.fastest === meId ? 'you!' : view.players.find((p) => p.id === r.fastest)?.name || '?'}</span></p>`
               : null}
@@ -389,7 +490,7 @@ export function QuizGame() {
 
     <${Sheet} open=${sheet} onClose=${() => setSheet(false)} title="🏅 Scores">
       <${Standings} scores=${q.scores} meId=${meId} />
-      <p class="small muted" style=${{ marginTop: '14px' }}>✓ 100 for a right answer, plus up to 50 for speed${q.finale ? ' · 💰 the last song is double or nothing' : ''}</p>
+      <p class="small muted" style=${{ marginTop: '14px' }}>✓ 100 for a right answer, plus up to 50 for speed${s.answers === 'type' ? ' · 💡 half with a hint' : ''}${q.finale ? ' · 💰 the last song is double or nothing' : ''}</p>
     </${Sheet}>
   </div>`;
 }

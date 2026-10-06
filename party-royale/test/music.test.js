@@ -545,6 +545,20 @@ test('who sings it: well-known songs, one per artist, each with a clip and belie
   assert.notDeepEqual(other.map((s) => s.title), again.map((s) => s.title), 'every game gets its own songs');
 });
 
+test('quiz suggestions: artists or songs as you type, and the built-in list when Deezer is down', async () => {
+  const m = music();
+  const artists = await m.suggest('artist', 'que');
+  assert.deepEqual(artists.results.map((r) => r.title).slice(0, 2), ['Queen', 'Fan Band'], 'Deezer first');
+  assert.equal(artists.results.length, 3, 'only two from Deezer, so Apple adds more');
+  assert.equal(artists.results[0].artist, null);
+  const songs = await m.suggest('song', 'bohemian');
+  assert.deepEqual(songs.results.map((r) => [r.title, r.artist]).slice(0, 2), [['Bohemian Rhapsody', 'Queen'], ['Lose Yourself', 'Eminem']], 'remasters merged into one');
+  assert.deepEqual((await m.suggest('artist', 'q')).results, [], 'two letters first');
+  const down = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9', retryDelays: [] });
+  const offline = await down.suggest('artist', 'beatl');
+  assert.ok(offline.results.some((r) => r.title === 'The Beatles'));
+});
+
 test('quiz clips are the song itself or nothing', async () => {
   const m = music();
   assert.match(await m.quizClip({ deezerId: 1, title: 'Bohemian Rhapsody', artist: 'Queen' }), /fresh1\.mp3/);
