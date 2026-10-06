@@ -38,6 +38,29 @@ const ROACH_TRACKS = [
   track(7006, 'Last Resort', artist(9999, 'Tribute Kids'), 9998),
 ];
 const roachAlbum = (id, title, date, type, genre, extra = {}) => ({ id, title, cover_big: cover(id), release_date: date, record_type: type, genre_id: genre, explicit_lyrics: true, ...extra });
+// Scorpions' "Rock You Like a Hurricane": first out on Love at First Sting
+// (1984). Deezer's search only turns up the 2011 re-recording (Comeblack) and
+// a 2015 deluxe reissue, and the 1984 album is on page two of their albums.
+const scorpions = { id: 8000, name: 'Scorpions' };
+const HURRICANE = 'Rock You Like a Hurricane';
+const onScorpionsAlbum = (id, albumId, title) => track(id, HURRICANE, scorpions, albumId, { album: { id: albumId, title, cover_big: cover(albumId) } });
+const scorpionsAlbum = (id, title, date) => ({ id, title, cover_big: cover(id), release_date: date, record_type: 'album', genre_id: 152, explicit_lyrics: false });
+const MUSICBRAINZ = {
+  [`recording:"${HURRICANE}" AND artist:"Scorpions"`]: {
+    recordings: [
+      { title: HURRICANE, 'artist-credit': [{ name: 'Scorpions' }], 'first-release-date': '2011-11-04', releases: [{ title: 'Comeblack', date: '2011-11-04', 'release-group': { 'primary-type': 'Album' } }] },
+      {
+        title: HURRICANE, 'artist-credit': [{ name: 'Scorpions' }], 'first-release-date': '1984-02-20',
+        releases: [
+          { title: 'Best of Rockers ’n’ Ballads', date: '1989-09-01', 'release-group': { 'primary-type': 'Album', 'secondary-types': ['Compilation'] } },
+          { title: 'Love at First Sting', date: '1984-03-27', 'release-group': { 'primary-type': 'Album', 'secondary-types': [] } },
+        ],
+      },
+      { title: `${HURRICANE} (live)`, 'artist-credit': [{ name: 'Scorpions' }], 'first-release-date': '1985-06-01', releases: [{ title: 'World Wide Live', date: '1985-06-01', 'release-group': { 'primary-type': 'Album', 'secondary-types': ['Live'] } }] },
+      { title: HURRICANE, 'artist-credit': [{ name: 'Tribute Band' }], 'first-release-date': '1979-01-01' },
+    ],
+  },
+};
 const QUOTA = { error: { type: 'Exception', message: 'Quota limit exceeded', code: 4 } };
 let flaky = 0;
 
@@ -72,6 +95,16 @@ const DEEZER = {
       roachAlbum(7304, 'Getting Away With Murder', '2004-08-31', 'album', 85),
     ],
   },
+  '/track/8001': { ...onScorpionsAlbum(8001, 8100, 'Comeblack'), release_date: '2011-11-04' },
+  '/artist/8000/albums': (q, params) =>
+    params.get('index') === '100'
+      ? { data: [scorpionsAlbum(8102, 'Love At First Sting', '1984-03-27'), scorpionsAlbum(8103, 'Blackout', '1982-03-29')] }
+      : {
+          data: [scorpionsAlbum(8100, 'Comeblack', '2011-11-04'), scorpionsAlbum(8101, 'Love At First Sting (50th Anniversary Deluxe Edition)', '2015-11-06')],
+          next: 'https://api.deezer.com/artist/8000/albums?limit=100&index=100',
+        },
+  '/album/8102/tracks': { data: [{ id: 8003, title: HURRICANE, duration: 252, explicit_lyrics: false, artist: scorpions }, { id: 8004, title: 'Still Loving You', artist: scorpions }] },
+  '/album/8102': { id: 8102, title: 'Love At First Sting', record_type: 'album', genres: { data: [{ name: 'Rock' }] } },
   '/album/7300': { id: 7300, title: 'Infest', record_type: 'album', genres: { data: [{ name: 'Rock' }, { name: 'Alternative' }] } },
   '/album/7301': { id: 7301, title: 'Infest (Deluxe Edition)', release_date: '2020-04-24', record_type: 'album', cover_big: cover(7301), artist: roach, genres: { data: [{ name: 'Rock' }] } },
   '/search/track': (q) => {
@@ -86,6 +119,9 @@ const DEEZER = {
       return { data: [track(51, 'On the Loose Tonight', artist(5100, 'Party Crew'), 5101), track(52, 'On the Loose', artist(5200, 'Niall Horan'), 5201), track(53, 'On the Loose', saga, 5301)] };
     }
     if (q === 'track:"Last Resort" artist:"Papa Roach"') return { data: ROACH_TRACKS };
+    if (q === `track:"${HURRICANE}" artist:"Scorpions"`) {
+      return { data: [onScorpionsAlbum(8001, 8100, 'Comeblack'), onScorpionsAlbum(8002, 8101, 'Love At First Sting (50th Anniversary Deluxe Edition)')] };
+    }
     if (q === 'last resort') return { data: [ROACH_TRACKS[0], ROACH_TRACKS[2]] };
     if (q === 'dirty') {
       return { data: [track(61, 'Still Waiting', sum41, 6100, { explicit_lyrics: true }), track(62, 'Still Waiting', sum41, 6200), track(63, 'Only Dirty', eminem, 6300, { explicit_lyrics: true })] };
@@ -126,7 +162,12 @@ const DEEZER = {
 };
 
 const itunesFor = (term) =>
-  /still waiting/i.test(term)
+  /hurricane/i.test(term)
+    ? { results: [
+        { trackName: HURRICANE, artistName: 'Scorpions', collectionName: 'Comeblack', releaseDate: '2011-11-04T08:00:00Z' },
+        { trackName: HURRICANE, artistName: 'Scorpions', collectionName: 'Love at First Sting', releaseDate: '1984-03-27T08:00:00Z' },
+      ] }
+    : /still waiting/i.test(term)
     ? { results: [{ trackName: 'Still Waiting', artistName: 'Sum 41', collectionName: 'Does This Look Infected?', releaseDate: '2002-11-26T08:00:00Z', trackExplicitness: 'explicit', trackViewUrl: 'https://music.apple.com/us/album/still-waiting/1440?i=1441&uo=4' }] }
     : ITUNES;
 
@@ -156,8 +197,12 @@ before(async () => {
     const url = new URL(req.url, 'http://x');
     const q = url.searchParams.get('q') || url.searchParams.get('term');
     calls.push({ path: url.pathname, q, params: Object.fromEntries(url.searchParams) });
-    let body = url.pathname === '/search' ? itunesFor(q) : url.pathname === '/v1-alpha.1/links' ? songLink(url.searchParams.get('url')) : DEEZER[url.pathname];
-    if (typeof body === 'function') body = body(q);
+    let body =
+      url.pathname === '/search' ? itunesFor(q)
+      : url.pathname === '/v1-alpha.1/links' ? songLink(url.searchParams.get('url'))
+      : url.pathname === '/recording' ? MUSICBRAINZ[url.searchParams.get('query')] || { recordings: [] }
+      : DEEZER[url.pathname];
+    if (typeof body === 'function') body = body(q, url.searchParams);
     for (const [re, make] of DYNAMIC) {
       const m = !body && url.pathname.match(re);
       if (m) body = make(Number(m[1]));
@@ -171,7 +216,8 @@ before(async () => {
 
 after(() => fake.close());
 
-const music = () => createMusic({ deezerBase: base, itunesBase: base, odesliBase: base, retryDelays: [1, 1, 1], deezerBudget: 10_000 });
+const music = (extra = {}) =>
+  createMusic({ deezerBase: base, itunesBase: base, odesliBase: base, musicbrainzBase: base, musicbrainzGap: 0, retryDelays: [1, 1, 1], deezerBudget: 10_000, ...extra });
 const titles = (list) => list.map((m) => m.title);
 const keys = (list) => list.map((m) => `${m.title}|${m.artist}`);
 const lastCall = (path) => calls.filter((c) => c.path === path).at(-1);
@@ -349,6 +395,22 @@ test('a song picked from a compilation becomes the original: album, cover and ye
   assert.equal(clean.item.explicit, false);
 });
 
+test('the original album and year even when Deezer files the song under a re-recording', async () => {
+  const info = await music().lookup('song', { title: HURRICANE, artist: 'Scorpions', deezerId: 8001, album: 'Comeblack', year: 2011 });
+  assert.equal(info.item.album, 'Love At First Sting', 'found on page two of their albums, by the name MusicBrainz gives');
+  assert.equal(info.item.deezerId, 8003, 'the 1984 recording, from that album’s track list');
+  assert.equal(info.item.cover, cover(8102));
+  assert.equal(info.item.year, 1984);
+  assert.deepEqual(info.years, [1984]);
+  assert.ok(info.genres.includes('Rock'));
+  assert.equal(checkTheme(info, { decade: '80s' }).ok, true, 'fits an 80s night');
+  assert.equal(calls.filter((c) => c.path === '/recording').at(-1).params.fmt, 'json');
+
+  // MusicBrainz down: Apple knows the original album and year too.
+  const noMb = await music({ musicbrainzBase: 'http://127.0.0.1:9' }).lookup('song', { title: HURRICANE, artist: 'Scorpions', deezerId: 8001 });
+  assert.deepEqual([noMb.item.album, noMb.item.year], ['Love At First Sting', 1984]);
+});
+
 test('search shows the version from the artist’s own album over a compilation', async () => {
   const { results } = await music().search('song', 'last resort');
   assert.equal(results.length, 1);
@@ -374,7 +436,7 @@ test('typed picks are found first; unknown ones say so', async () => {
   assert.equal(unknown.missing, true, 'Deezer answered, it just has no such song');
   const noDetails = await m.lookup('song', { title: 'Mystery Track', deezerId: 123456 });
   assert.deepEqual([noDetails.found, noDetails.missing], [false, false], 'a Deezer song with no details on file is unknown, not missing');
-  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
+  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9', musicbrainzBase: 'http://127.0.0.1:9' });
   const nothing = await offline.lookup('song', { title: 'Definitely Not A Song' });
   assert.equal(nothing.missing, false, "can't tell without a music service");
 });
@@ -437,7 +499,7 @@ test('typed-in picks are matched by title, or title plus artist', async () => {
 });
 
 test('the built-in list takes over when Deezer is down', async () => {
-  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
+  const offline = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9', musicbrainzBase: 'http://127.0.0.1:9' });
   const top = await offline.browse({ kind: 'song', list: 'top' });
   assert.equal(top.source, 'offline');
   assert.ok(titles(top.results.slice(0, 6)).includes('Bohemian Rhapsody'));

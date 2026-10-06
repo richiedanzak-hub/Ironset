@@ -9,7 +9,7 @@ let base;
 
 before(async () => {
   // Point Deezer, TMDB and iTunes at a closed port so tests never touch the network.
-  const music = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9' });
+  const music = createMusic({ deezerBase: 'http://127.0.0.1:9', itunesBase: 'http://127.0.0.1:9', musicbrainzBase: 'http://127.0.0.1:9' });
   const movies = createMovies({ apiKey: '', itunesBase: 'http://127.0.0.1:9' });
   ({ server } = createApp({ music, movies, port: 0, rng: () => 0 }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

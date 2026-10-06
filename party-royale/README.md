@@ -35,6 +35,7 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 ## Where the data comes from
 
 - **Music: [Deezer's public API](https://developers.deezer.com/api).** Free, no key. Charts, covers, 30-second previews and genres. Apple's iTunes search fills gaps, and [song.link](https://odesli.co) finds the song on Spotify and YouTube.
+- **When a song first came out: [MusicBrainz](https://musicbrainz.org)** (free, no key) and Apple. Deezer often files a classic under a re-recording or a remastered reissue ("Rock You Like a Hurricane" on 2011's *Comeblack*), so the year and album come from these instead: *Love at First Sting*, 1984. That's what the decade check and the cover use.
 - **Movies: [TMDB](https://www.themoviedb.org)** with a free key (see below): posters, ratings, genres, the full catalog and where to watch. Without a key, movie search still works through Apple's iTunes search and the ideas browser uses a built-in list of about 400 favourites.
 
 **Is the data working?** Open `/api/music/status` on your site for a live check of Deezer and Apple.

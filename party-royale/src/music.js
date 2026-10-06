@@ -128,6 +128,15 @@ const dedupe = (items) => {
   return out;
 };
 
+// "Love At First Sting (50th Anniversary Deluxe Edition)" and "Love at First
+// Sting - Remastered" are the same album as the 1984 original.
+const albumKey = (title) =>
+  itemKey(
+    String(title || '')
+      .replace(/\s*[([][^)\]]*\b(remaster(ed)?|deluxe|anniversary|edition|expanded|bonus|reissue|version|mono|stereo)\b[^)\]]*[)\]]/gi, '')
+      .replace(/\s+-\s+.*\b(remaster(ed)?|deluxe|anniversary|edition|expanded)\b.*$/i, ''),
+  );
+
 const DECADE_RANGE = { '2020s': [2020, 2099], '2010s': [2010, 2019], '2000s': [2000, 2009], '90s': [1990, 1999], '80s': [1980, 1989], '70s': [1970, 1979], '60s': [0, 1969] };
 
 // Close genres count for each other: a Rock night takes Alternative and Metal.
@@ -199,6 +208,10 @@ export function createMusic({
   // song.link (Odesli) turns a Deezer link into Spotify, Apple Music and
   // YouTube links for the same song. Keyless, about 10 lookups a minute.
   odesliBase = process.env.ODESLI_BASE_URL || 'https://api.song.link',
+  // MusicBrainz knows when each recording first came out (keyless, but
+  // asks for at most one request a second and a name for the app).
+  musicbrainzBase = process.env.MUSICBRAINZ_BASE_URL || 'https://musicbrainz.org/ws/2',
+  musicbrainzGap = 1100,
   fetchImpl = globalThis.fetch,
   // Deezer allows 50 calls per 5 seconds from one server address. Shared
   // hosting can share that address with other apps, so stay well under it
@@ -210,7 +223,7 @@ export function createMusic({
   const feeds = new Map();
   const stamps = [];
   const stat = () => ({ ok: 0, failed: 0, retried: 0, lastOk: null, lastError: null, lastErrorAt: null });
-  const health = { deezer: stat(), itunes: stat() };
+  const health = { deezer: stat(), itunes: stat(), musicbrainz: stat() };
 
   const noteOk = (src) => {
     health[src].ok += 1;
@@ -287,6 +300,31 @@ export function createMusic({
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
     if (!ttl) return deezerCall(url.toString());
     return cache.wrap(url.toString(), ttl, () => deezerCall(url.toString()));
+  }
+
+  const MB_AGENT = 'PartyRoyale/1.0 ( https://github.com/richiedanzak-hub/Ironset )';
+  let mbFree = 0; // when the next MusicBrainz request may go out
+
+  function musicbrainz(path, params, ttl = 7 * 24 * HOUR) {
+    const url = new URL(musicbrainzBase + path);
+    for (const [k, v] of Object.entries({ ...params, fmt: 'json' })) url.searchParams.set(k, String(v));
+    const load = async () => {
+      const wait = mbFree - Date.now();
+      if (wait > 4000) throw new Error('MusicBrainz is busy');
+      mbFree = Math.max(Date.now(), mbFree) + musicbrainzGap;
+      if (wait > 0) await sleep(wait);
+      try {
+        const res = await fetchImpl(url, { headers: { accept: 'application/json', 'user-agent': MB_AGENT }, signal: AbortSignal.timeout(6000) });
+        if (!res.ok) throw new Error(`MusicBrainz answered ${res.status}`);
+        const data = JSON.parse(await res.text());
+        noteOk('musicbrainz');
+        return data;
+      } catch (err) {
+        noteFail('musicbrainz', err);
+        throw err;
+      }
+    };
+    return ttl ? cache.wrap(url.toString(), ttl, load) : load();
   }
 
   // ---------------------------------------------------------------- Deezer → items
@@ -541,14 +579,31 @@ export function createMusic({
 
   const TYPE_RANK = { album: 0, ep: 1, single: 2 };
   const unique = (list) => [...new Set(list.filter(Boolean))];
+  const firstRelease = (a, b) => String(a.release_date || '9999').localeCompare(String(b.release_date || '9999'));
+  const byTypeThenDate = (x, y) => (TYPE_RANK[x.record_type] ?? 3) - (TYPE_RANK[y.record_type] ?? 3) || firstRelease(x, y);
+  const quote = (s) => `"${String(s).replace(/"/g, '')}"`;
 
   async function genreNames() {
     return new Map(await genres());
   }
 
+  // The artist's whole discography on Deezer (it comes 100 at a time, and
+  // big catalogs run to several pages), minus compilations.
   async function ownAlbums(artistId) {
-    const data = await deezer(`/artist/${artistId}/albums`, { limit: 100 }, 24 * HOUR);
-    return (data.data || []).filter((a) => a.record_type !== 'compile');
+    const all = [];
+    for (let index = 0; index < 500; index += 100) {
+      const data = await deezer(`/artist/${artistId}/albums`, { limit: 100, index: index || undefined }, 24 * HOUR);
+      all.push(...(data.data || []));
+      if (!data.next || !data.data?.length) break;
+    }
+    return all.filter((a) => a.record_type !== 'compile');
+  }
+
+  // A song on one of Deezer's albums, from its track list.
+  async function songOn(albumId, title, clean) {
+    const data = await deezer(`/album/${albumId}/tracks`, { limit: 100 }, 24 * HOUR);
+    const track = (data.data || []).find((t) => songKey(t.title_short || t.title) === songKey(title) && (!clean || !t.explicit_lyrics));
+    return track ? { ...track, album: { id: albumId } } : null;
   }
 
   // What an artist is mostly filed under, going by their own albums.
@@ -559,7 +614,42 @@ export function createMusic({
     return [...count].filter(([, n]) => n >= Math.max(1, total * 0.2)).map(([id]) => names.get(id));
   }
 
-  const firstRelease = (a, b) => String(a.release_date || '9999').localeCompare(String(b.release_date || '9999'));
+  // When a song (or album) first came out, and the album it came out on,
+  // from MusicBrainz and Apple. Deezer alone can't say: re-recordings and
+  // remastered reissues carry their own, later dates.
+  async function firstKnown(kind, title, artist) {
+    if (!title || !artist) return { year: null, album: null };
+    const keyOf = kind === 'song' ? songKey : albumKey;
+    const key = keyOf(title);
+    const who = itemKey(artist);
+
+    const fromMusicbrainz = async () => {
+      const field = kind === 'song' ? 'recording' : 'releasegroup';
+      const data = await musicbrainz(kind === 'song' ? '/recording' : '/release-group', { query: `${field}:${quote(title)} AND artist:${quote(artist)}`, limit: 25 });
+      const credit = (r) => (r['artist-credit'] || []).map((c) => `${c.name}${c.joinphrase || ''}`).join('');
+      const mine = (data.recordings || data['release-groups'] || []).filter((r) => keyOf(r.title) === key && itemKey(credit(r)).includes(who));
+      const years = mine.map((r) => yearOf(r['first-release-date'])).filter(Boolean);
+      // The earliest proper album it's on: not a single, live album or compilation.
+      const albums = mine
+        .flatMap((r) => r.releases || [])
+        .filter((rel) => rel.date && rel['release-group']?.['primary-type'] === 'Album' && !rel['release-group']?.['secondary-types']?.length)
+        .sort((x, y) => x.date.localeCompare(y.date));
+      return { year: years.length ? Math.min(...years) : null, album: albums[0]?.title || null };
+    };
+    const fromApple = async () => {
+      const found = await itunes(kind, `${title} ${artist}`, 25);
+      const best = found
+        .filter((m) => m.year && keyOf(m.title) === key && itemKey(m.artist) === who && !(m.album && COMPILATION.test(m.album)))
+        .sort((x, y) => x.year - y.year)[0];
+      return { year: best?.year || null, album: kind === 'song' ? best?.album || null : null };
+    };
+    const [mb, apple] = await Promise.all([
+      fromMusicbrainz().catch((err) => warnOnce('MusicBrainz', err)),
+      fromApple().catch((err) => warnOnce('Apple release dates', err)),
+    ]);
+    const years = [mb?.year, apple?.year].filter(Boolean);
+    return { year: years.length ? Math.min(...years) : null, album: mb?.album || apple?.album || null };
+  }
 
   async function lookup(kind, input, { clean = false } = {}) {
     const item = { ...input, kind };
@@ -577,8 +667,9 @@ export function createMusic({
       out.found = true;
       deezerId = hit.deezerId;
       if (!deezerId) {
+        const first = await firstKnown(kind, item.title, item.artist);
         out.genres = unique((hit.genres || []).map((g) => APPLE_GENRES[g.toLowerCase()]));
-        out.years = hit.year ? [hit.year] : [];
+        out.years = unique([first.year || hit.year]);
         return out;
       }
     }
@@ -597,20 +688,22 @@ export function createMusic({
       const a = await deezer(`/album/${deezerId}`, {}, 24 * HOUR);
       if (!a?.id) return out;
       out.found = true;
-      const albums = a.artist?.id ? await ownAlbums(a.artist.id) : [];
+      const [albums, first] = await Promise.all([
+        a.artist?.id ? ownAlbums(a.artist.id) : [],
+        firstKnown('album', a.title, a.artist?.name),
+      ]);
       // The first edition, not this year's deluxe remaster.
-      const first = albums
-        .filter((x) => songKey(x.title) === songKey(a.title) && (!clean || !x.explicit_lyrics))
-        .sort((x, y) => (TYPE_RANK[x.record_type] ?? 3) - (TYPE_RANK[y.record_type] ?? 3) || firstRelease(x, y))[0];
-      const year = yearOf(first?.release_date) || yearOf(a.release_date);
+      const edition = albums.filter((x) => albumKey(x.title) === albumKey(a.title) && (!clean || !x.explicit_lyrics)).sort(byTypeThenDate)[0];
+      const years = [yearOf(edition?.release_date) || yearOf(a.release_date), first.year].filter(Boolean);
+      const year = years.length ? Math.min(...years) : null;
       out.item = {
         ...item,
-        title: first?.title || a.title,
+        title: edition?.title || a.title,
         artist: a.artist?.name || item.artist,
-        cover: picture(first?.cover_big || a.cover_big) || item.cover,
+        cover: picture(edition?.cover_big || a.cover_big) || item.cover,
         year: year || item.year || null,
-        deezerId: first?.id || a.id,
-        explicit: first ? !!first.explicit_lyrics : !!a.explicit_lyrics,
+        deezerId: edition?.id || a.id,
+        explicit: edition ? !!edition.explicit_lyrics : !!a.explicit_lyrics,
       };
       out.genres = unique([...(a.genres?.data || []).map((g) => g.name), ...artistGenres(albums, names)]);
       out.years = year ? [year] : [];
@@ -622,29 +715,52 @@ export function createMusic({
     out.found = true;
     const artist = t.artist || {};
     const title = t.title_short || t.title;
-    const quote = (s) => `"${String(s).replace(/"/g, '')}"`;
-    const [albums, versions] = await Promise.all([
+    const [albums, versions, first] = await Promise.all([
       artist.id ? ownAlbums(artist.id) : [],
       deezer('/search/track', { q: `track:${quote(title)} artist:${quote(artist.name)}`, limit: 50 }, 24 * HOUR)
         .then((d) => d.data || [])
         .catch(() => []),
+      firstKnown('song', title, artist.name),
     ]);
-    // Every release of this song on the artist's own albums, best first:
-    // a proper album over an EP over a single, then the earliest.
+    // Every release of this song on the artist's own albums.
     const own = new Map(albums.map((a) => [a.id, a]));
     const releases = [t, ...versions]
       .filter((v) => v.artist?.id === artist.id && songKey(v.title_short || v.title) === songKey(title) && own.has(v.album?.id))
       .filter((v) => !clean || !v.explicit_lyrics);
-    const rank = (v) => TYPE_RANK[own.get(v.album.id).record_type] ?? 3;
-    const best = [...releases].sort(
-      (x, y) => rank(x) - rank(y) || firstRelease(own.get(x.album.id), own.get(y.album.id)) || Number(x.explicit_lyrics !== t.explicit_lyrics) - Number(y.explicit_lyrics !== t.explicit_lyrics),
-    )[0];
+    const albumOf = (v) => own.get(v.album.id);
+    const deezerYears = releases.map((v) => yearOf(albumOf(v).release_date)).filter(Boolean);
+    const firstYear = [...deezerYears, first.year].filter(Boolean).reduce((x, y) => Math.min(x, y), Infinity);
+    const sameVersion = (x, y) => Number(x.explicit_lyrics !== t.explicit_lyrics) - Number(y.explicit_lyrics !== t.explicit_lyrics);
+    const bestOf = (list) => [...list].sort((x, y) => byTypeThenDate(albumOf(x), albumOf(y)) || sameVersion(x, y))[0] || null;
+
+    // 1. The album it first came out on, by name ("Love at First Sting"),
+    //    checking that album's track list if Deezer's search missed it.
+    // Editions go oldest first, so the 1984 album beats its 2015 deluxe reissue.
+    let best = null;
+    if (first.album) {
+      const named = albums.filter((a) => albumKey(a.title) === albumKey(first.album)).sort(byTypeThenDate);
+      for (const a of named.slice(0, 3)) {
+        best = bestOf(releases.filter((v) => v.album.id === a.id)) || (await songOn(a.id, title, clean).catch(() => null));
+        if (best) break;
+      }
+    }
+    // 2. Otherwise, the artist's own album from around when it first came out.
+    if (!best && Number.isFinite(firstYear)) {
+      best = bestOf(releases.filter((v) => yearOf(albumOf(v).release_date) <= firstYear + 1));
+      const around = albums.filter((a) => (TYPE_RANK[a.record_type] ?? 3) < 2 && Math.abs((yearOf(a.release_date) || 0) - firstYear) <= 1).sort(byTypeThenDate);
+      for (const a of around.slice(0, 4)) {
+        if (best) break;
+        best = await songOn(a.id, title, clean).catch(() => null);
+      }
+    }
+    // 3. Otherwise, the best release Deezer listed.
+    best ||= bestOf(releases);
+
     const album = best ? own.get(best.album.id) : null;
-    const years = releases.map((v) => yearOf(own.get(v.album.id).release_date)).filter(Boolean);
     const info = await deezer(`/album/${album?.id || t.album?.id}`, {}, 24 * HOUR).catch(() => null);
     // Still on a compilation? Then its year says nothing about the song.
     const compiled = !album && (info?.record_type === 'compile' || COMPILATION.test(t.album?.title || ''));
-    const year = years.length ? Math.min(...years) : compiled ? null : yearOf(t.album?.release_date || t.release_date);
+    const year = Number.isFinite(firstYear) ? firstYear : compiled ? null : yearOf(t.album?.release_date || t.release_date);
     const pick = best || t;
     out.item = {
       ...item,
@@ -1002,14 +1118,19 @@ export function createMusic({
         }
       };
       const name = (m) => (m ? `${m.title} – ${m.artist}` : null);
-      const [deezerNow, itunesNow] = await Promise.all([
+      const [deezerNow, itunesNow, musicbrainzNow] = await Promise.all([
         probe(async () => ({ top: name((await deezer('/search/track', { q: 'still waiting sum 41', limit: 3 }, 0)).data?.map(fromTrack)[0]) })),
         probe(async () => ({ top: name((await itunes('song', 'still waiting sum 41', 3, 0))[0]) })),
+        probe(async () => {
+          const r = (await musicbrainz('/recording', { query: 'recording:"Still Waiting" AND artist:"Sum 41"', limit: 3 }, 0)).recordings?.[0];
+          return { top: r ? `${r.title} – first out ${r['first-release-date'] || '?'}` : null };
+        }),
       ]);
       return {
         checkedAt: new Date().toISOString(),
         deezer: { now: deezerNow, ...health.deezer },
         itunes: { now: itunesNow, ...health.itunes },
+        musicbrainz: { now: musicbrainzNow, ...health.musicbrainz },
         ideaLists: feeds.size,
       };
     });
