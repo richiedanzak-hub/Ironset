@@ -514,6 +514,16 @@ function wilksCoeff(bwKg, sex) {
   const denom = c[0] + c[1] * x + c[2] * x ** 2 + c[3] * x ** 3 + c[4] * x ** 4 + c[5] * x ** 5;
   return 500 / denom;
 }
+// The ladder runs cool to hot, so the dial's colour means the same thing as its name.
+function tierColor(d) {
+  if (d == null) return C.slate;
+  if (d < 200) return C.slate;
+  if (d < 300) return C.blue;
+  if (d < 375) return C.cyan;
+  if (d < 450) return C.good;
+  if (d < 500) return C.amber;
+  return C.red;
+}
 function dotsTier(d) {
   if (d == null) return null;
   if (d < 200) return "Beginner";
@@ -581,6 +591,32 @@ const C = {
   text: "#F3F2ED", chalk: "#F3F2ED", muted: "#99A1B2", faint: "#5D6578",
   red: "#FF4A3D", redHi: "#FF7A6B", redSoft: "rgba(255,74,61,0.12)", redLine: "rgba(255,74,61,0.42)",
   blue: "#5B7CFF", amber: "#F7A93B", good: "#3ED88A", goodHi: "#3ED88A", gold: "#F7A93B",
+  violet: "#8B6FFF", cyan: "#2ED3C6", slate: "#7C879B",
+};
+// Every lift owns a colour, and keeps it everywhere it appears — its trend line, its
+// sparkline, its badge, the dot beside its name in a list. Three screens deep you
+// should know which lift a chart belongs to before you read the label.
+const LIFT_HUE = { "Squat": C.red, "Bench Press": C.violet, "Deadlift": C.amber, "Overhead Press": C.cyan };
+// Deliberately excludes the four main-lift hues: an accessory that comes out the same
+// amber as your deadlift makes the colour mean nothing.
+const HUE_CYCLE = [C.blue, C.good, "#E06AA8", "#9BD15B", C.slate, "#C98BE8"];
+// A variation inherits its parent's colour, because that is the question it answers:
+// a Pause Squat line is only interesting next to the Squat line it feeds.
+function hueFor(name, state) {
+  if (!name) return C.slate;
+  if (LIFT_HUE[name]) return LIFT_HUE[name];
+  const ex = state && state.exercises && state.exercises[name];
+  if (ex && ex.parent && LIFT_HUE[ex.parent]) return LIFT_HUE[ex.parent];
+  // Anything else gets a stable colour from its name, so it never changes between
+  // sessions and two movements in the same list rarely collide.
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return HUE_CYCLE[h % HUE_CYCLE.length];
+}
+// Softened to sit under text or behind a chart without shouting.
+const tint = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 // gradient system — colour carries meaning, dark ground keeps it serious
 const G = {
@@ -597,6 +633,7 @@ const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, m
 const SANS = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const DISPLAY = "'Oswald', 'Inter', system-ui, sans-serif";
 const SKETCH = MONO;
+const label2 = { textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, fontSize: 9, fontFamily: SANS };
 const label = { textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 700, fontSize: 10.5, color: C.muted, fontFamily: SANS };
 
 /* ----------------------------- UI primitives ----------------------------- */
@@ -738,6 +775,139 @@ function Spark({ points, color, w = 96, h = 34 }) {
     </svg>
   );
 }
+/* ------------------------- visualisation primitives ----------------------- */
+// A number is a fact; a number with its recent shape beside it is information. These
+// four carry almost every figure in the app, which is what keeps the screens looking
+// like one instrument rather than a pile of cards.
+
+// Progress as a ring. The gradient runs cool-to-hot around the arc so the value reads
+// before the numeral does.
+function Ring({ value, max = 100, size = 112, stroke = 9, color = C.red, trail = "rgba(255,255,255,0.06)", children }) {
+  const uid = useMemo(() => "r" + Math.random().toString(36).slice(2, 8), []);
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(1, (value || 0) / (max || 1)));
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ display: "block", transform: "rotate(-90deg)" }}>
+        <defs>
+          <linearGradient id={uid} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={tint(color, 0.55)} />
+            <stop offset="100%" stopColor={color} />
+          </linearGradient>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trail} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={`url(#${uid})`} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={`${(c * pct).toFixed(2)} ${c.toFixed(2)}`}
+          style={{ transition: "stroke-dasharray .5s cubic-bezier(.4,0,.2,1)" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+// Discrete bars for a short series — a week of sessions, a week of readiness. The last
+// bar is the live one and carries full colour; the rest recede.
+function MiniBars({ values, color = C.red, h = 30, gap = 3, labels }) {
+  const vs = values || [];
+  if (!vs.length) return <div style={{ height: h }} />;
+  const hi = Math.max.apply(null, vs.map((v) => v || 0)) || 1;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap, height: h }}>
+      {vs.map((v, i) => {
+        const live = i === vs.length - 1;
+        return (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end",
+            height: "100%", gap: 3 }}>
+            <div style={{ height: `${Math.max(v ? 12 : 4, ((v || 0) / hi) * 100)}%`, borderRadius: 3,
+              background: v ? (live ? color : tint(color, 0.58)) : "rgba(255,255,255,0.07)",
+              transition: "height .4s ease" }} />
+            {labels && <span style={{ fontSize: 8, fontFamily: MONO, color: live ? C.muted : C.faint,
+              textAlign: "center", lineHeight: 1 }}>{labels[i]}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// A half-dial built from discrete ticks rather than a solid arc, so it reads as a
+// gauge on an instrument instead of a loading spinner.
+function ArcGauge({ value, max = 100, color = C.red, size = 168, ticks = 36, children }) {
+  const pct = Math.max(0, Math.min(1, (value || 0) / (max || 1)));
+  const lit = Math.round(pct * ticks);
+  const R0 = size / 2, inner = R0 - 20;
+  return (
+    <div style={{ position: "relative", width: size, height: size * 0.62, flexShrink: 0 }}>
+      <svg width={size} height={size * 0.62} viewBox={`0 0 ${size} ${size * 0.62}`} style={{ display: "block" }}>
+        {Array.from({ length: ticks }).map((_, i) => {
+          const a = Math.PI * (i / (ticks - 1));
+          const x1 = R0 - Math.cos(a) * inner, y1 = R0 - Math.sin(a) * inner;
+          const x2 = R0 - Math.cos(a) * (inner + 13), y2 = R0 - Math.sin(a) * (inner + 13);
+          const on = i < lit;
+          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} strokeLinecap="round" strokeWidth="3.4"
+            stroke={on ? color : "rgba(255,255,255,0.07)"}
+            opacity={on ? 0.45 + 0.55 * (i / Math.max(1, ticks - 1)) : 1} />;
+        })}
+      </svg>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, display: "flex",
+        flexDirection: "column", alignItems: "center", gap: 2 }}>{children}</div>
+    </div>
+  );
+}
+
+// The workhorse: a figure, its unit, its name, and optionally the shape behind it.
+function StatTile({ value, unit, label, color = C.red, spark, bars, barLabels, segments, sub, action, onClick, style }) {
+  return (
+    <div onClick={onClick} style={{ position: "relative", overflow: "hidden", background: G.card,
+      border: `1px solid ${C.line}`, borderRadius: R.surface, padding: "14px 15px 13px",
+      cursor: onClick ? "pointer" : undefined, boxShadow: ELEV, minWidth: 0, ...style }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+        <span style={{ width: 6, height: 6, borderRadius: 99, background: color, flexShrink: 0,
+          boxShadow: `0 0 8px ${tint(color, 0.8)}` }} />
+        <span style={{ ...label2, color: C.muted, minWidth: 0, flex: 1, overflow: "hidden",
+          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        {action}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+        <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em",
+          lineHeight: 1 }}>{value}</span>
+        {unit && <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>{unit}</span>}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: C.faint, marginTop: 5, lineHeight: 1.4 }}>{sub}</div>}
+      {bars && <div style={{ marginTop: 10 }}><MiniBars values={bars} color={color} labels={barLabels} h={28} /></div>}
+      {/* What the figure is made of, in each part's own colour — a total is more useful
+          when you can see which lift is carrying it. */}
+      {segments && segments.length > 0 && (() => {
+        const tot = segments.reduce((a, x) => a + (x.value || 0), 0) || 1;
+        return (
+          <div style={{ marginTop: 11 }}>
+            <div style={{ display: "flex", gap: 2, height: 5, borderRadius: 3, overflow: "hidden" }}>
+              {segments.map((x, i) => (
+                <div key={i} style={{ flex: `${Math.max(0.02, (x.value || 0) / tot)}`, background: x.color,
+                  borderRadius: 2, transition: "flex .4s ease" }} />
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 7, overflow: "hidden" }}>
+              {segments.map((x, i) => (
+                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+                  fontSize: 9, color: C.faint, fontFamily: MONO, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 99, background: x.color }} />{x.short}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      {spark && spark.length > 1 && (
+        <div style={{ margin: "10px -15px -13px", opacity: 0.95 }}>
+          <Spark points={spark} color={color} h={38} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // legend / filter pill
 function Tag({ color, children, onClick, active }) {
   return (
@@ -910,8 +1080,9 @@ function LineChart({ data, color = C.red, height = 176, unit = "" }) {
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
         <linearGradient id={uid + "l"} x1="0" y1="0" x2="1" y2="0">
+          {/* the line warms into the lift's own colour as it approaches today */}
           <stop offset="0%" stopColor="#6D7885" />
-          <stop offset="60%" stopColor="#B4553F" />
+          <stop offset="60%" stopColor={tint(color, 0.62)} />
           <stop offset="100%" stopColor={color} />
         </linearGradient>
       </defs>
@@ -1142,9 +1313,16 @@ function App() {
               <Settings size={17} />
             </button>
           </div>
-          <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 33, letterSpacing: "-0.035em",
-            marginTop: 15, lineHeight: 1, color: C.text }}>
-            {(tabs.find((x) => x.id === tab) || {}).label}
+          {/* The title names where you are; the date grounds it. Both smaller than
+              before — a header should not cost a fifth of the screen. */}
+          <div style={{ marginTop: 13 }}>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 25, letterSpacing: "-0.03em",
+              lineHeight: 1.05, color: C.text }}>
+              {(tabs.find((x) => x.id === tab) || {}).label}
+            </div>
+            <div style={{ ...label2, color: C.faint, marginTop: 6 }}>
+              {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            </div>
           </div>
         </div>
 
@@ -1159,7 +1337,7 @@ function App() {
             <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
           )}
           {tab === "insights" && (
-            <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
+            <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
           )}
           {tab === "history" && (
             <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
@@ -2081,6 +2259,19 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       }
     return { tonnage: Math.round(tonnage), sets, days: days.size };
   })();
+  // Tonnage by day for the last seven, so the load figure carries its own shape.
+  const weekBars = (() => {
+    const out = [], lbl = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      const a = d.getTime(), z = a + 86400000;
+      let t = 0;
+      for (const ex of Object.values(state.exercises))
+        for (const st of ex.sets) if (st.ts >= a && st.ts < z) t += (st.weight || 0) * Math.max(1, st.reps || 1);
+      out.push(Math.round(t)); lbl.push("MTWTFSS"[(d.getDay() + 6) % 7]);
+    }
+    return { values: out, labels: lbl };
+  })();
   const liftCards = Object.entries(state.exercises)
     .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state))
     .map(([n]) => ({ name: n, e1rm: models[n].e1rm, points: models[n].points }))
@@ -2108,15 +2299,14 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             </button>
           </span>
         </div>
-        <div onClick={() => setWhy(true)} style={{ display: "flex", alignItems: "center", gap: 15, marginTop: 9, cursor: "pointer" }}>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
-            <span style={{ fontFamily: MONO, fontSize: 52, fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.05em",
-              color: C.text, textShadow: `0 0 40px ${sc}66` }}>{score}</span>
-            <span style={{ fontFamily: MONO, fontSize: 16, color: C.faint, fontWeight: 600, marginBottom: 4 }}>/100</span>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16, color: sc, letterSpacing: "-0.01em" }}>{status}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.45 }}>{note}</div>
+        <div onClick={() => setWhy(true)} style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12, cursor: "pointer" }}>
+          <Ring value={score} max={100} color={sc} size={96} stroke={8}>
+            <span style={{ fontFamily: MONO, fontSize: 27, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1 }}>{score}</span>
+            <span style={{ fontFamily: MONO, fontSize: 9, color: C.faint, fontWeight: 600 }}>/100</span>
+          </Ring>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 16.5, color: sc, letterSpacing: "-0.015em" }}>{status}</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{note}</div>
           </div>
         </div>
         {ckToday ? (
@@ -2142,13 +2332,20 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             {fresh.map((r) => (
               <div key={r.name}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.11em" }}>{r.name}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: 99, background: hueFor(r.name, state), flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase",
+                      letterSpacing: "0.11em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                  </span>
                   <span style={{ fontFamily: MONO, fontSize: 11.5, color: freshColor(r.pct), fontWeight: 700 }}>{r.pct}</span>
                 </div>
-                <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
-                  <div style={{ width: `${Math.max(5, Math.min(100, r.pct))}%`, height: "100%",
-                    borderRadius: 2, background: freshColor(r.pct), transition: "width .3s ease" }} />
+                {/* The bar reads recovery, so it keeps the readiness colour; the dot above
+                    carries the lift's identity. Two meanings, no collision. */}
+                <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(5, Math.min(100, r.pct))}%`, height: "100%", borderRadius: 3,
+                    background: `linear-gradient(90deg, ${tint(freshColor(r.pct), 0.5)}, ${freshColor(r.pct)})`,
+                    transition: "width .4s ease" }} />
                 </div>
               </div>
             ))}
@@ -2157,40 +2354,31 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       </Card>
 
       <Grid2>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.blue}22, transparent 70%)`} onClick={() => setShowTotal(true)}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <span style={{ ...label, fontSize: 9 }}>Projected total</span>
-            {analysis.total != null && (
-              <button aria-label="Share total" onClick={() => doShare(setShare, { type: "stat", label: "Projected total",
-                value: fmt(Math.round(analysis.total)), unit,
-                delta: analysis.totalDelta != null ? Math.round(analysis.totalDelta) : null,
-                sub: (analysis.parts || []).slice(0, 3).map((p) => `${p.name} ${fmt(Math.round(p.e1rm))}`).join("    "),
-                date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) })}
-                style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 0, marginTop: -2 }}>
-                <Share size={14} />
-              </button>
-            )}
-          </div>
-          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
-            {analysis.total != null ? fmt(Math.round(analysis.total)) : "—"}
-            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
-          </div>
-          {analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 && (
-            <div style={{ fontSize: 11.5, marginTop: 5, fontWeight: 700, color: analysis.totalDelta > 0 ? C.good : C.red }}>
+        <StatTile label="Projected total" color={C.blue}
+          value={analysis.total != null ? fmt(Math.round(analysis.total)) : "—"} unit={analysis.total != null ? unit : ""}
+          onClick={() => setShowTotal(true)}
+          sub={analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 ? (
+            <span style={{ color: analysis.totalDelta > 0 ? C.good : C.red, fontWeight: 700 }}>
               {analysis.totalDelta > 0 ? "▲" : "▼"} {fmt(Math.abs(Math.round(analysis.totalDelta)))} in 30 days
-            </div>
-          )}
-        </Card>
-        <Card glow={`radial-gradient(120% 95% at 18% -8%, ${C.amber}22, transparent 70%)`} onClick={() => setShowLoad(true)}>
-          <span style={{ ...label, fontSize: 9 }}>7-day load</span>
-          <div style={{ fontFamily: MONO, fontSize: 29, fontWeight: 700, marginTop: 8, letterSpacing: "-0.035em" }}>
-            {week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage)}
-            <span style={{ fontFamily: SANS, fontSize: 12, color: C.faint, marginLeft: 4, fontWeight: 600 }}>{unit}</span>
-          </div>
-          <div style={{ fontSize: 11.5, marginTop: 5, color: C.faint, fontWeight: 600 }}>
-            {week.sets} set{week.sets === 1 ? "" : "s"} · {week.days} day{week.days === 1 ? "" : "s"}
-          </div>
-        </Card>
+            </span>
+          ) : null}
+          segments={(analysis.parts || []).map((pt) => ({ value: pt.e1rm, color: hueFor(pt.name, state),
+            short: pt.name === "Deadlift" ? "Dead" : pt.name.split(" ")[0] }))}
+          action={analysis.total != null ? (
+            <button aria-label="Share total" onClick={(e) => { e.stopPropagation(); doShare(setShare, { type: "stat",
+              label: "Projected total", value: fmt(Math.round(analysis.total)), unit,
+              delta: analysis.totalDelta != null ? Math.round(analysis.totalDelta) : null,
+              sub: (analysis.parts || []).slice(0, 3).map((pt) => `${pt.name} ${fmt(Math.round(pt.e1rm))}`).join("    "),
+              date: new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" }) }); }}
+              style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 0, display: "flex" }}>
+              <Share size={13} />
+            </button>
+          ) : null} />
+        <StatTile label="7-day load" color={C.amber}
+          value={week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage)} unit={unit}
+          onClick={() => setShowLoad(true)}
+          bars={weekBars.values} barLabels={weekBars.labels}
+          sub={`${week.sets} set${week.sets === 1 ? "" : "s"} · ${week.days} day${week.days === 1 ? "" : "s"}`} />
       </Grid2>
 
       {liftCards.length > 0 && (
@@ -2203,18 +2391,20 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             <Share size={14} /></button>}>Estimated maxes</SectionHead>
           <div style={{ display: "flex", gap: 9, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", padding: "0 2px 4px" }}>
             {liftCards.map((L) => (
-              <Card key={L.name} accent={C.blue} onClick={() => { setSel(L.name); setTab("history"); }}
-                style={{ padding: 13, flex: "0 0 auto", minWidth: 118 }}>
-                <div style={{ fontFamily: MONO, fontSize: 23, fontWeight: 700, letterSpacing: "-0.04em",
-                  textShadow: `0 0 30px ${C.blue}55` }}>
-                  {fmt(Math.round(L.e1rm))}
-                  <span style={{ fontFamily: SANS, fontSize: 11, color: C.faint, marginLeft: 3, fontWeight: 600 }}>{unit}</span>
+              <Card key={L.name} accent={hueFor(L.name, state)} onClick={() => { setSel(L.name); setTab("history"); }}
+                style={{ padding: 13, flex: "0 0 auto", minWidth: 132 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 99, background: hueFor(L.name, state),
+                    boxShadow: `0 0 8px ${tint(hueFor(L.name, state), 0.9)}`, flexShrink: 0 }} />
+                  <span style={{ ...label2, color: C.muted, whiteSpace: "nowrap", overflow: "hidden",
+                    textOverflow: "ellipsis", maxWidth: 104 }}>{L.name}</span>
                 </div>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.1em", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden",
-                  textOverflow: "ellipsis", maxWidth: 108 }}>{L.name}</div>
-                <div style={{ marginTop: 9, marginLeft: -13, marginRight: -13, marginBottom: -13 }}>
-                  <Spark points={L.points} color={C.blue} h={30} />
+                <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1 }}>
+                  {fmt(Math.round(L.e1rm))}
+                  <span style={{ fontFamily: SANS, fontSize: 11, color: C.muted, marginLeft: 3, fontWeight: 600 }}>{unit}</span>
+                </div>
+                <div style={{ marginTop: 11, marginLeft: -13, marginRight: -13, marginBottom: -13 }}>
+                  <Spark points={L.points} color={hueFor(L.name, state)} h={36} />
                 </div>
               </Card>
             ))}
@@ -3194,6 +3384,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [logDate, setLogDate] = useState(todayStr());
 
   const model = (sel && models[sel]) ? models[sel] : { e1rm: null, points: [], count: 0 };
+  // The lift you are training owns this screen's accent, so Train looks different for
+  // a squat day than a bench day and matches that lift everywhere else in the app.
+  const selHue = hueFor(sel, state);
   const e1rm = model.e1rm;
   const selEx = sel ? state.exercises[sel] : null;
   const DAYK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -3519,20 +3712,30 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             )}
           </div>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ ...label, fontSize: 9.5 }}>Estimated 1RM</div>
-              <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, color: C.text, lineHeight: 1.05,
-                marginTop: 5, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums",
-                textShadow: `0 0 34px ${C.blue}55` }}>
-                {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontFamily: SANS, fontSize: 13, color: C.faint, marginLeft: 5, fontWeight: 600 }}>{unit}</span>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 99, background: selHue, flexShrink: 0,
+                    boxShadow: `0 0 8px ${tint(selHue, 0.9)}` }} />
+                  <span style={{ ...label, fontSize: 9.5 }}>Estimated 1RM</span>
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, color: C.text, lineHeight: 1.05,
+                  marginTop: 6, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
+                  {e1rm != null ? fmt(roundTo(e1rm, round)) : "—"}<span style={{ fontFamily: SANS, fontSize: 13, color: C.muted, marginLeft: 5, fontWeight: 600 }}>{unit}</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5, flexShrink: 0 }}>
+                {model.count > 0
+                  ? <>from {model.count} set{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
+                  : "not calibrated"}
               </div>
             </div>
-            <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
-              {model.count > 0
-                ? <>from {model.count} set{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
-                : "not calibrated"}
-            </div>
+            {model.points && model.points.length > 1 && (
+              <div style={{ margin: "12px -17px -17px" }}>
+                <Spark points={model.points} color={selHue} h={44} />
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -3640,16 +3843,29 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               : <Stepper value={tInt} onChange={setTInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
-          {percentMode
-            ? [70, 75, 80, 85, 90].map((v) => <Chip key={v} active={topPct === v} onClick={() => setTopPct(v)}>{v}%</Chip>)
-            : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10]).map((v) => <Chip key={v} active={tInt === v} onClick={() => setTInt(v)}>{inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}</Chip>)}
+        {/* One even row rather than three-and-a-stray: these are a scale, and a scale
+            that wraps stops reading as one. */}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${percentMode ? 5 : 4}, 1fr)`,
+          gap: 6, marginTop: 12 }}>
+          {(percentMode ? [70, 75, 80, 85, 90] : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10])).map((v) => {
+            const on = percentMode ? topPct === v : tInt === v;
+            return (
+              <button key={v} onClick={() => (percentMode ? setTopPct(v) : setTInt(v))}
+                style={{ fontFamily: SANS, fontWeight: 700, fontSize: percentMode ? 12.5 : 13, borderRadius: R.pill,
+                  padding: "10px 0", minHeight: 40, cursor: "pointer", whiteSpace: "nowrap",
+                  WebkitTapHighlightColor: "transparent", transition: "background .15s ease, color .15s ease",
+                  background: on ? G.red : "rgba(255,255,255,0.03)", color: on ? "#fff" : C.muted,
+                  border: `1px solid ${on ? "transparent" : C.line}` }}>
+                {percentMode ? `${v}%` : inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}
+              </button>
+            );
+          })}
         </div>
       <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
       {/* recommendation */}
       <div style={{ textAlign: "center", margin: "0 -17px", padding: "20px 17px 6px",
-        background: "linear-gradient(180deg, rgba(255,74,61,0.09), rgba(255,74,61,0.02) 55%, transparent)" }}>
+        background: `linear-gradient(180deg, ${tint(selHue, 0.11)}, ${tint(selHue, 0.025)} 55%, transparent)` }}>
         <div style={{ ...label, fontSize: 9.5 }}>Recommended load</div>
         {recR != null ? (
           <>
@@ -3657,11 +3873,11 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               whiteSpace: "nowrap" }}>
               <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
                 letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
-                textShadow: `0 0 46px ${C.red}55`, transition: "color .2s" }}>{fmt(recR)}</span>
+                textShadow: `0 0 50px ${tint(selHue, 0.45)}`, transition: "color .2s" }}>{fmt(recR)}</span>
               <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
             </div>
             <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
-              background: `linear-gradient(90deg, transparent, ${C.red}, transparent)`, opacity: 0.75 }} />
+              background: `linear-gradient(90deg, transparent, ${selHue}, transparent)`, opacity: 0.8 }} />
             <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
               {percentMode
                 ? `${tReps} rep${tReps > 1 ? "s" : ""} @ ${fmt(topPct)}%`
@@ -3995,10 +4211,11 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           ))}
         </div>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
-          <span style={{ width: 3, height: 13, borderRadius: 2, background: C.blue, boxShadow: `0 0 10px ${C.blue}88` }} />
+          <span style={{ width: 3, height: 13, borderRadius: 2, background: hueFor(cur, state),
+            boxShadow: `0 0 10px ${tint(hueFor(cur, state), 0.55)}` }} />
           <span style={{ ...label, fontSize: 9.5 }}>Strength trend ({unit})</span>
         </span>
-        <LineChart data={model.points} height={176} unit={unit} />
+        <LineChart data={model.points} height={176} unit={unit} color={hueFor(cur, state)} />
       </Card>
 
       <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -4125,19 +4342,31 @@ function ScoreCard({ analysis, unit, state, setState }) {
       <div style={label}>Strength score</div>
       {bwKg != null && !editing ? (
         <div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: SKETCH, fontSize: 40, fontWeight: 700, color: C.chalk, lineHeight: 1 }}>{fmt(Math.round(dots))}</span>
-            <span style={{ ...label, fontSize: 10 }}>DOTS</span>
-            {tier && <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>≈ {tier}</span>}
+          {/* DOTS already ships with named tiers, which makes it a dial rather than a
+              bare number: the arc says how far along the ladder you are without
+              anyone having to know what 469 means. */}
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
+            <ArcGauge value={Math.min(dots, 550)} max={550} color={tierColor(dots)} size={196} ticks={38}>
+              <span style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1 }}>
+                {fmt(Math.round(dots))}
+              </span>
+              <span style={{ ...label2, color: tierColor(dots), marginTop: 3 }}>{tier || "DOTS"}</span>
+            </ArcGauge>
           </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12.5, color: C.muted }}>
-            <span>Wilks <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(wilks))}</b></span>
-            <span>Total <b style={{ color: C.text, fontFamily: MONO }}>{fmt(Math.round(totalKg))}</b> kg</span>
+          <div style={{ display: "flex", gap: 1, marginTop: 4 }}>
+            {[["Wilks", fmt(Math.round(wilks))], ["Total", fmt(Math.round(totalKg)) + " kg"],
+              ["Bodyweight", fmt(fromKg(bwKg, unit)) + " " + unit]].map(([k, v], i) => (
+              <div key={k} style={{ flex: 1, textAlign: "center", padding: "10px 4px",
+                borderLeft: i ? `1px solid ${C.line}` : "none" }}>
+                <div style={{ fontFamily: MONO, fontSize: 14.5, fontWeight: 700, letterSpacing: "-0.02em" }}>{v}</div>
+                <div style={{ ...label2, color: C.faint, marginTop: 4 }}>{k}</div>
+              </div>
+            ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10 }}>
-            <span style={{ fontSize: 12.5, color: C.muted }}>BW {fmt(fromKg(bwKg, unit))} {unit}
-              <button onClick={() => { setInp(fmt(fromKg(bwKg, unit))); setEditing(true); }} style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>Edit</button>
-            </span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 10 }}>
+            <button onClick={() => { setInp(fmt(fromKg(bwKg, unit))); setEditing(true); }}
+              style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 12.5,
+                cursor: "pointer", padding: 0 }}>Edit bodyweight</button>
             <Segmented value={sex} onChange={setSex} options={[{ value: "male", label: "M" }, { value: "female", label: "F" }]} />
           </div>
         </div>
@@ -4576,7 +4805,86 @@ function RecentCard({ state, unit, inputMode }) {
   );
 }
 
-function InsightsTab({ analysis, unit, state, setState }) {
+// Several lifts on one chart. Absolute weights can't share an axis — a 687 deadlift
+// would flatten a 391 bench into a straight line — so each lift is indexed to its own
+// starting point and the chart answers the question that actually matters: which of
+// them is still moving.
+function MultiTrend({ series, height = 184, days = 90 }) {
+  const uid = useMemo(() => "mt" + Math.random().toString(36).slice(2, 7), []);
+  const cut = Date.now() - days * 86400000;
+  const live = (series || [])
+    .map((s2) => ({ ...s2, pts: (s2.points || []).filter((p) => p.ts >= cut) }))
+    .filter((s2) => s2.pts.length > 1);
+  if (live.length === 0)
+    return <div style={{ color: C.faint, fontSize: 13, padding: "34px 4px", textAlign: "center" }}>
+      Not enough logged yet to chart a trend.</div>;
+  const norm = live.map((s2) => {
+    const base = s2.pts[0].value || 1;
+    return { ...s2, rel: s2.pts.map((p) => ({ ts: p.ts, v: ((p.value - base) / base) * 100 })) };
+  });
+  const allV = norm.flatMap((s2) => s2.rel.map((r) => r.v));
+  const allT = norm.flatMap((s2) => s2.rel.map((r) => r.ts));
+  const lo = Math.min(0, Math.min.apply(null, allV)), hi = Math.max(1, Math.max.apply(null, allV));
+  const pad = Math.max(1.5, (hi - lo) * 0.16);
+  const minY = lo - pad, maxY = hi + pad;
+  const minX = Math.min.apply(null, allT), maxX = Math.max.apply(null, allT), spanX = (maxX - minX) || 1;
+  const W = 320, H = height, gut = 30, padR = 10, padT = 12, padB = 20;
+  const px = (t) => gut + ((t - minX) / spanX) * (W - gut - padR);
+  const py = (v) => padT + (1 - (v - minY) / (maxY - minY)) * (H - padT - padB);
+  const zeroY = py(0);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        <defs>
+          {norm.map((s2, i) => (
+            <linearGradient key={i} id={`${uid}${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={s2.color} stopOpacity="0.26" />
+              <stop offset="100%" stopColor={s2.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+        </defs>
+        {/* the line you started from — everything above it is progress */}
+        <line x1={gut} x2={W - padR} y1={zeroY} y2={zeroY} stroke={C.line2} strokeWidth="1" strokeDasharray="3 4" />
+        <text x={gut - 6} y={zeroY + 3} fill={C.faint} fontSize="8" fontFamily={MONO} textAnchor="end">0%</text>
+        <text x={gut - 6} y={py(maxY - pad * 0.6) + 3} fill={C.faint} fontSize="8" fontFamily={MONO} textAnchor="end">
+          +{Math.round(maxY - pad * 0.6)}%
+        </text>
+        {norm.map((s2, i) => {
+          const pts = s2.rel.map((r) => [px(r.ts), py(r.v)]);
+          const line = smoothPath(pts);
+          const area = line + ` L${pts[pts.length - 1][0].toFixed(1)} ${zeroY.toFixed(1)} L${pts[0][0].toFixed(1)} ${zeroY.toFixed(1)} Z`;
+          const last = pts[pts.length - 1];
+          return (
+            <g key={i}>
+              <path d={area} fill={`url(#${uid}${i})`} />
+              <path d={line} fill="none" stroke={s2.color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx={last[0]} cy={last[1]} r="6" fill={s2.color} opacity="0.18" />
+              <circle cx={last[0]} cy={last[1]} r="3" fill={s2.color} stroke={C.bg2} strokeWidth="1.5" />
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+        {norm.map((s2, i) => {
+          const d = s2.rel[s2.rel.length - 1].v;
+          return (
+            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: s2.color,
+                boxShadow: `0 0 8px ${tint(s2.color, 0.8)}` }} />
+              <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>{s2.name}</span>
+              <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 700,
+                color: d > 0.2 ? C.good : d < -0.2 ? C.red : C.faint }}>
+                {d > 0 ? "+" : ""}{d.toFixed(1)}%
+              </span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InsightsTab({ analysis, unit, state, setState, models }) {
   const { total, totalDelta, parts, insights } = analysis;
   const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
   const [share, setShare] = useState(null);
@@ -4606,9 +4914,74 @@ function InsightsTab({ analysis, unit, state, setState }) {
         </Card>
       </div>
     );
+  // Main lifts for the trend, variations for the ratio bars — two different questions,
+  // so two different charts rather than one that half-answers both.
+  const trendSeries = Object.keys(state.exercises || {})
+    .filter((n) => !state.exercises[n].parent && !isAccessory(n, state) && models && models[n] && models[n].points.length > 1)
+    .map((n) => ({ name: n, color: hueFor(n, state), points: models[n].points }));
+  const ratios = Object.keys(state.exercises || {})
+    .filter((n) => state.exercises[n].parent && models && models[n] && models[n].e1rm != null
+      && models[state.exercises[n].parent] && models[state.exercises[n].parent].e1rm)
+    .map((n) => {
+      const par = state.exercises[n].parent;
+      return { name: n, parent: par, color: hueFor(n, state),
+        pct: (models[n].e1rm / models[par].e1rm) * 100, expected: (models[n].ratio || 1) * 100 };
+    })
+    .sort((a, b2) => (a.pct - a.expected) - (b2.pct - b2.expected));
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
+
+      {trendSeries.length > 0 && (
+        <Card accent={C.red}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+            <span style={{ ...label, fontSize: 9.5 }}>Strength trend</span>
+            <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO }}>90 days</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, margin: "6px 0 10px" }}>
+            Each lift against where it started, so they share one axis and you can see which is still climbing.
+          </div>
+          <MultiTrend series={trendSeries} />
+        </Card>
+      )}
+
+      {ratios.length > 0 && (
+        <Card accent={C.violet}>
+          <span style={{ ...label, fontSize: 9.5 }}>Variations vs their main lift</span>
+          <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, margin: "6px 0 13px" }}>
+            The marker is where each one normally sits. Well short of it is a weak point worth training.
+          </div>
+          {ratios.map((r) => {
+            const off = r.pct - r.expected;
+            const tone = off < -6 ? C.red : off < -2 ? C.gold : C.good;
+            return (
+              <div key={r.name} style={{ marginBottom: 13 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, minWidth: 0, overflow: "hidden",
+                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 700, color: tone, flexShrink: 0, marginLeft: 8 }}>
+                    {Math.round(r.pct)}%
+                  </span>
+                </div>
+                <div style={{ position: "relative", height: 7, borderRadius: 4,
+                  background: "rgba(255,255,255,0.05)", overflow: "visible" }}>
+                  <div style={{ width: `${Math.max(2, Math.min(100, r.pct))}%`, height: "100%", borderRadius: 4,
+                    background: `linear-gradient(90deg, ${tint(r.color, 0.45)}, ${r.color})`, transition: "width .4s ease" }} />
+                  {/* where this variation usually lands relative to its parent */}
+                  <div style={{ position: "absolute", top: -3, bottom: -3,
+                    left: `${Math.max(1, Math.min(99, r.expected))}%`, width: 2, borderRadius: 1,
+                    background: C.text, opacity: 0.75 }} />
+                </div>
+                <div style={{ fontSize: 10.5, color: C.faint, marginTop: 5 }}>
+                  of {r.parent} · normally {Math.round(r.expected)}%
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
       {shownInsights.length > 0 && (
         <SectionHead accent={C.red} right={Object.keys(dismissed).length > 0 ? (
           <button onClick={() => setState((s) => ({ ...s, dismissedInsights: {} }))}
