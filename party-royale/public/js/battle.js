@@ -1,6 +1,8 @@
-// Head-to-head: two picks, everyone votes, the winner stays on.
+// Head-to-head: two picks, everyone votes. In a bracket the winner moves on
+// to the next round; in king of the hill it stays on. Matchups can open with
+// "who sings it?", and in the points game everyone guesses who picked what.
 import { html, useState, useEffect, useRef } from './lib.js';
-import { Avatar, Countdown, Cover, PlayButton, Sheet, durationText, isMovie, itemMeta, noun, playAll, prefetchPreviews, runtimeText, stopPreview, useGame } from './ui.js';
+import { Avatar, Countdown, Cover, PlayButton, Sheet, bracketProgress, bracketRoundName, durationText, places, isMovie, itemMeta, noun, playAll, prefetchPreviews, runtimeText, stopPreview, useGame } from './ui.js';
 import { sfx } from './sfx.js';
 
 const names = (people) => {
@@ -9,7 +11,8 @@ const names = (people) => {
   return `${people[0].name} +${people.length - 1}`;
 };
 
-function Fighter({ m, badge, picked, outcome, tally, voters, fresh, canVote, onVote, onInfo }) {
+function Fighter({ m, label, badge, picked, outcome, tally, voters, fresh, canVote, onVote, onInfo }) {
+  const title = m.mystery ? label : m.title;
   const press = (e) => {
     if (!canVote) return;
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
@@ -22,18 +25,18 @@ function Fighter({ m, badge, picked, outcome, tally, voters, fresh, canVote, onV
     tabindex=${canVote ? 0 : -1}
     aria-pressed=${picked ? 'true' : 'false'}
     aria-disabled=${canVote ? 'false' : 'true'}
-    aria-label=${`Vote for ${m.title}`}
+    aria-label=${canVote ? `Vote for ${title}` : title}
     onClick=${press}
     onKeyDown=${press}
   >
     ${outcome === 'won' ? null : badge}
     ${outcome === 'won' ? html`<span class="crown-top" aria-hidden="true">👑</span>` : null}
     <${Cover} item=${m} rating><${PlayButton} item=${m} /></${Cover}>
-    <button class="fighter-info-btn" aria-label=${`About ${m.title}`} onClick=${(e) => (e.stopPropagation(), onInfo(m))}>i</button>
+    ${m.mystery ? null : html`<button class="fighter-info-btn" aria-label=${`About ${m.title}`} onClick=${(e) => (e.stopPropagation(), onInfo(m))}>i</button>`}
     ${picked && !outcome ? html`<span class="my-vote">Your pick ✓</span>` : null}
     ${outcome === 'lost' ? html`<span class="stamp">OUT</span>` : null}
     ${outcome === 'kept' ? html`<span class="stamp keep">STILL IN</span>` : null}
-    <span class="fighter-title">${m.title}</span>
+    <span class="fighter-title">${title}</span>
     <span class="fighter-meta">${itemMeta(m) || ' '}</span>
     ${m.by?.length
       ? html`<span class="fighter-by">
@@ -81,7 +84,7 @@ function CoinFlip({ a, b, winner, onDone }) {
   </div>`;
 }
 
-function ShuffleIntro({ count, kind, onDone }) {
+function ShuffleIntro({ count, kind, bracket, onDone }) {
   useEffect(() => {
     sfx.whoosh();
     const t = setTimeout(onDone, 2600);
@@ -90,8 +93,8 @@ function ShuffleIntro({ count, kind, onDone }) {
   return html`<div class="shuffle-overlay" onClick=${onDone}>
     <div>
       <div class="shuffle-hat">🎩${(kind === 'movie' ? ['🎬', '🍿', '🎟️'] : ['🎵', '💿', '🎤']).map((e) => html`<span class="fly">${e}</span>`)}</div>
-      <h2>Shuffling the hat…</h2>
-      <p>${count} in the hat. One champion.</p>
+      <h2>${bracket ? 'Building the bracket…' : 'Shuffling the hat…'}</h2>
+      <p>${count} in the hat${bracket ? `, ${count - 1} matchups` : ''}. One champion.</p>
     </div>
   </div>`;
 }
@@ -194,12 +197,164 @@ function banner(result, b, entries) {
     return result.tied?.length > 2 ? ['🎲 Random draw!', `${w.title} wins the draw`, true] : ['🪙 Coin flip!', `${w.title} wins the toss`, true];
   }
   if (result.method === 'champ') return ['🤝 Dead heat!', `Ties go to the champ. ${w.title} holds on`, true];
+  if (b.bracket) {
+    if (result.last) return ['👑 We have a champion!', `${w.title} wins the bracket`, true];
+    return ['⚡ Moving on!', `${w.title} goes through to the ${bracketRoundName(b.bracket, b.bracket.at.r + 1)}`, false];
+  }
   if (b.champions && result.last) return ['🏆 Champion of champions!', `${w.title} beats the best of the best`, true];
   if (b.champions && b.round === b.champions.from) return ['⚡ Champions clash!', `${w.title} wins the first champions matchup`, true];
   if (b.round === 1) return ['⚡ First crown!', `${w.title} takes the throne`, true];
   if (n > 2) return ['🏆 Last one standing!', `${w.title} wins the ${n}‑way showdown`, true];
   if (result.winner === b.champ) return ['🛡️ The champ holds!', `${w.title} survives another round`, true];
   return ['💥 Upset!', `${w.title} is the new champ`, false];
+}
+
+// "Who sings it?": four artists for each mystery pick in this matchup.
+function QuizPanel({ b, E, labels, mine, onAnswer }) {
+  const ids = Object.keys(b.quiz).filter((id) => b.fighters.includes(id));
+  if (!ids.length) return null;
+  return html`<section class="section quiz-panel">
+    ${ids.map((id) => {
+      const answer = mine[id];
+      return html`<div class="card quiz-card" key=${id}>
+        <div class="quiz-head">
+          <${Cover} item=${E[id]} tiny><${PlayButton} item=${E[id]} /></${Cover}>
+          <strong class="grow">${labels[id]}: who ${E[id].kind === 'album' ? 'made it' : 'sings it'}?</strong>
+        </div>
+        ${E[id].mine
+          ? html`<p class="quiz-note">🤫 This one's yours, so sit this one out</p>`
+          : html`<div class="quiz-options">
+              ${b.quiz[id].map(
+                (a) => html`<button class="quiz-option ${answer === a ? 'on' : ''}" key=${a} onClick=${() => onAnswer(id, a)}>${a}</button>`,
+              )}
+            </div>`}
+      </div>`;
+    })}
+  </section>`;
+}
+
+// After the quiz: who it really was, and who got it.
+function QuizReveal({ b, E, players }) {
+  const result = b.quizResult || {};
+  const ids = Object.keys(result).filter((id) => b.fighters.includes(id));
+  if (!ids.length) return null;
+  const nameOf = (pid) => players.find((p) => p.id === pid)?.name;
+  return html`<div class="quiz-reveal">
+    ${ids.map((id) => {
+      const r = result[id];
+      const right = r.right.map(nameOf).filter(Boolean);
+      return html`<div class="quiz-reveal-row" key=${id}>
+        <span>🎤 <strong>${E[id].title}</strong> is by <strong>${r.answer}</strong></span>
+        <span class="small">${right.length ? `✓ ${right.join(', ')} got it` : 'Nobody got it!'}${b.myAnswers[id] === r.answer ? ' (you too!)' : ''}</span>
+      </div>`;
+    })}
+  </div>`;
+}
+
+// Points game: who picked each new pick in this matchup?
+function GuessPanel({ b, E, players, meId, mine, onGuess, result }) {
+  const ids = result ? Object.keys(result.guessed || {}) : b.fresh.filter((id) => !E[id].mine);
+  if (!ids.length) return null;
+  const others = players.filter((p) => p.id !== meId);
+  return html`<section class="section card guess-panel">
+    <h3>🕵️ Who picked ${ids.length === 1 ? 'it' : 'them'}?</h3>
+    ${ids.map((id) => {
+      const m = E[id];
+      if (result) {
+        const right = result.guessed[id].map((pid) => players.find((p) => p.id === pid)?.name).filter(Boolean);
+        const myGuess = result.guesses[meId]?.[id];
+        return html`<div class="guess-row" key=${id}>
+          <${Cover} item=${m} tiny />
+          <span class="grow">
+            <strong>${m.title}</strong>
+            <span class="small">${m.by?.length ? `Picked by ${names(m.by)}` : ''}${right.length ? ` · ✓ ${right.join(', ')}` : ' · nobody guessed it'}</span>
+          </span>
+          ${m.mine ? html`<span class="tag">yours</span>` : myGuess ? html`<span class="tag ${result.guessed[id].includes(meId) ? 'good' : 'bad'}">${result.guessed[id].includes(meId) ? '✓ +1' : '✗'}</span>` : null}
+        </div>`;
+      }
+      return html`<div class="guess-row" key=${id}>
+        <${Cover} item=${m} tiny />
+        <span class="grow">
+          <strong>${m.title}</strong>
+          <span class="guess-faces">
+            ${others.map(
+              (p) => html`<button class="guess-face ${mine[id] === p.id ? 'on' : ''}" key=${p.id} aria-label=${`${p.name} picked ${m.title}`} onClick=${() => onGuess(id, p.id)}>
+                <${Avatar} p=${p} size=${34} /><span>${p.name}</span>
+              </button>`,
+            )}
+          </span>
+        </span>
+      </div>`;
+    })}
+  </section>`;
+}
+
+// Points earned in the matchup that just finished.
+function RoundPoints({ result, players, meId }) {
+  const rows = Object.entries(result.scored || {})
+    .map(([pid, s]) => ({ p: players.find((x) => x.id === pid), s, total: s.guess + s.quiz + s.win + s.champ }))
+    .filter((r) => r.p && r.total)
+    .sort((x, y) => y.total - x.total);
+  if (!rows.length) return null;
+  const parts = (s) => [s.quiz && `🎤 +${s.quiz}`, s.guess && `🕵️ +${s.guess}`, s.win && `⭐ +${s.win}`, s.champ && `👑 +${s.champ}`].filter(Boolean).join(' · ');
+  return html`<div class="round-points">
+    ${rows.map(
+      ({ p, s, total }) => html`<span class="pill ${p.id === meId ? 'pill-gold' : ''}" key=${p.id}>
+        <${Avatar} p=${p} size=${22} /> ${p.id === meId ? 'You' : p.name} +${total}<span class="muted"> (${parts(s)})</span>
+      </span>`,
+    )}
+  </div>`;
+}
+
+export function ScoreList({ scores, meId, from = 0 }) {
+  const at = places(scores, (r) => r.total);
+  return html`<div class="road">
+    ${scores.map(
+      (r, i) => i < from ? null : html`<div class="road-row" key=${r.id}>
+        <span class="r">#${at[i]}</span>
+        <${Avatar} p=${r} size=${30} />
+        <span class="grow">
+          <span class="w">${r.id === meId ? 'You' : r.name}</span>
+          <br /><span class="small muted">🕵️ ${r.guess} · 🎤 ${r.quiz} · ⭐ ${r.win}${r.champ ? ` · 👑 ${r.champ}` : ''}</span>
+        </span>
+        <span class="score">${r.total}</span>
+      </div>`,
+    )}
+  </div>`;
+}
+
+// The whole bracket, round by round.
+export function BracketView({ bracket, entries, current }) {
+  const label = (id, r) => {
+    if (!id) return r === 0 ? 'Bye' : 'To be decided';
+    const m = entries[id];
+    return m?.mystery ? `❓ Mystery ${noun(m.kind)}` : m?.title || '?';
+  };
+  return html`<div class="bracket">
+    ${bracket.rounds.slice(0, -1).map(
+      (slots, r) => html`<div class="bracket-round" key=${r}>
+        <h3>${bracketRoundName(bracket, r)}</h3>
+        ${Array.from({ length: slots.length / 2 }, (_, k) => {
+          const [x, y] = [slots[2 * k], slots[2 * k + 1]];
+          if (r === 0 && (!x || !y)) return null; // byes skip round 1
+          const winner = bracket.rounds[r + 1][k];
+          const now = current && current.r === r && current.k === k;
+          return html`<div class="bracket-match ${now ? 'now' : ''}" key=${k}>
+            ${[x, y].map(
+              (id) => html`<div class="bracket-slot ${winner && id === winner ? 'won' : winner && id ? 'lost' : ''}">
+                ${id && entries[id] ? html`<${Cover} item=${entries[id]} tiny />` : html`<span class="bracket-dot" />`}
+                <span>${label(id, r)}</span>
+              </div>`,
+            )}
+            ${now ? html`<span class="bracket-now">▶ Now</span>` : null}
+          </div>`;
+        })}
+      </div>`,
+    )}
+    ${bracket.rounds.at(-1)[0]
+      ? html`<div class="bracket-champ">👑 ${label(bracket.rounds.at(-1)[0], 1)}</div>`
+      : null}
+  </div>`;
 }
 
 export function Battle() {
@@ -211,9 +366,20 @@ export function Battle() {
   const result = b.stage === 'result' ? b.result : null;
 
   const [pending, setPending] = useState(null);
+  const [answers, setAnswers] = useState({}); // quiz answers not yet confirmed by the server
+  const [guesses, setGuesses] = useState({}); // same for "who picked it?"
+  const [sheet, setSheet] = useState(null); // 'bracket' | 'scores'
   const [info, setInfo] = useState(null);
+  const kind = view.settings.kind;
+  const scoring = view.settings.scoring;
+  const br = b.bracket;
+  const at = br?.at;
+  const roundName = br ? bracketRoundName(br, at.r) : null;
+  const prog = br ? bracketProgress(br, at.r, at.k) : null;
+  const Noun = noun(kind)[0].toUpperCase() + noun(kind).slice(1);
+  const labels = Object.fromEntries(b.fighters.map((id, i) => [id, `${Noun} ${'ABCD'[i]}`]));
   const [drawSeen, setDrawSeen] = useState(0); // round whose tie-break animation we've shown
-  const [intro, setIntro] = useState(() => b.round === 1 && b.stage === 'voting' && Date.now() + offset.current - b.startedAt < 3000);
+  const [intro, setIntro] = useState(() => b.round === 1 && b.stage !== 'result' && Date.now() + offset.current - b.startedAt < 3000);
   const lastRound = useRef(b.round);
   const champs = b.champions;
   const champRound = champs ? b.round - champs.from + 1 : 0;
@@ -229,6 +395,10 @@ export function Battle() {
 
   useEffect(() => setPending(null), [b.round, b.stage]);
   useEffect(() => {
+    setAnswers({});
+    setGuesses({});
+  }, [b.round]);
+  useEffect(() => {
     prefetchPreviews(fighters);
     return stopPreview;
   }, [b.round]);
@@ -239,7 +409,7 @@ export function Battle() {
 
   // Sounds for a new challenger and for each reveal.
   useEffect(() => {
-    if (b.round !== lastRound.current && b.stage === 'voting') sfx.whoosh();
+    if (b.round !== lastRound.current && b.stage !== 'result') sfx.whoosh();
     lastRound.current = b.round;
   }, [b.round]);
   useEffect(() => {
@@ -250,6 +420,19 @@ export function Battle() {
 
   const myVote = pending || b.myVote;
   const canVote = b.stage === 'voting';
+  const quizzing = b.stage === 'quiz';
+  const myAnswers = { ...b.myAnswers, ...answers };
+  const myGuesses = { ...b.myGuesses, ...guesses };
+  const answer = (id, a) => {
+    sfx.tap();
+    setAnswers({ ...answers, [id]: a });
+    act({ type: 'quiz', round: b.round, entryId: id, answer: a });
+  };
+  const guess = (id, pid) => {
+    sfx.tap();
+    setGuesses({ ...guesses, [id]: pid });
+    act({ type: 'guess', round: b.round, entryId: id, playerId: pid });
+  };
   const vote = (id) => {
     if (!canVote) return;
     sfx.tap();
@@ -265,6 +448,11 @@ export function Battle() {
   const badgeFor = (id) => {
     const w = b.wins[id] || 0;
     const winsText = `${w} ${w === 1 ? 'win' : 'wins'}`;
+    if (E[id].mystery) return html`<span class="fighter-badge new">❓ Mystery</span>`;
+    if (br) {
+      if (at.r === 0) return html`<span class="fighter-badge new">🎩 Fresh from the hat</span>`;
+      return w ? html`<span class="fighter-badge champ">🏆 ${winsText}</span>` : html`<span class="fighter-badge new">🎟️ Bye into this round</span>`;
+    }
     if (champs && (champRound === 1 || id === b.challenger)) return html`<span class="fighter-badge champ">🏆 Champion · ${winsText}</span>`;
     if (b.round === 1) return html`<span class="fighter-badge new">🎩 Fresh from the hat</span>`;
     if (id === b.champ) return html`<span class="fighter-badge champ">👑 Champ${n > 2 ? '' : ` · ${winsText}`}</span>`;
@@ -280,8 +468,15 @@ export function Battle() {
   const done = (champs ? champRound : b.round) - 1 + (result ? 1 : 0);
   const outOf = champs ? champTotal : b.total;
   const [title, sub, gold] = revealed ? banner(result, b, E) : [];
-  const heading =
-    champRound === 1 && n === 2
+  const heading = quizzing
+    ? html`🎤 Who ${kind === 'album' ? 'made' : 'sings'} <span class="hl">it?</span>`
+    : br
+      ? roundName === 'Final'
+        ? html`The <span class="hl">final!</span>`
+        : roundName === 'Semifinals'
+          ? html`Who goes to <span class="hl">the final?</span>`
+          : html`Who <span class="hl">moves on?</span>`
+    : champRound === 1 && n === 2
       ? html`The champions <span class="hl">face off!</span>`
       : b.round === 1 && n === 2
       ? html`First two out of <span class="hl">the hat!</span>`
@@ -297,13 +492,21 @@ export function Battle() {
 
   return html`<div>
     <div class="round-row">
-      ${champs
-        ? html`<span class="pill pill-gold">🏆 Champions · ${champRound} of ${champTotal}</span>`
-        : html`<span class="pill pill-hot">⚔️ Round ${b.round} of ${b.total}</span>`}
+      ${br
+        ? html`<span class="pill pill-hot">🏆 ${roundName}${prog.count > 1 ? ` · ${prog.index} of ${prog.count}` : ''}</span>`
+        : champs
+          ? html`<span class="pill pill-gold">🏆 Champions · ${champRound} of ${champTotal}</span>`
+          : html`<span class="pill pill-hot">⚔️ Round ${b.round} of ${b.total}</span>`}
       ${b.endsAt && !result ? html`<${Countdown} endsAt=${b.endsAt} offset=${offset} />` : null}
-      <span class="pill">${champs ? `👑 ${b.left} more ${b.left === 1 ? 'champ' : 'champs'}` : `🎩 ${b.left} left`}</span>
+      <span class="pill">${br ? `⚔️ ${b.left} ${b.left === 1 ? 'matchup' : 'matchups'} left` : champs ? `👑 ${b.left} more ${b.left === 1 ? 'champ' : 'champs'}` : `🎩 ${b.left} left`}</span>
     </div>
     <div class="progress ${champs ? 'gold' : ''}"><i style=${{ width: `${Math.max(4, (done / outOf) * 100)}%` }} /></div>
+    ${br || scoring
+      ? html`<div class="battle-tools">
+          ${br ? html`<button class="chip soft" onClick=${() => setSheet('bracket')}>🗂️ The bracket</button>` : null}
+          ${scoring ? html`<button class="chip soft" onClick=${() => setSheet('scores')}>🏅 Scores</button>` : null}
+        </div>`
+      : null}
 
     ${revealed
       ? html`<div class="banner" key=${`b${b.round}`}>
@@ -320,6 +523,7 @@ export function Battle() {
         (m) => html`<${Fighter}
           key=${m.id}
           m=${m}
+          label=${labels[m.id]}
           badge=${badgeFor(m.id)}
           picked=${myVote === m.id}
           outcome=${outcome(m.id)}
@@ -334,26 +538,42 @@ export function Battle() {
       ${n === 2 ? html`<span class="vs" aria-hidden="true">VS</span>` : null}
     </div>
 
-    ${!result && view.settings.kind !== 'movie'
+    ${!result && kind !== 'movie'
       ? html`<div class="center" style=${{ marginTop: '16px' }}>
           <button class="btn btn-ghost btn-sm" onClick=${() => playAll(fighters)}>🔊 Play the matchup (15s each)</button>
         </div>`
       : null}
 
+    ${quizzing ? html`<${QuizPanel} b=${b} E=${E} labels=${labels} mine=${myAnswers} onAnswer=${answer} />` : null}
+    ${!quizzing ? html`<${QuizReveal} b=${b} E=${E} players=${view.players} />` : null}
+    ${scoring && canVote ? html`<${GuessPanel} b=${b} E=${E} players=${view.players} meId=${view.me.id} mine=${myGuesses} onGuess=${guess} />` : null}
+    ${scoring && revealed ? html`<${GuessPanel} b=${b} E=${E} players=${view.players} meId=${view.me.id} result=${result} />` : null}
+    ${scoring && revealed ? html`<${RoundPoints} result=${result} players=${view.players} meId=${view.me.id} />` : null}
+
     ${!result
       ? html`<div class="voters">
           <p class="small muted" style=${{ fontWeight: 800 }}>
-            ${myVote
-              ? `${b.votedCount} of ${here.length} voted`
-              : `Tap your favorite ${noun(view.settings.kind)}. ${view.settings.kind === 'movie' ? 'ⓘ shows what it’s about' : '▶ plays a preview'}`}
+            ${quizzing
+              ? b.todo
+                ? `Hear them, then pick the ${kind === 'album' ? 'artist' : 'singer'} for each`
+                : `${b.votedCount} of ${here.length} answered`
+              : !myVote
+                ? `Tap your favorite ${noun(kind)}. ${kind === 'movie' ? 'ⓘ shows what it’s about' : '▶ plays a preview'}`
+                : b.todo
+                  ? 'Now guess who picked them 👆'
+                  : `${b.votedCount} of ${here.length} done`}
           </p>
           <div class="face-row">
             ${here.map((p) => html`<${Avatar} key=${p.id} p=${p} size=${38} className=${p.voted ? '' : 'waiting'} badge=${p.voted ? '✓' : null} />`)}
           </div>
           ${view.me.host && b.votedCount > 0 && waitingOn.length
-            ? html`<button class="btn btn-quiet btn-sm" style=${{ marginTop: '12px' }} onClick=${() => act({ type: 'close', round: b.round })}>
-                Close voting now
-              </button>`
+            ? quizzing
+              ? html`<button class="btn btn-quiet btn-sm" style=${{ marginTop: '12px' }} onClick=${() => act({ type: 'reveal', round: b.round })}>
+                  Reveal them now
+                </button>`
+              : html`<button class="btn btn-quiet btn-sm" style=${{ marginTop: '12px' }} onClick=${() => act({ type: 'close', round: b.round })}>
+                  Close voting now
+                </button>`
             : null}
         </div>`
       : null}
@@ -366,11 +586,11 @@ export function Battle() {
             ? html`<button class="btn btn-gold btn-block btn-xl" onClick=${advance}>🏆 Start the champions round</button>`
             : result.method === 'keep'
               ? html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>${champs ? '🏆 Bring in another champion' : '🎩 Draw one to join the fight'}</button>`
-              : html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>${champs ? '🏆 Bring in the next champion' : `🎩 Draw the next ${noun(view.settings.kind)}`}</button>`
-        : !result && myVote && waitingOn.length
+              : html`<button class="btn btn-hot btn-block btn-xl" onClick=${advance}>${br ? '⚔️ Next matchup' : champs ? '🏆 Bring in the next champion' : `🎩 Draw the next ${noun(kind)}`}</button>`
+        : !result && !b.todo && waitingOn.length
           ? html`<div class="card center" style=${{ padding: '14px' }}>
               <strong class="dots">Waiting on ${waitingOn.map((p) => p.name).slice(0, 3).join(', ')}${waitingOn.length > 3 ? ` +${waitingOn.length - 3}` : ''}</strong>
-              <p class="tiny muted">You can still change your vote</p>
+              <p class="tiny muted">${quizzing ? 'You can still change your answers' : 'You can still change your vote'}</p>
             </div>`
           : null}
     </div>
@@ -380,7 +600,14 @@ export function Battle() {
         ? html`<${Roulette} items=${tied} winner=${result.winner} onDone=${() => setDrawSeen(b.round)} />`
         : html`<${CoinFlip} a=${tied[0]} b=${tied[1]} winner=${result.winner} onDone=${() => setDrawSeen(b.round)} />`
       : null}
-    ${intro ? html`<${ShuffleIntro} count=${b.total + 1} kind=${view.settings.kind} onDone=${() => setIntro(false)} />` : null}
+    ${intro ? html`<${ShuffleIntro} count=${b.total + 1} kind=${kind} bracket=${!!br} onDone=${() => setIntro(false)} />` : null}
+    <${Sheet} open=${sheet === 'bracket' && br} onClose=${() => setSheet(null)} title="🗂️ The bracket">
+      ${br ? html`<${BracketView} bracket=${br} entries=${E} current=${result ? null : at} />` : null}
+    </${Sheet}>
+    <${Sheet} open=${sheet === 'scores' && b.scores} onClose=${() => setSheet(null)} title="🏅 Scores">
+      ${b.scores ? html`<${ScoreList} scores=${b.scores} meId=${view.me.id} />` : null}
+      <p class="small muted" style=${{ marginTop: '14px' }}>🕵️ +1 right guess on who picked it · 🎤 +1 right artist · ⭐ +2 a win for your pick · 👑 +3 your pick is the champion</p>
+    </${Sheet}>
     ${champIntro && champs
       ? html`<${ChampionsIntro} items=${champs.ids.map((id) => E[id])} kind=${view.settings.kind} onDone=${() => setChampIntro(false)} />`
       : null}

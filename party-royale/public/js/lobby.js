@@ -154,8 +154,11 @@ function ThemePicker({ theme, set, kind }) {
   </div>`;
 }
 
+const quizOn = (s) => s.quiz && (s.kind === 'song' || s.kind === 'album');
+
 export function rulesSummary(s) {
   const n = (count) => noun(s.kind, count);
+  const bracket = s.format !== 'classic';
   const each = s.maxPerPlayer
     ? s.minPerPlayer === s.maxPerPlayer
       ? `${s.maxPerPlayer} ${n(s.maxPerPlayer)} each`
@@ -170,10 +173,13 @@ export function rulesSummary(s) {
     `🎶 ${each}`,
     s.clean && s.kind !== 'movie' ? '🧼 Clean picks only' : null,
     s.submitSeconds ? `⏱ ${Math.round(s.submitSeconds / 60)} min to add` : '⏱ No time limit',
-    { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
-    { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
+    bracket ? '🏆 Bracket: winners move on' : '👑 King of the hill',
+    s.scoring ? '🏅 Points game' : null,
+    quizOn(s) ? '🎤 Who sings it?' : null,
+    s.scoring ? null : { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
+    bracket ? null : { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
     s.voteSeconds ? `⚡ ${s.voteSeconds}s to vote` : null,
-    s.champions ? '🏆 Champions round at the end' : null,
+    !bracket && s.champions ? '🏆 Champions round at the end' : null,
   ].filter(Boolean);
 }
 
@@ -191,6 +197,7 @@ export function RulesCard() {
   }
 
   const noCap = s.maxPerPlayer === 0;
+  const bracket = s.format !== 'classic';
   const inLobby = view.phase === 'lobby';
   return html`<div class="card">
     <div class="rule rule-col">
@@ -254,26 +261,65 @@ export function RulesCard() {
         onChange=${(v) => set({ submitSeconds: v })} />
     </div>
     <div class="rule rule-col">
-      <div class="rule-text"><strong>Reveal who picked what?</strong><span>${REVEAL_HELP[s.reveal]}</span></div>
-      <${Seg} label="Reveal pickers" value=${s.reveal}
-        options=${[['hidden', '🤫 Never'], ['reveal', '🎭 After vote'], ['open', '👀 Always']]}
-        onChange=${(v) => set({ reveal: v })} />
-    </div>
-    <div class="rule rule-col">
-      <div class="rule-text"><strong>If a vote ties</strong><span>${TIE_HELP[s.ties]}</span></div>
-      <${Seg} label="Tie breaker" value=${s.ties}
-        options=${[['coin', '🪙 Coin flip'], ['champ', '👑 Champ'], ['keep', '⚔️ 3‑way']]}
-        onChange=${(v) => set({ ties: v })} />
+      <div class="rule-text">
+        <strong>How it plays</strong>
+        <span>${bracket
+          ? 'Bracket: picks pair off and the winners move on, round by round. Everyone gets a fair shot'
+          : 'King of the hill: the winner stays on and takes on the next pick from the hat'}</span>
+      </div>
+      <${Seg} label="Format" value=${s.format}
+        options=${[['bracket', '🏆 Bracket'], ['classic', '👑 King of the hill']]}
+        onChange=${(v) => set({ format: v })} />
     </div>
     <div class="rule rule-col">
       <div class="rule-text">
-        <strong>Champions round</strong>
-        <span>${s.champions ? `Every ${noun(s.kind)} that wins a matchup comes back for one last showdown` : 'Off: the last one standing wins'}</span>
+        <strong>Points game</strong>
+        <span>${s.scoring
+          ? '🕵️ +1 for guessing who picked each one · ⭐ +2 when your pick wins a matchup · 👑 +3 if yours is the champion'
+          : 'Off: just vote for your favorites'}</span>
       </div>
-      <${Seg} label="Champions round" value=${s.champions ? 'on' : 'off'}
-        options=${[['off', 'Off'], ['on', '🏆 On']]}
-        onChange=${(v) => set({ champions: v === 'on' })} />
+      <${Seg} label="Points game" value=${s.scoring ? 'on' : 'off'}
+        options=${[['on', '🏅 On'], ['off', 'Off']]}
+        onChange=${(v) => set({ scoring: v === 'on' })} />
     </div>
+    ${s.kind === 'song' || s.kind === 'album'
+      ? html`<div class="rule rule-col">
+          <div class="rule-text">
+            <strong>Who sings it?</strong>
+            <span>${s.quiz
+              ? `Each ${noun(s.kind)} starts as a mystery: hear the preview and pick the artist${s.scoring ? ' (+1)' : ''}, then it's revealed`
+              : 'Off: songs are shown right away'}</span>
+          </div>
+          <${Seg} label="Who sings it" value=${s.quiz ? 'on' : 'off'}
+            options=${[['on', '🎤 On'], ['off', 'Off']]}
+            onChange=${(v) => set({ quiz: v === 'on' })} />
+        </div>`
+      : null}
+    ${s.scoring
+      ? null
+      : html`<div class="rule rule-col">
+          <div class="rule-text"><strong>Reveal who picked what?</strong><span>${REVEAL_HELP[s.reveal]}</span></div>
+          <${Seg} label="Reveal pickers" value=${s.reveal}
+            options=${[['hidden', '🤫 Never'], ['reveal', '🎭 After vote'], ['open', '👀 Always']]}
+            onChange=${(v) => set({ reveal: v })} />
+        </div>`}
+    ${bracket
+      ? null
+      : html`<div class="rule rule-col">
+          <div class="rule-text"><strong>If a vote ties</strong><span>${TIE_HELP[s.ties]}</span></div>
+          <${Seg} label="Tie breaker" value=${s.ties}
+            options=${[['coin', '🪙 Coin flip'], ['champ', '👑 Champ'], ['keep', '⚔️ 3‑way']]}
+            onChange=${(v) => set({ ties: v })} />
+        </div>
+        <div class="rule rule-col">
+          <div class="rule-text">
+            <strong>Champions round</strong>
+            <span>${s.champions ? `Every ${noun(s.kind)} that wins a matchup comes back for one last showdown` : 'Off: the last one standing wins'}</span>
+          </div>
+          <${Seg} label="Champions round" value=${s.champions ? 'on' : 'off'}
+            options=${[['off', 'Off'], ['on', '🏆 On']]}
+            onChange=${(v) => set({ champions: v === 'on' })} />
+        </div>`}
     <div class="rule rule-col">
       <div class="rule-text"><strong>Time to vote</strong><span>Keeps things moving if someone wanders off</span></div>
       <${Seg} label="Vote timer" value=${s.voteSeconds}

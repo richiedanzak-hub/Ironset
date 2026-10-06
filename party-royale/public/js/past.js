@@ -39,8 +39,8 @@ export function snapshot(view) {
     players: view.players.length,
     settings: view.settings,
     entries: view.entries,
-    battle: { history: b.history, wins: b.wins, champions: b.champions || null },
-    final: { winner: view.final.winner, pickers: view.final.pickers },
+    battle: { history: b.history, wins: b.wins, champions: b.champions || null, bracket: b.bracket || null, format: b.format || 'classic' },
+    final: { winner: view.final.winner, pickers: view.final.pickers, scores: view.final.scores || null },
   };
 }
 

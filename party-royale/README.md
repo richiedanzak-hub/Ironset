@@ -10,8 +10,24 @@ One party game, two modes:
 How a game goes:
 
 1. **Fill the hat.** Everyone secretly adds picks, typed in or chosen from the ✨ ideas browser.
-2. **Head-to-head.** Two picks come out of the hat, everyone votes on their own phone, and the winner stays on.
-3. **Crown the champ.** The last one standing wins.
+2. **The bracket.** Picks pair off at random, everyone votes on their own phone, and the winners move on round by round (Quarterfinals, Semifinals, Final). Every pick gets the same shot.
+3. **Score points.** Guess who picked each one, name the artist of each mystery song, and earn points when your picks win.
+4. **Crown the champ.** The last pick standing wins the night, and the player with the most points wins the game.
+
+## The points game
+
+It's on by default. The host can switch it off in the lobby.
+
+| Points | How you earn them |
+| --- | --- |
+| 🕵️ +1 | Guess who picked each pick, the first time it shows up |
+| 🎤 +1 | Name the artist of a mystery song (the **Who sings it?** quiz) |
+| ⭐ +2 | Your pick wins a matchup |
+| 👑 +3 | Your pick is the champion |
+
+**Who sings it?** (songs and albums): a pick's first matchup starts as a mystery. Play the preview, then choose the singer from four options. Nobody can answer for their own pick. Then the names are revealed and the vote begins.
+
+The **🗂️ The bracket** and **🏅 Scores** buttons show where things stand at any time. The final screen shows the scores podium and each player's breakdown.
 
 Everyone plays on their own phone. The host sends a link (or shows a QR code), and people join by typing their name. There are no accounts or app downloads.
 
@@ -20,8 +36,10 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 - **Movies, songs, albums or artists.** The host picks one on the home screen and can switch in the lobby.
 - **A theme for the night (optional).** Ready-made themes for each mode (Horror night, Family movie night, 90s Rock, 80s Party, Road trip…) or your own genre, decade and name. The ideas browser sticks to it.
 - **Off-theme picks are blocked** when the theme has a genre or decade (the host can switch this to "Allowed"). Each pick is checked as it goes in, and one that doesn't fit is marked right on it ("Oppenheimer is Drama / History, not Animation").
-- **Champions round (optional).** When the hat is empty, every pick that won a matchup comes back for one last king-of-the-hill.
-- **House rules:** minimum and maximum picks per person, optional timers, reveal who picked what (never, after each vote, or always), and ties (coin flip, champ stays, or a 3-way showdown).
+- **Two ways to play:**
+  - 🏆 **Bracket** (default): picks pair off and the winners move on. Odd numbers get byes. Two picks from the same person don't meet in round 1 when that can be avoided. Ties are a coin flip.
+  - 👑 **King of the hill:** the winner stays on and fights the next pick out of the hat. Only this mode has the **champions round** (every pick that won a matchup comes back for one last battle) and the tie options (coin flip, champ stays, or a 3-way showdown).
+- **House rules:** minimum and maximum picks per person, optional timers, the points game, Who sings it?, and (with points off) when to reveal who picked what.
 - **Ideas browser:**
   - Movies: popular, top rated, trending, hidden gems, surprise me; filter by genre, decade and streaming service; family friendly and under 2 hours
   - Music: today's charts, new, all-time classics, surprise me; filter by genre, decade and vibe; it keeps loading as you scroll and every phone gets its own shuffle
@@ -29,7 +47,7 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 - **Champion screen:**
   - Movies: where to watch (stream, free, rent, buy) by country, plus the trailer
   - Music: buttons that open the song itself on Spotify, Apple Music, YouTube and Deezer
-  - a "best taste" podium, everyone's picks and how far each got, and the road to the crown
+  - the final scores podium (or, with points off, a "best taste" podium), everyone's picks and how far each got, and the road to the crown
 - **Past parties.** Each phone keeps the recap of every party it finished (up to 30), under 📜 Past parties.
 
 ## Where the data comes from

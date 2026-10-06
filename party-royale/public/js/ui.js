@@ -28,11 +28,32 @@ const GENRE_EMOJI = {
 const coverEmoji = (m) => (m.genres || []).map((g) => GENRE_EMOJI[g]).find(Boolean) || KIND_EMOJI[m.kind] || '🎵';
 
 export const durationText = (sec) => (sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : '');
+// Bracket rounds by how many picks are left: "Quarterfinals", "Final"…
+export function bracketRoundName(bracket, r) {
+  const winners = bracket.rounds[r + 1].length;
+  return winners === 1 ? 'Final' : winners === 2 ? 'Semifinals' : winners === 4 ? 'Quarterfinals' : `Round of ${winners * 2}`;
+}
+
+// Places for a sorted list, with ties sharing a place: 1, 2, 2, 4.
+export function places(list, score) {
+  const out = [];
+  list.forEach((x, i) => out.push(i && score(x) === score(list[i - 1]) ? out[i - 1] : i + 1));
+  return out;
+}
+
+// Real matchups in a bracket round (byes don't count), and which one this is.
+export function bracketProgress(bracket, r, k) {
+  const slots = bracket.rounds[r];
+  const real = [];
+  for (let i = 0; i < slots.length / 2; i++) if (r > 0 || (slots[2 * i] && slots[2 * i + 1])) real.push(i);
+  return { index: real.indexOf(k) + 1, count: real.length };
+}
+
 export const runtimeText = (min) => (min ? `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}m` : '');
 
 // "Queen · 1975" for songs and albums; the genre for artists; "1975 · Horror" for movies.
 export const itemMeta = (m) =>
-  (m.kind === 'artist' ? [m.genres?.[0] || 'Artist'] : m.kind === 'movie' ? [m.year, m.genres?.[0]] : [m.artist, m.year]).filter(Boolean).join(' · ');
+  m.mystery ? '' : (m.kind === 'artist' ? [m.genres?.[0] || 'Artist'] : m.kind === 'movie' ? [m.year, m.genres?.[0]] : [m.artist, m.year]).filter(Boolean).join(' · ');
 
 // ------------------------------------------------------------ party theme
 
@@ -122,6 +143,14 @@ export function findPick(mine, m) {
 export function Cover({ item, tiny, rating, children }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [item.cover]);
+  // "Who sings it?": nothing to see yet, just a preview to hear.
+  if (item.mystery) {
+    return html`<div class="cover cover-fallback mystery ${tiny ? 'tiny-cover' : ''}">
+      <span class="cf-emoji">❓</span>
+      <span class="cf-title">${tiny ? '' : `Mystery ${noun(item.kind)}`}</span>
+      ${children}
+    </div>`;
+  }
   const movie = isMovie(item);
   const shape = movie ? 'poster' : item.kind === 'artist' ? 'is-artist' : '';
   const badge = movie

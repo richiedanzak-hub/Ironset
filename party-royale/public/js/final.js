@@ -2,7 +2,8 @@
 // how it got here. The same recap shows past parties saved on this phone.
 import { html, useState, useEffect, useMemo } from './lib.js';
 import { request, region as myRegion } from './api.js';
-import { Avatar, Confetti, Cover, PlayButton, durationText, isMovie, itemMeta, noun, prefetchPreviews, runtimeText, stopPreview, themeEmoji, themeTitle, useGame } from './ui.js';
+import { ScoreList } from './battle.js';
+import { Avatar, Confetti, Cover, PlayButton, bracketRoundName, durationText, isMovie, places, itemMeta, noun, prefetchPreviews, runtimeText, stopPreview, themeEmoji, themeTitle, useGame } from './ui.js';
 import { saveParty, snapshot } from './past.js';
 import { sfx } from './sfx.js';
 
@@ -120,15 +121,16 @@ function WatchCard({ movie, onDetails }) {
 
 // ------------------------------------------------------------ podium, picks, road
 
-function Podium({ pickers, meId }) {
+function Podium({ pickers, meId, title = '🏆 Best taste', tag = 'points = matchups your picks won', icon = '⭐' }) {
   const top = pickers.slice(0, 3);
+  const at = places(pickers, (p) => p.points);
   const spots = [
-    [top[1], 'second', 2],
-    [top[0], 'first', 1],
-    [top[2], 'third', 3],
+    [top[1], 'second', at[1]],
+    [top[0], 'first', at[0]],
+    [top[2], 'third', at[2]],
   ];
   return html`<section class="section">
-    <div class="section-head"><h2>🏆 Best taste</h2><span class="tag">points = matchups your picks won</span></div>
+    <div class="section-head"><h2>${title}</h2><span class="tag">${tag}</span></div>
     <div class="card">
       <div class="podium">
         ${spots.map(([p, cls, n]) =>
@@ -136,7 +138,7 @@ function Podium({ pickers, meId }) {
             ? html`<div class="podium-spot ${cls}" key=${cls}>
                 <${Avatar} p=${p} crown=${p.champ} />
                 <span class="name">${p.id === meId ? 'You' : p.name}</span>
-                <span class="pts">⭐ ${p.points}</span>
+                <span class="pts">${icon} ${p.points}</span>
                 <div class="podium-block">${n}</div>
               </div>`
             : html`<div key=${cls} />`,
@@ -146,8 +148,8 @@ function Podium({ pickers, meId }) {
         ? html`<div class="road" style=${{ marginTop: '14px' }}>
             ${pickers.slice(3).map(
               (p, i) => html`<div class="road-row" key=${p.id}>
-                <span class="r">#${i + 4}</span><${Avatar} p=${p} size=${28} />
-                <span class="grow w">${p.id === meId ? 'You' : p.name}</span><span class="score">⭐ ${p.points}</span>
+                <span class="r">#${at[i + 3]}</span><${Avatar} p=${p} size=${28} />
+                <span class="grow w">${p.id === meId ? 'You' : p.name}</span><span class="score">${icon} ${p.points}</span>
               </div>`,
             )}
           </div>`
@@ -165,7 +167,11 @@ function fateOf(id, data) {
   const inChamps = !!champions?.ids.includes(id);
   const text = crowned
     ? '👑 Champion'
-    : [inChamps ? '🏆 Champions round' : null, w ? `⭐ ${w} ${w === 1 ? 'win' : 'wins'}` : null, out ? `out in round ${out.round}` : null]
+    : [
+        inChamps ? '🏆 Champions round' : null,
+        w ? `⭐ ${w} ${w === 1 ? 'win' : 'wins'}` : null,
+        out ? (data.battle.bracket && out.bracketRound != null ? `out in the ${bracketRoundName(data.battle.bracket, out.bracketRound)}` : `out in round ${out.round}`) : null,
+      ]
         .filter(Boolean)
         .join(' · ');
   return { crowned, text, sort: [crowned ? 0 : 1, inChamps ? 0 : 1, -w, -(out?.round || 0)] };
@@ -222,7 +228,7 @@ function EveryonesPicks({ data }) {
   </section>`;
 }
 
-function Road({ history, entries }) {
+function Road({ history, entries, bracket }) {
   return html`<section class="section">
     <details class="fold card">
       <summary class="row">
@@ -236,8 +242,11 @@ function Road({ history, entries }) {
           const kept = h.method === 'keep';
           const top = entries[kept ? h.survivors[0] : h.winner];
           const how = h.method === 'coin' ? (h.fighters.length > 2 ? '🎲' : '🪙') : h.method === 'champ' ? '🤝' : score;
-          const divider = h.champions && !history[i - 1]?.champions;
-          return html`${divider ? html`<div class="road-divider" key="champions">🏆 Champions round</div>` : null}
+          // Bracket rounds get a heading each; king of the hill marks the champions round.
+          const divider = bracket
+            ? h.bracketRound !== history[i - 1]?.bracketRound && bracketRoundName(bracket, h.bracketRound)
+            : h.champions && !history[i - 1]?.champions && '🏆 Champions round';
+          return html`${divider ? html`<div class="road-divider" key=${`d${i}`}>${divider}</div>` : null}
           <div class="road-row" key=${h.round}>
             <span class="r">R${h.round}</span>
             <${Cover} item=${top} tiny />
@@ -349,9 +358,15 @@ export function Recap({ data, live = false }) {
     </div>
 
     ${movie ? html`<${WatchCard} movie=${champ} onDetails=${setExtra} />` : html`<${ListenCard} links=${links} />`}
-    ${data.final.pickers?.length > 1 ? html`<${Podium} pickers=${data.final.pickers} meId=${data.meId} />` : null}
+    ${data.final.scores
+      ? html`<${Podium} pickers=${data.final.scores.map((r) => ({ ...r, points: r.total, champ: r.champ > 0 }))} meId=${data.meId}
+            title="🏅 Final scores" tag="guesses + wins" icon="🏅" />
+          <section class="section card"><${ScoreList} scores=${data.final.scores} meId=${data.meId} /></section>`
+      : data.final.pickers?.length > 1
+        ? html`<${Podium} pickers=${data.final.pickers} meId=${data.meId} />`
+        : null}
     <${EveryonesPicks} data=${data} />
-    <${Road} history=${b.history} entries=${E} />
+    <${Road} history=${b.history} entries=${E} bracket=${b.bracket} />
   </div>`;
 }
 
