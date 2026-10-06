@@ -972,6 +972,10 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 function App() {
   const [state, setState] = useState(loadState);
   const [tab, setTab] = useState("dash");
+  // Noticing you can't train today happens on Train, not Plan. This carries that
+  // one intent across: open Plan on that date with the day's tools already up.
+  const [focusDay, setFocusDay] = useState(null);
+  const openDayTools = (dateStr) => { setFocusDay(dateStr); setTab("plan"); };
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
@@ -1149,10 +1153,10 @@ function App() {
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
-            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab }} />
+            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools }} />
           )}
           {tab === "plan" && (
-            <ProgramTab {...{ state, setState, setTab, setSel }} />
+            <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
           )}
           {tab === "insights" && (
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} />
@@ -1671,6 +1675,68 @@ const newSlot = (name) => {
     val: mode === "rpe" ? 8 : mode === "rir" ? 2 : 75, bo: null, note: "" };
 };
 const slotTimed = (sl) => sl.metric === "time";
+/* --------------------------- moving days around --------------------------- */
+// A week going wrong is normal: you get sick, work runs late, the gym is shut. A
+// day you can't train is a day to move, not a day to lose. Everything below works
+// on the days map alone and returns a new one, which is what makes undo a single
+// snapshot rather than an inverse of each operation.
+
+// Copies need fresh slot ids. Ids only have to be unique inside a day, but two
+// days holding the same id makes a copy look like an alias of its source the
+// moment you edit one.
+const freshIds = (slots) => (slots || []).map((sl) => ({ ...sl, id: uid() }));
+// Combining appends rather than interleaving — if you're doing two sessions in one
+// day you do them in order — and the arriving day's first slot drops its link so a
+// superset can never straddle the join.
+function combineInto(dst, arriving) {
+  const add = (arriving || []).slice();
+  if (add.length) add[0] = { ...add[0], link: false };
+  return [...(dst || []), ...add];
+}
+const putDay = (days, d, slots) => {
+  const n = { ...days };
+  if (slots && slots.length) n[d] = slots; else delete n[d];
+  return n;
+};
+const dropDay = (days, d) => { const n = { ...days }; delete n[d]; return n; };
+// mode is "combine" or "replace", and only matters when the target already has work.
+function moveDay(days, from, to, mode) {
+  if (from === to) return days;
+  const src = days[from] || [];
+  const landed = mode === "combine" ? combineInto(days[to] || [], src) : src;
+  return putDay(dropDay(days, from), to, landed);
+}
+function copyDay(days, from, to, mode) {
+  if (from === to) return days;
+  const src = freshIds(days[from] || []);
+  return putDay(days, to, mode === "combine" ? combineInto(days[to] || [], src) : src);
+}
+function swapDays(days, a, b) {
+  if (a === b) return days;
+  return putDay(putDay(days, a, days[b] || []), b, days[a] || []);
+}
+// Sliding the rest of the block. Everything on or after `from` moves together, so
+// the shifted days can never collide with each other — but a backward shift can
+// land on a day before the cut, which stays put, so those two are combined rather
+// than one of them quietly disappearing.
+function shiftFrom(days, from, n) {
+  if (!n) return days;
+  const out = {};
+  for (const k of Object.keys(days)) if (k < from) out[k] = days[k];
+  for (const k of Object.keys(days).filter((x) => x >= from).sort()) {
+    const t = addDays(k, n);
+    out[t] = out[t] ? combineInto(out[t], days[k]) : days[k];
+  }
+  return out;
+}
+// How many planned days a shift would merge — the UI says so before you commit.
+function shiftCollisions(days, from, n) {
+  if (!n) return 0;
+  const kept = new Set(Object.keys(days).filter((k) => k < from));
+  return Object.keys(days).filter((k) => k >= from && kept.has(addDays(k, n))).length;
+}
+
+
 // Which week of the block today falls in. Blocks repeat, so a 4-week plan keeps
 // running rather than falling off the end mid-prep.
 
@@ -2561,7 +2627,7 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
 
 // Destructive actions live together, behind one door, so none of them is a
 // mis-tap away while you are editing a session.
-function ResetSheet({ open, onClose, weekLabel, onClearDay, onClearWeek, onTrimAfter, onStartOver }) {
+function ResetSheet({ open, onClose, weekLabel, onClearWeek, onTrimAfter, onStartOver }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => { if (!open) setArmed(false); }, [open]);
   const row = (title, desc, onClick, danger) => (
@@ -2574,7 +2640,6 @@ function ResetSheet({ open, onClose, weekLabel, onClearDay, onClearWeek, onTrimA
   );
   return (
     <Sheet open={open} onClose={onClose} title="Reset">
-      {row("Clear this day", "Empties the selected day in " + (weekLabel || "this week") + ".", () => { onClearDay(); onClose(); })}
       {row("Clear " + (weekLabel || "this week"), "Empties all seven days of the selected calendar week.", () => { onClearWeek(); onClose(); })}
       {row("Delete everything after this week", "Keeps every planned day up to the end of " + (weekLabel || "this week") + ".", () => { onTrimAfter(); onClose(); })}
       {row(armed ? "Tap again to delete the program" : "Start over",
@@ -2584,14 +2649,131 @@ function ResetSheet({ open, onClose, weekLabel, onClearDay, onClearWeek, onTrimA
   );
 }
 
-function ProgramTab({ state, setState, setTab, setSel }) {
+// Everything you can do to a whole day. Moving, copying and swapping don't ask for
+// a date here — you pick the target by tapping it on the calendar you're already
+// looking at, which is both fewer taps and the only way to see what's free.
+function DaySheet({ open, onClose, dateStr, days, onArm, onShift, onClear }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!open) setArmed(false); }, [open]);
+  const slots = (days || {})[dateStr] || [];
+  const n = slots.length;
+  const later = Object.keys(days || {}).filter((k) => k >= dateStr).length;
+  const nice = dayStart(dateStr).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  const row = (title, desc, onClick, danger) => (
+    <button onClick={onClick} style={{ width: "100%", textAlign: "left", background: G.card,
+      border: `1px solid ${danger ? C.redLine : C.line2}`, borderRadius: R.surface, padding: "13px 15px",
+      cursor: "pointer", color: C.text, marginBottom: 8, WebkitTapHighlightColor: "transparent" }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: danger ? C.red : C.text }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{desc}</div>
+    </button>
+  );
+  const shiftBtn = (d, t) => (
+    <button key={d} onClick={() => { onShift(d); onClose(); }} disabled={!later}
+      style={{ flex: 1, padding: "11px 0", borderRadius: R.ctrl, border: `1px solid ${C.line2}`,
+        background: "rgba(255,255,255,0.04)", color: later ? C.text : C.faint, fontFamily: MONO,
+        fontWeight: 700, fontSize: 12.5, cursor: later ? "pointer" : "default",
+        opacity: later ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}>{t}</button>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title={nice}>
+      {n > 0 ? (
+        <>
+          <div style={{ ...label, fontSize: 9, marginBottom: 7 }}>Send this session elsewhere</div>
+          {row("Move to another day", `Takes ${n} movement${n === 1 ? "" : "s"} with it and leaves this day empty.`,
+            () => onArm("move"))}
+          {row("Copy to another day", "Leaves this day exactly as it is.", () => onArm("copy"))}
+          {row("Swap with another day", "The two days trade sessions.", () => onArm("swap"))}
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, padding: "2px 0 14px" }}>
+          Nothing planned on this day, so there's nothing to move. You can still push
+          the days after it.
+        </div>
+      )}
+
+      <div style={{ ...label, fontSize: 9, margin: "16px 0 6px" }}>When the week slips</div>
+      <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55, marginBottom: 9 }}>
+        {later
+          ? `Moves this day and every planned day after it together — ${later} day${later === 1 ? "" : "s"} in all. Nothing lands on top of anything else.`
+          : "Nothing planned from this day onward."}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {shiftBtn(-7, "−1 wk")}{shiftBtn(-1, "−1 day")}{shiftBtn(1, "+1 day")}{shiftBtn(7, "+1 wk")}
+      </div>
+
+      {n > 0 && (
+        <div style={{ marginTop: 18 }}>
+          {row(armed ? "Tap again to clear it" : "Clear this day",
+            armed ? `Removes all ${n} movement${n === 1 ? "" : "s"}. Sets you already logged are not touched.`
+                  : "Empties the day. You can undo it straight after.",
+            () => { if (armed) { onClear(); onClose(); } else setArmed(true); }, true)}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+// Landing on a day that already has work is the interesting case, so it asks
+// rather than guessing — combining two sessions and overwriting one are very
+// different answers to a tight week.
+function ConflictSheet({ open, onClose, conflict, days, onResolve }) {
+  if (!conflict) return null;
+  const to = conflict.to;
+  const there = ((days || {})[to] || []).length;
+  const coming = ((days || {})[conflict.from] || []).length;
+  const niceTo = dayStart(to).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  const verb = conflict.kind === "move" ? "Moving" : "Copying";
+  const row = (title, desc, mode, danger) => (
+    <button onClick={() => { onResolve(mode); onClose(); }} style={{ width: "100%", textAlign: "left",
+      background: G.card, border: `1px solid ${danger ? C.redLine : C.line2}`, borderRadius: R.surface,
+      padding: "13px 15px", cursor: "pointer", color: C.text, marginBottom: 8, WebkitTapHighlightColor: "transparent" }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: danger ? C.red : C.text }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{desc}</div>
+    </button>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title={niceTo + " is taken"}>
+      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        {verb} {coming} movement{coming === 1 ? "" : "s"} onto a day that already has {there}.
+      </div>
+      {row("Do both that day", `One session of ${there + coming} movements, in order.`, "combine")}
+      {row("Replace what's there", `Drops the ${there} movement${there === 1 ? "" : "s"} already on ${niceTo}.`, "replace", true)}
+    </Sheet>
+  );
+}
+
+function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) {
   const program = state.program || null;
   const [sel, setSelDate] = useState(todayStr());
   const [cur, setCur] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [picking, setPicking] = useState(null);
   const [cloning, setCloning] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [dayOpen, setDayOpen] = useState(false);
+  // An armed move/copy/swap waiting for you to tap its destination on the calendar.
+  const [pending, setPending] = useState(null);
+  const [conflict, setConflict] = useState(null);
+  // The days map as it was before the last operation. Undo is one assignment back,
+  // which is the whole reason these operations return a new map instead of mutating.
+  const [undo, setUndo] = useState(null);
   const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
+  // Every whole-day change goes through here, so every one of them is undoable and
+  // says what it did. Nothing about moving a session should feel risky.
+  const applyDays = (next, said) => {
+    setUndo({ days: (program && program.days) || {}, said });
+    setProgram((pr) => ({ ...pr, days: next }));
+  };
+  const doUndo = () => { if (undo) { setProgram((pr) => ({ ...pr, days: undo.days })); setUndo(null); } };
+  // Arriving from Train's "Can't train this?" lands on that date with the tools open.
+  useEffect(() => {
+    if (!focusDay) return;
+    setSelDate(focusDay);
+    const d = dayStart(focusDay);
+    setCur({ y: d.getFullYear(), m: d.getMonth() });
+    setDayOpen(true);
+    onFocusDone && onFocusDone();
+  }, [focusDay]);
+  useEffect(() => { if (!undo) return; const t = setTimeout(() => setUndo(null), 7000); return () => clearTimeout(t); }, [undo]);
   const loggedDays = useMemo(() => {
     const m = {};
     for (const ex of Object.values(state.exercises || {}))
@@ -2674,6 +2856,38 @@ function ProgramTab({ state, setState, setTab, setSel }) {
     return { ...pr, days: nd };
   });
 
+  const niceDay = (d) => dayStart(d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  // Arming an operation closes the sheet and hands the calendar over as the target
+  // picker. Tapping the day you want beats a date field twice over: fewer taps, and
+  // you can see what is already booked while you choose.
+  const arm = (kind) => { setDayOpen(false); setPending({ kind, from: sel }); };
+  const runOp = (kind, from, to, mode) => {
+    const next = kind === "move" ? moveDay(days, from, to, mode)
+      : kind === "copy" ? copyDay(days, from, to, mode)
+      : swapDays(days, from, to);
+    applyDays(next, (kind === "move" ? "Moved to " : kind === "copy" ? "Copied to " : "Swapped with ") + niceDay(to));
+    setSelDate(to);
+  };
+  // A calendar tap is a destination while something is armed, and an ordinary day
+  // selection the rest of the time.
+  const pickDay = (ds) => {
+    if (!pending) { setSelDate(ds); return; }
+    const { kind, from } = pending;
+    setPending(null);
+    if (ds === from) return;
+    // A swap is unambiguous whatever is on either day. Move and copy have to ask
+    // before they land on work that is already there.
+    if (kind !== "swap" && (days[ds] || []).length) { setConflict({ kind, from, to: ds }); return; }
+    runOp(kind, from, ds, "replace");
+  };
+  const shiftBlock = (n) => {
+    const merged = shiftCollisions(days, sel, n);
+    applyDays(shiftFrom(days, sel, n),
+      `Pushed ${n > 0 ? "forward" : "back"} ${Math.abs(n) === 7 ? "a week" : "a day"}`
+      + (merged ? ` · ${merged} day${merged === 1 ? "" : "s"} combined` : ""));
+    setSelDate(addDays(sel, n));
+  };
+
   const shift = (d) => setCur((c) => { const n = new Date(c.y, c.m + d, 1); return { y: n.getFullYear(), m: n.getMonth() }; });
   const jumpToday = () => { const d = new Date(); setCur({ y: d.getFullYear(), m: d.getMonth() }); setSelDate(todayStr()); };
 
@@ -2705,14 +2919,34 @@ function ProgramTab({ state, setState, setTab, setSel }) {
         </div>
       </Card>
 
-      <MonthCalendar y={cur.y} m={cur.m} sel={sel} onSel={setSelDate} onShift={shift}
+      {pending && (
+        <Card accent={C.blue} style={{ padding: "12px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ ...label, fontSize: 9, color: C.blue, display: "block", marginBottom: 3 }}>
+                {pending.kind === "move" ? "Moving" : pending.kind === "copy" ? "Copying" : "Swapping"} {niceDay(pending.from)}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Tap the day you want below.</span>
+            </span>
+            <Btn kind="ghost" style={{ fontSize: 12 }} onClick={() => setPending(null)}>Cancel</Btn>
+          </div>
+        </Card>
+      )}
+
+      <MonthCalendar y={cur.y} m={cur.m} sel={sel} onSel={pickDay} onShift={shift}
         program={program} loggedDays={loggedDays} />
 
       <div>
-        <SectionHead accent={C.amber} right={sel !== todayStr() ? (
-          <button onClick={jumpToday} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Today</button>
-        ) : null}>
+        <SectionHead accent={C.amber} right={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 13 }}>
+            {sel !== todayStr() && (
+              <button onClick={jumpToday} style={{ background: "none", border: "none", color: C.red,
+                fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Today</button>
+            )}
+            <button onClick={() => setDayOpen(true)} style={{ background: "none", border: "none", color: C.muted,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit day</button>
+          </span>
+        }>
           {selDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
           {weekNo >= 1 ? ` · week ${weekNo}` : ""}
         </SectionHead>
@@ -2761,8 +2995,30 @@ function ProgramTab({ state, setState, setTab, setSel }) {
         onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
       <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={"week " + weekNo}
         onClone={(rule) => { cloneWeek(rule); setSelDate(addDays(sel, 7)); }} />
+      <DaySheet open={dayOpen} onClose={() => setDayOpen(false)} dateStr={sel} days={days}
+        onArm={arm} onShift={shiftBlock}
+        onClear={() => applyDays(dropDay(days, sel), "Cleared " + niceDay(sel))} />
+      <ConflictSheet open={!!conflict} onClose={() => setConflict(null)} conflict={conflict} days={days}
+        onResolve={(mode) => runOp(conflict.kind, conflict.from, conflict.to, mode)} />
+
+      {/* Undo sits above the tab bar for a few seconds after any whole-day change,
+          which is what makes moving a session something you can just try. */}
+      {undo && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(82px + env(safe-area-inset-bottom, 0px))",
+          zIndex: 31, display: "flex", justifyContent: "center", padding: "0 12px", pointerEvents: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", maxWidth: 456,
+            background: "rgba(14,17,25,0.95)", backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
+            border: `1px solid ${C.line2}`, borderRadius: R.ctrl, padding: "11px 14px", pointerEvents: "auto",
+            boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, flex: 1,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{undo.said}</span>
+            <button onClick={doUndo} style={{ background: "none", border: "none", color: C.red, fontWeight: 800,
+              fontSize: 12.5, cursor: "pointer", padding: 0, flexShrink: 0 }}>Undo</button>
+          </div>
+        </div>
+      )}
+
       <ResetSheet open={resetting} onClose={() => setResetting(false)} weekLabel={"week " + weekNo}
-        onClearDay={() => writeDay(sel, [])}
         onClearWeek={() => setProgram((pr) => { const nd = { ...(pr.days || {}) }; for (const d of weekDates(sel)) delete nd[d]; return { ...pr, days: nd }; })}
         onTrimAfter={() => setProgram((pr) => { const nd = {}; const cut = addDays(weekStartOf(sel), 7);
           for (const k of Object.keys(pr.days || {})) if (k < cut) nd[k] = pr.days[k]; return { ...pr, days: nd }; })}
@@ -2909,7 +3165,7 @@ function TimedLogger({ state, sel, logSet, logDate, setLogDate, unit, slot }) {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab }) {
+function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab, openDayTools }) {
   const { unit, round, bar } = settings;
   // A programmed slot carries its own intensity language, so the tab's mode is an
   // override on top of the global setting rather than the setting itself: the top
@@ -3291,8 +3547,13 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
             <span style={{ ...label, fontSize: 9.5 }}>{progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"}</span>
           </span>
-          <button onClick={() => setTab && setTab("plan")} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit block</button>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 13 }}>
+            {/* The moment you know today isn't happening, the fix is one tap away. */}
+            <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none", border: "none",
+              color: C.muted, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Can't train this?</button>
+            <button onClick={() => setTab && setTab("plan")} style={{ background: "none", border: "none", color: C.red,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit block</button>
+          </span>
         </div>
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
           {decorateSlots(sessionSlots).map((d) => {
