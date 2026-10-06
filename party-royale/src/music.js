@@ -1147,15 +1147,41 @@ export function createMusic({
     return null;
   }
 
+  // Does a quiz song really fit the theme? Playlists called "2000s rock"
+  // still slip in a pop hit or two. The genre goes by the artist's own albums
+  // (what they're mostly filed under), and the year by the earliest of their
+  // own albums the song is on (not a compilation's date). Returns true, false,
+  // or null when it can't tell, and keeps the year it found.
+  async function quizFit(m, theme) {
+    const id = m.artistId || (await deezer('/search/artist', { q: m.artist, limit: 1 }, 6 * HOUR)).data?.[0]?.id;
+    const albums = id ? await ownAlbums(id) : [];
+    if (!albums.length) return null;
+    const info = { item: m, genres: [], years: [] };
+    if (theme.genre) info.genres = unique(artistGenres(albums, await genreNames()));
+    if (theme.decade) {
+      const own = new Map(albums.map((a) => [a.id, a]));
+      const versions = (await deezer('/search/track', { q: `track:${quote(m.title)} artist:${quote(m.artist)}`, limit: 50 }, 24 * HOUR)).data || [];
+      const years = versions
+        .filter((v) => songKey(v.title_short || v.title) === songKey(m.title) && own.has(v.album?.id))
+        .map((v) => yearOf(own.get(v.album.id).release_date))
+        .filter(Boolean);
+      if (years.length) info.years = [(m.year = Math.min(...years))];
+    }
+    if (!checkTheme(info, theme).ok) return false;
+    return (theme.genre && !info.genres.length) || (theme.decade && !info.years.length) ? null : true;
+  }
+
   async function quizSongs({ theme = null, clean = false, count = 10, ask = 'artist', seed = '' } = {}) {
     const rand = seeded(`quiz|${seed}`);
     const filters = { kind: 'song', genre: theme?.genre || '', decade: theme?.decade || '', vibe: theme?.vibe || '', clean, seed: `quiz${seed}` };
     // With no decade: today's hits and the all-time classics, so everyone at
     // the party knows a few.
     const lists = theme?.decade && theme.decade !== '2020s' ? ['classics', 'top'] : ['top', 'classics'];
+    // A genre or decade rules some songs out, so look a little further.
+    const strict = !!(theme?.genre || theme?.decade);
     const pool = [];
     const seen = new Set();
-    for (let page = 1; page <= 4 && pool.length < count * 3; page++) {
+    for (let page = 1; page <= (strict ? 6 : 4) && pool.length < count * (strict ? 5 : 3); page++) {
       const found = await Promise.all(lists.map((list) => browse({ ...filters, list, page })));
       for (const m of found.flatMap((r) => r.results)) {
         const k = sameKey(m);
@@ -1171,25 +1197,51 @@ export function createMusic({
     for (const m of [...pool].sort((a, b) => (b.rank || 0) - (a.rank || 0))) {
       if (!byArtist.some((x) => sameArtist(x.artist, m.artist))) byArtist.push(m);
     }
-    const picks = shuffle(byArtist.slice(0, Math.max(count * 2, 16)), rand);
+    // The best-known songs, mixed up; then, if those run out, the rest.
+    const window = Math.max(count * 2, 16);
+    const picks = [...shuffle(byArtist.slice(0, window), rand), ...byArtist.slice(window)].slice(0, strict ? 60 : window);
 
-    // Only songs whose preview plays.
+    // Only songs whose preview plays and, with a genre or decade, that fit it.
+    // Songs it can't be sure about only go in if the sure ones run out.
+    const fit = new Map(); // song -> true | false | null (can't tell)
     const chosen = [];
-    for (let at = 0; chosen.length < count && at < picks.length; ) {
-      const batch = picks.slice(at, at + count - chosen.length + 2);
+    const unsure = [];
+    const until = Date.now() + 8000; // don't keep the party waiting
+    for (let at = 0; chosen.length < count && at < picks.length && Date.now() < until; ) {
+      const batch = picks.slice(at, at + Math.ceil((count - chosen.length) * (strict ? 1.5 : 1)) + 2);
       at += batch.length;
-      const ok = await Promise.all(batch.map((m) => quizClip(m).then(Boolean, () => false)));
-      batch.forEach((m, i) => ok[i] && chosen.length < count && chosen.push(m));
+      const checked = await Promise.all(
+        batch.map(async (m) => {
+          const verdict = strict ? await quizFit(m, theme).catch(() => null) : true;
+          fit.set(m, verdict);
+          return verdict !== false && (await quizClip(m).then(Boolean, () => false)) ? verdict : false;
+        }),
+      );
+      batch.forEach((m, i) => {
+        if (checked[i] === true && chosen.length < count) chosen.push(m);
+        else if (checked[i] === null) unsure.push(m);
+      });
     }
+    for (const m of unsure) if (chosen.length < count) chosen.push(m);
 
-    // Wrong choices should be names people know too, or they give the answer away.
-    const famous = byArtist.slice(0, 40);
+    // Wrong choices should be names people know, from the same kind of music,
+    // or they give the answer away.
+    const famous = byArtist.slice(0, 40).filter((x) => fit.get(x) !== false);
     const near = (a, b) => !a.year || !b.year || Math.abs(a.year - b.year) <= 10;
+    const inTheme = (r) => (!theme?.genre || r.genre === theme.genre) && (!theme?.decade || checkTheme({ item: r, genres: [], years: [r.year] }, { decade: theme.decade }).ok);
     function artistDecoys(m) {
       const others = famous.filter((x) => !sameArtist(x.artist, m.artist));
-      const names = [...shuffle(others.filter((x) => near(m, x)), rand), ...shuffle(others.filter((x) => !near(m, x)), rand)].map((x) => x.artist);
-      names.push(...shuffle(byArtist.slice(40), rand).map((x) => x.artist));
-      names.push(...shuffle(SONG_CATALOG, rand).map((r) => r.artist)); // in case the lists ran short
+      const sure = others.filter((x) => fit.get(x) === true);
+      const rest = others.filter((x) => fit.get(x) !== true);
+      const names = [
+        ...shuffle(sure.filter((x) => near(m, x)), rand),
+        ...shuffle(sure.filter((x) => !near(m, x)), rand),
+        ...shuffle(rest.filter((x) => near(m, x)), rand),
+        ...shuffle(rest.filter((x) => !near(m, x)), rand),
+      ].map((x) => x.artist);
+      names.push(...shuffle(byArtist.slice(40).filter((x) => fit.get(x) !== false), rand).map((x) => x.artist));
+      // In case the lists ran short: the built-in list, theme first.
+      names.push(...shuffle(SONG_CATALOG.filter(inTheme), rand).map((r) => r.artist), ...shuffle(SONG_CATALOG, rand).map((r) => r.artist));
       const out = [];
       for (const name of names) {
         if (!sameArtist(name, m.artist) && !out.some((o) => sameArtist(o, name))) out.push(name);

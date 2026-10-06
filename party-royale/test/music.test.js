@@ -79,7 +79,10 @@ const DYNAMIC = [
   [/^\/playlist\/(\d+)\/tracks$/, (id) => (id >= 100000 ? popTracks(id) : null)],
   [/^\/artist\/(\d+)\/related$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => ({ ...artist((id * 10 + k + 1) % 1e9, `Related ${id}-${k}`) })) })],
   // Chart songs on their own; Chart Song 3 has no preview anywhere.
-  [/^\/track\/(\d+)$/, (id) => (id >= 100 && id < 130 ? track(id, `Chart Song ${id - 100}`, artist(400 + id, `Star ${id - 100}`), 500 + id, id === 103 ? { preview: '' } : {}) : null)],
+  [/^\/track\/(\d+)$/, (id) =>
+    id >= 100 && id < 130 ? track(id, `Chart Song ${id - 100}`, artist(400 + id, `Star ${id - 100}`), 500 + id, id === 103 ? { preview: '' } : {})
+    : id >= 300 && id < 312 ? track(id, `Rock Chart ${id - 300}`, artist(10 + id, `Rocker ${id - 300}`), 20 + id)
+    : DEEZER['/playlist/52/tracks'].data.find((t) => t.id === id) || null],
   [/^\/artist\/(\d+)\/top$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => track(id * 100 + k, `Top ${id}-${k}`, artist(id, `Artist ${id}`), id)) })],
 ];
 const nopic = { id: 77, name: 'Fan Band', picture_big: 'https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg' };
@@ -87,6 +90,9 @@ const nopic = { id: 77, name: 'Fan Band', picture_big: 'https://cdn-images.dzcdn
 const DEEZER = {
   '/genre': { data: [{ id: 0, name: 'All' }, { id: 132, name: 'Pop' }, { id: 152, name: 'Rock' }, { id: 116, name: 'Rap/Hip Hop' }, { id: 85, name: 'Alternative' }] },
   '/track/7001': { ...ROACH_TRACKS[0], release_date: '2010-07-17' },
+  // A "rock anthems" playlist: Guns N' Roses are rock (1987), Bon Jovi are filed under pop here.
+  '/artist/41/albums': { data: [{ id: 210, title: 'Appetite for Destruction', record_type: 'album', genre_id: 152, release_date: '1987-07-21' }] },
+  '/artist/42/albums': { data: [{ id: 211, title: 'Slippery When Wet', record_type: 'album', genre_id: 132, release_date: '1986-08-18' }] },
   '/artist/7200/albums': {
     data: [
       roachAlbum(7300, 'Infest', '2000-04-25', 'album', 152),
@@ -121,6 +127,7 @@ const DEEZER = {
       return { data: [track(51, 'On the Loose Tonight', artist(5100, 'Party Crew'), 5101), track(52, 'On the Loose', artist(5200, 'Niall Horan'), 5201), track(53, 'On the Loose', saga, 5301)] };
     }
     if (q === 'track:"Last Resort" artist:"Papa Roach"') return { data: ROACH_TRACKS };
+    if (q === `track:"Sweet Child O' Mine" artist:"Guns N' Roses"`) return { data: [track(201, "Sweet Child O' Mine", artist(41, "Guns N' Roses", false), 210)] };
     if (q === `track:"${HURRICANE}" artist:"Scorpions"`) {
       return { data: [onScorpionsAlbum(8001, 8100, 'Comeblack'), onScorpionsAlbum(8002, 8101, 'Love At First Sting (50th Anniversary Deluxe Edition)')] };
     }
@@ -543,6 +550,22 @@ test('who sings it: well-known songs, one per artist, each with a clip and belie
   assert.deepEqual(again.map((s) => s.decoys.song), again.map(() => []), 'name-the-artist games skip the extra lookups');
   const other = await m.quizSongs({ count: 8, ask: 'artist', seed: 'another party' });
   assert.notDeepEqual(other.map((s) => s.title), again.map((s) => s.title), 'every game gets its own songs');
+});
+
+test('who sings it: with a theme, only songs that really fit it (genre and decade)', async () => {
+  const m = music();
+  const eighties = await m.quizSongs({ theme: { genre: 'Rock', decade: '80s' }, count: 4, seed: 'rock' });
+  assert.deepEqual(eighties.map((s) => s.title), ["Sweet Child O' Mine"], 'Bon Jovi is filed under pop here, so it stays out');
+  assert.equal(eighties[0].year, 1987, 'the year it first came out, on their own album');
+  const noughties = await m.quizSongs({ theme: { genre: 'Rock', decade: '2000s' }, count: 4, seed: 'rock' });
+  assert.deepEqual(noughties, [], 'a 1987 song is not 2000s rock');
+  const rock = await m.quizSongs({ theme: { genre: 'Rock' }, count: 4, seed: 'rock' });
+  const titles = rock.map((s) => s.title);
+  assert.equal(titles.length, 4);
+  assert.equal(titles[0], "Sweet Child O' Mine", 'songs known to fit go first');
+  assert.ok(!titles.includes("Livin' on a Prayer"));
+  assert.ok(titles.slice(1).every((t) => t.startsWith('Rock Chart')), 'then ones it could not check, from the rock chart');
+  assert.ok(rock.every((s) => !s.decoys.artist.includes('Bon Jovi')), 'and no wrong choices that clearly are not rock');
 });
 
 test('quiz suggestions: artists or songs as you type, and the built-in list when Deezer is down', async () => {

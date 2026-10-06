@@ -111,6 +111,8 @@ export function QuizRules() {
 export function QuizLobby() {
   const { view, act, code } = useGame();
   const host = view.players.find((p) => p.host);
+  const theme = view.settings.theme;
+  const picking = theme ? `Picking ${themeTitle(theme)} songs` : 'Picking the songs';
   const start = () => {
     sfx.whoosh();
     act({ type: 'start' });
@@ -133,12 +135,12 @@ export function QuizLobby() {
       ${view.me.host
         ? html`<div>
             <button class="btn btn-gold btn-block btn-xl" disabled=${view.loading} onClick=${start}>
-              ${view.loading ? html`<span class="spinner small" /> Picking the songs…` : '🎤 Start the quiz'}
+              ${view.loading ? html`<span class="spinner small" /> ${picking}…` : '🎤 Start the quiz'}
             </button>
             <p class="dock-note">${view.players.length < 2 ? 'Tip: wait for a few people. Late arrivals can still join.' : 'People who join later can still play.'}</p>
           </div>`
         : html`<div class="card center" style=${{ padding: '16px' }}>
-            <strong class="dots">${view.loading ? '🎵 Picking the songs' : `Waiting for ${host ? host.name : 'the host'} to start`}</strong>
+            <strong class="dots">${view.loading ? `🎵 ${picking}` : `Waiting for ${host ? host.name : 'the host'} to start`}</strong>
           </div>`}
     </div>
   </div>`;
