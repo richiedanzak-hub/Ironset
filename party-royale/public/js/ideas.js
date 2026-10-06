@@ -160,6 +160,11 @@ export function IdeasSheet({ open, onClose, kind, clean: houseClean, theme, mine
 
   const locked = { genre: !!theme?.genre, decade: !!theme?.decade, vibe: !!theme?.vibe };
   const filterCount = (genre ? 1 : 0) + (decade ? 1 : 0) + (vibe ? 1 : 0);
+  // With the filters open, the bottom button closes them (not the whole sheet).
+  const closePanel = () => {
+    setPanel(false);
+    body.current?.scrollTo?.({ top: 0 });
+  };
   const clearFilters = () => {
     setGenre(null);
     setDecade(null);
@@ -228,8 +233,6 @@ export function IdeasSheet({ open, onClose, kind, clean: houseClean, theme, mine
             </div>
             <div class="row" style=${{ marginTop: '14px' }}>
               <button class="btn btn-quiet btn-sm" onClick=${clearFilters}>${theme ? 'Clear mine' : 'Clear all'}</button>
-              <div class="spacer" />
-              <button class="btn btn-white btn-sm" onClick=${() => setPanel(false)}>Show ${noun(kind, 2)}</button>
             </div>
           </div>`
         : null}
@@ -262,7 +265,9 @@ export function IdeasSheet({ open, onClose, kind, clean: houseClean, theme, mine
     <div class="ideas-foot">
       <strong>🎩 ${countText}</strong>
       <div class="spacer" />
-      <button class="btn btn-hot" onClick=${onClose}>Done</button>
+      ${panel
+        ? html`<button class="btn btn-white" onClick=${closePanel}>Show ${noun(kind, 2)}</button>`
+        : html`<button class="btn btn-hot" onClick=${onClose}>Done</button>`}
     </div>
   </${Sheet}>`;
 }

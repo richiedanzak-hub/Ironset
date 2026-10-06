@@ -138,6 +138,11 @@ export function MovieIdeasSheet({ open, onClose, theme, mine, full, onAdd, onRem
   }, [open, items.length > 0]);
 
   const filterCount = genres.length + (era ? 1 : 0) + providers.length;
+  // With the filters open, the bottom button closes them (not the whole sheet).
+  const closePanel = () => {
+    setPanel(false);
+    body.current?.scrollTo?.({ top: 0 });
+  };
   const clearFilters = () => {
     setGenres([]);
     setEra(null);
@@ -208,8 +213,6 @@ export function MovieIdeasSheet({ open, onClose, theme, mine, full, onAdd, onRem
               : null}
             <div class="row" style=${{ marginTop: '14px' }}>
               <button class="btn btn-quiet btn-sm" onClick=${clearFilters}>${theme ? 'Clear mine' : 'Clear all'}</button>
-              <div class="spacer" />
-              <button class="btn btn-white btn-sm" onClick=${() => setPanel(false)}>Show movies</button>
             </div>
           </div>`
         : null}
@@ -236,7 +239,9 @@ export function MovieIdeasSheet({ open, onClose, theme, mine, full, onAdd, onRem
     <div class="ideas-foot">
       <strong>🎩 ${countText}</strong>
       <div class="spacer" />
-      <button class="btn btn-hot" onClick=${onClose}>Done</button>
+      ${panel
+        ? html`<button class="btn btn-white" onClick=${closePanel}>Show movies</button>`
+        : html`<button class="btn btn-hot" onClick=${onClose}>Done</button>`}
     </div>
   </${Sheet}>`;
 }
