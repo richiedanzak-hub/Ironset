@@ -6,7 +6,7 @@
 // can't be reached; a built-in list of classics is the last resort.
 
 import { SONG_CATALOG, ALBUM_CATALOG, ARTIST_CATALOG, CATALOG_GENRES } from './music-catalog.js';
-import { DECADES, KINDS, itemKey, songKey } from './game.js';
+import { DECADES, KINDS, itemKey, plainTitle, songKey } from './game.js';
 
 export { DECADES, KINDS };
 
@@ -340,6 +340,8 @@ export function createMusic({
     explicit: !!t.explicit_lyrics,
     duration: t.duration || null,
     genres: [],
+    rank: t.rank || 0,
+    artistId: t.artist?.id || null,
   });
 
   const fromAlbum = (a, artist = a.artist) => ({
@@ -1105,6 +1107,135 @@ export function createMusic({
     return out;
   }
 
+  // ---------------------------------------------------------------- Who Sings It?
+  //
+  // Songs for the quiz: well-known ones that fit the theme, one per artist,
+  // each with a preview that plays. The wrong choices sound right: other
+  // artists from the same lists (the same kind of music, from around the same
+  // time), and other songs by the same artist.
+
+  const NOT_QUIZ = /\b(karaoke|instrumental|remix(ed)?|live|acoustic|cover|tribute|lullaby|8-bit|sped up|slowed|medley|mashup)\b/i;
+  const NOT_QUIZ_ARTIST = /\b(karaoke|tribute|hit crew|cover band|lullaby|twinkle|kidz bop|various artists|workout|party crew|countdown singers)\b/i;
+  const quizable = (m) => m.title && m.artist && !NOT_QUIZ.test(m.title) && !NOT_QUIZ_ARTIST.test(m.artist);
+  // "Queen" and "Queen & David Bowie" are too close to tell apart.
+  const sameArtist = (a, b) => {
+    const [x, y] = [itemKey(a), itemKey(b)];
+    return x === y || (x.length > 3 && y.includes(x)) || (y.length > 3 && x.includes(y));
+  };
+
+  // A quiz clip has to be the song itself, never a lookalike, so unlike
+  // preview() there's no loose search: same title and same artist, or nothing.
+  async function quizClip({ deezerId, title, artist }) {
+    const same = (t, a) => songKey(t) === songKey(title) && sameArtist(a || '', artist);
+    try {
+      if (deezerId) {
+        const t = await deezer(`/track/${deezerId}`, {}, 10 * MIN);
+        if (t.preview) return t.preview;
+      }
+      const hits = (await deezer('/search/track', { q: `track:"${title}" artist:"${artist}"`, limit: 10 }, HOUR)).data || [];
+      const hit = hits.find((t) => t.preview && same(t.title_short || t.title, t.artist?.name));
+      if (hit) return hit.preview;
+    } catch (err) {
+      warnOnce('Deezer previews', err);
+    }
+    try {
+      const hit = (await itunes('song', `${title} ${artist}`, 10)).find((m) => m.previewUrl && same(m.title, m.artist));
+      if (hit) return hit.previewUrl;
+    } catch (err) {
+      warnOnce('iTunes previews', err);
+    }
+    return null;
+  }
+
+  async function quizSongs({ theme = null, clean = false, count = 10, ask = 'artist', seed = '' } = {}) {
+    const rand = seeded(`quiz|${seed}`);
+    const filters = { kind: 'song', genre: theme?.genre || '', decade: theme?.decade || '', vibe: theme?.vibe || '', clean, seed: `quiz${seed}` };
+    // With no decade: today's hits and the all-time classics, so everyone at
+    // the party knows a few.
+    const lists = theme?.decade && theme.decade !== '2020s' ? ['classics', 'top'] : ['top', 'classics'];
+    const pool = [];
+    const seen = new Set();
+    for (let page = 1; page <= 4 && pool.length < count * 3; page++) {
+      const found = await Promise.all(lists.map((list) => browse({ ...filters, list, page })));
+      for (const m of found.flatMap((r) => r.results)) {
+        const k = sameKey(m);
+        if (!quizable(m) || seen.has(k)) continue;
+        seen.add(k);
+        pool.push({ ...m, title: plainTitle(m.title) || m.title });
+      }
+      if (found.every((r) => !r.more)) break;
+    }
+
+    // One song per artist, the best-known ones, mixed up.
+    const byArtist = [];
+    for (const m of [...pool].sort((a, b) => (b.rank || 0) - (a.rank || 0))) {
+      if (!byArtist.some((x) => sameArtist(x.artist, m.artist))) byArtist.push(m);
+    }
+    const picks = shuffle(byArtist.slice(0, Math.max(count * 2, 16)), rand);
+
+    // Only songs whose preview plays.
+    const chosen = [];
+    for (let at = 0; chosen.length < count && at < picks.length; ) {
+      const batch = picks.slice(at, at + count - chosen.length + 2);
+      at += batch.length;
+      const ok = await Promise.all(batch.map((m) => quizClip(m).then(Boolean, () => false)));
+      batch.forEach((m, i) => ok[i] && chosen.length < count && chosen.push(m));
+    }
+
+    // Wrong choices should be names people know too, or they give the answer away.
+    const famous = byArtist.slice(0, 40);
+    const near = (a, b) => !a.year || !b.year || Math.abs(a.year - b.year) <= 10;
+    function artistDecoys(m) {
+      const others = famous.filter((x) => !sameArtist(x.artist, m.artist));
+      const names = [...shuffle(others.filter((x) => near(m, x)), rand), ...shuffle(others.filter((x) => !near(m, x)), rand)].map((x) => x.artist);
+      names.push(...shuffle(byArtist.slice(40), rand).map((x) => x.artist));
+      names.push(...shuffle(SONG_CATALOG, rand).map((r) => r.artist)); // in case the lists ran short
+      const out = [];
+      for (const name of names) {
+        if (!sameArtist(name, m.artist) && !out.some((o) => sameArtist(o, name))) out.push(name);
+        if (out.length === 3) break;
+      }
+      return out;
+    }
+
+    async function songDecoys(m) {
+      let titles = [];
+      try {
+        const id = m.artistId || (await deezer('/search/artist', { q: m.artist, limit: 1 }, 6 * HOUR)).data?.[0]?.id;
+        if (id) {
+          const top = (await deezer(`/artist/${id}/top`, { limit: 25 }, 6 * HOUR)).data || [];
+          titles = shuffle(top.map(fromTrack).filter(quizable).slice(0, 8), rand).map((t) => plainTitle(t.title));
+        }
+      } catch (err) {
+        warnOnce('Deezer top songs', err);
+      }
+      // Other songs by the same artist; if there aren't enough, songs from the lists.
+      const out = [];
+      const keys = new Set([songKey(m.title)]);
+      for (const t of [...titles, ...shuffle(famous, rand).map((x) => x.title)]) {
+        const k = songKey(t);
+        if (!k || keys.has(k)) continue;
+        keys.add(k);
+        out.push(t);
+        if (out.length === 3) break;
+      }
+      return out;
+    }
+
+    return Promise.all(
+      chosen.map(async (m) => ({
+        title: m.title,
+        artist: m.artist,
+        album: m.album,
+        year: m.year,
+        cover: m.cover,
+        deezerId: m.deezerId,
+        genres: m.genres?.length ? m.genres : theme?.genre ? [theme.genre] : [],
+        decoys: { artist: artistDecoys(m), song: ask === 'artist' ? [] : await songDecoys(m) },
+      })),
+    );
+  }
+
   // A quick live check of each source, for /api/music/status.
   function status() {
     return cache.wrap('status', 30_000, async () => {
@@ -1136,5 +1267,5 @@ export function createMusic({
     });
   }
 
-  return { source: 'deezer', search, details, lookup, browse, meta, preview, about, status };
+  return { source: 'deezer', search, details, lookup, browse, meta, preview, about, status, quizSongs, quizClip };
 }

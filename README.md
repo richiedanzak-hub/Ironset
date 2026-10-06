@@ -2,4 +2,4 @@
 
 Also in this repo:
 
-- **[Party Royale](party-royale/)**: a party game for movie nights and music battles. Everyone tosses movies (or songs, albums, artists) in a hat, the group votes head-to-head, and the last one standing is crowned.
+- **[Party Royale](party-royale/)**: party games for everyone's phones. Movie nights and music battles (everyone tosses picks in a hat, the group votes head-to-head, and the last one standing is crowned), plus **Who sings it?**, a music quiz with a double-or-nothing finale.

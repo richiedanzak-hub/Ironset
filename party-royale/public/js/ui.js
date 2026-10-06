@@ -268,6 +268,38 @@ export function playAll(items) {
   start(items[0], 15);
 }
 
+// Who Sings It?: play a clip the game already has a link for. Returns false
+// if the phone wouldn't play it (it needs a tap first).
+export async function playClip(url, key) {
+  if (!player || !url) return false;
+  stopPreview();
+  playing = { key, state: 'loading' };
+  emitPreview();
+  try {
+    player.src = url;
+    await player.play();
+    if (playing?.key !== key) return false;
+    playing = { key, state: 'playing' };
+    emitPreview();
+    return true;
+  } catch {
+    if (playing?.key === key) stopPreview();
+    return false;
+  }
+}
+
+// iPhones only play sound in response to a tap, but once the player has
+// played something it can play again later on its own. So the first tap
+// anywhere plays a moment of silence, and the quiz can start each song on cue.
+let unlocked = false;
+export function unlockAudio() {
+  if (!player || unlocked || playing) return;
+  unlocked = true;
+  player.src = SILENT;
+  player.play().catch(() => (unlocked = false));
+}
+if (typeof document !== 'undefined') document.addEventListener('pointerdown', unlockAudio, true);
+
 export function usePreview() {
   const [state, setState] = useState(playing);
   useEffect(() => {

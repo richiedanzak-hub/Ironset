@@ -7,6 +7,7 @@ import { Lobby, RulesCard, ShareBody } from './lobby.js';
 import { Submit } from './submit.js';
 import { Battle } from './battle.js';
 import { Final } from './final.js';
+import { QuizFinal, QuizGame, QuizLobby, QuizRules } from './quiz.js';
 import { Past } from './past.js';
 import { sfx } from './sfx.js';
 
@@ -50,7 +51,7 @@ function CrewSheet({ open, onClose }) {
         <${Avatar} p=${p} size=${44} off=${!p.online} crown=${p.host} />
         <div class="grow">
           <strong>${p.name}${p.id === view.me.id ? ' (you)' : ''}</strong>
-          <span>${[p.host && 'Host', p.online ? 'Here' : 'Away', view.phase === 'submit' && `${p.count} in the hat`].filter(Boolean).join(' · ')}</span>
+          <span>${[p.host && 'Host', p.online ? 'Here' : 'Away', view.phase === 'submit' && `${p.count} in the hat`, view.quiz && `${(view.quiz.scores.find((r) => r.id === p.id)?.points || 0).toLocaleString()} points`].filter(Boolean).join(' · ')}</span>
         </div>
         ${host && p.id !== view.me.id
           ? html`<button class="btn btn-quiet btn-sm" onClick=${() => promote(p)}>👑</button>
@@ -64,9 +65,10 @@ function CrewSheet({ open, onClose }) {
 function MenuSheet({ open, onClose, show, leave, go }) {
   const { view, act } = useGame();
   const [muted, setMuted] = useState(sfx.muted);
-  const canRules = view.me.host && (view.phase === 'lobby' || view.phase === 'submit');
+  const quiz = view.game === 'quiz';
+  const canRules = view.me.host && (view.phase === 'lobby' || (!quiz && view.phase === 'submit'));
   const restart = () => {
-    if (confirm('Start over? Everyone goes back to the lobby and the hat is emptied.')) {
+    if (confirm(quiz ? 'Start over? Everyone goes back to the lobby and the scores are wiped.' : 'Start over? Everyone goes back to the lobby and the hat is emptied.')) {
       onClose();
       act({ type: 'again' });
     }
@@ -164,14 +166,15 @@ function Party({ code, go }) {
   if (!view) return html`<main class="app no-dock"><${Loading} text=${status === 'reconnecting' ? 'Reconnecting' : 'Joining the party'} /></main>`;
 
   const ctx = { view, act, code, sess, offset, status };
-  const Screen = { lobby: Lobby, submit: Submit, battle: Battle, final: Final }[view.phase];
+  const quiz = view.game === 'quiz';
+  const Screen = quiz ? { lobby: QuizLobby, quiz: QuizGame, final: QuizFinal }[view.phase] : { lobby: Lobby, submit: Submit, battle: Battle, final: Final }[view.phase];
   return html`<${GameCtx.Provider} value=${ctx}>
     <main class="app">
       <${TopBar} open=${setSheet} />
       <${Screen} />
     </main>
     <${Sheet} open=${sheet === 'share'} onClose=${() => setSheet(null)} title="Invite the crew"><${ShareBody} code=${code} /></${Sheet}>
-    <${Sheet} open=${sheet === 'rules'} onClose=${() => setSheet(null)} title="House rules"><${RulesCard} /></${Sheet}>
+    <${Sheet} open=${sheet === 'rules'} onClose=${() => setSheet(null)} title=${quiz ? 'Quiz rules' : 'House rules'}>${quiz ? html`<${QuizRules} />` : html`<${RulesCard} />`}</${Sheet}>
     <${CrewSheet} open=${sheet === 'crew'} onClose=${() => setSheet(null)} />
     <${MenuSheet} open=${sheet === 'menu'} onClose=${() => setSheet(null)} show=${setSheet} leave=${leave} go=${go} />
   </${GameCtx.Provider}>`;

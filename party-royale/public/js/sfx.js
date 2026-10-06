@@ -67,6 +67,14 @@ export const sfx = {
   coin() {
     for (let i = 0; i < 14; i++) tone(1400 + (i % 2) * 300, 0.03, { type: 'square', gain: 0.02, at: i * 0.13 });
   },
+  right() {
+    [659, 880, 1175].forEach((f, i) => tone(f, 0.16, { at: i * 0.08, gain: 0.06 }));
+    buzz([15, 30, 15]);
+  },
+  wrong() {
+    tone(220, 0.32, { type: 'sawtooth', gain: 0.035, slide: 0.7 });
+    buzz(80);
+  },
   fanfare() {
     [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i === 5 ? 0.6 : 0.2, { type: 'square', gain: 0.045, at: i * 0.13 }));
     buzz([40, 60, 40, 60, 120]);

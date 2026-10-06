@@ -121,7 +121,7 @@ function WatchCard({ movie, onDetails }) {
 
 // ------------------------------------------------------------ podium, picks, road
 
-function Podium({ pickers, meId, title = '🏆 Best taste', tag = 'points = matchups your picks won', icon = '⭐' }) {
+export function Podium({ pickers, meId, title = '🏆 Best taste', tag = 'points = matchups your picks won', icon = '⭐' }) {
   const top = pickers.slice(0, 3);
   const at = places(pickers, (p) => p.points);
   const spots = [

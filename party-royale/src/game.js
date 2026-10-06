@@ -1,5 +1,9 @@
 // Party Royale game engine: movies, songs, albums or artists.
 //
+// There are two games. This file is the battle (and everything both games
+// share: players, hosts, presence). Who Sings It?, the music quiz, has its
+// own rules in quiz.js; a room's `game` says which one it plays.
+//
 // A room is a plain object. Everything in here is synchronous and depends only
 // on the arguments (`now` for time, `rng` for randomness), so the rules can be
 // tested without a server. The server owns sockets, timers and persistence and
@@ -14,12 +18,11 @@
 //           classic  king of the hill: the winner stays on and faces the next
 //                    pick drawn from the hat. With the champions round on,
 //                    every pick that won a matchup then goes again.
-//           Each matchup can open with a "who sings it?" quiz (music), and in
-//           the points game players also guess who picked each pick.
+//           In the points game, players also guess who picked each pick.
 //   final   the last pick standing is crowned, and the points are counted
 
 import { randomBytes } from 'node:crypto';
-import { SONG_CATALOG } from './music-catalog.js';
+import { QUIZ_DEFAULTS, cleanQuizSettings, forgetPlayer, quizAct, quizDone, quizView, settleQuiz, startQuiz } from './quiz.js';
 
 export const LIMITS = { players: 30, entries: 400, name: 20, title: 150 };
 export const PRESENCE_GRACE_MS = 15_000;   // a dropped phone counts as "here" this long
@@ -39,13 +42,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   champions: false,    // classic only: every pick that won a matchup battles again at the end
   format: 'bracket',   // 'bracket' (pair off, winners move on) | 'classic' (king of the hill)
   scoring: true,       // points game: guess who picked what, and score when your picks win
-  quiz: true,          // songs and albums: "who sings it?" before each pick is revealed
 });
 
 // The points game.
 export const POINTS = {
   guess: 1,    // guessed who picked it
-  quiz: 1,     // named the artist
   win: 2,      // your pick won a matchup
   champ: 3,    // your pick is the champion
 };
@@ -59,7 +60,6 @@ export const VIBES = ['party', 'singalong', 'feelgood', 'chill', 'workout', 'roa
 const REVEAL = ['hidden', 'reveal', 'open'];
 const TIES = ['coin', 'champ', 'keep'];
 const FORMATS = ['bracket', 'classic'];
-const QUIZ_KINDS = ['song', 'album'];
 export const MAX_FIGHTERS = 4;      // a 'keep' tie can grow a matchup up to a 4-way
 const COLORS = ['#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#fb923c', '#f87171', '#22d3ee', '#c084fc', '#a3e635'];
 // Album covers from Deezer, movie posters from TMDB, either from Apple.
@@ -102,14 +102,18 @@ export function itemKey(text) {
     .replace(/[^a-z0-9]+/g, '');
 }
 
-// "Bohemian Rhapsody - Remastered 2011" and "Bohemian Rhapsody (Live)" are the
-// same song for this game.
+// "Bohemian Rhapsody - Remastered 2011" and "Bohemian Rhapsody (Live)" are
+// both just "Bohemian Rhapsody".
+export function plainTitle(title) {
+  return String(title || '')
+    .replace(/\s*[([](feat\.?|ft\.?|with|remaster|remix|live|acoustic|radio edit|single|album|explicit|clean|mono|stereo|deluxe|bonus|original|\d{4})[^)\]]*[)\]]/gi, '')
+    .replace(/\s+-\s+.*\b(remaster(ed)?|live|version|edit|mix|mono|stereo|deluxe)\b.*$/i, '')
+    .trim();
+}
+
+// ...and the same song for this game.
 export function songKey(title) {
-  return itemKey(
-    String(title || '')
-      .replace(/\s*[([](feat\.?|ft\.?|with|remaster|remix|live|acoustic|radio edit|single|album|explicit|clean|mono|stereo|deluxe|bonus|original|\d{4})[^)\]]*[)\]]/gi, '')
-      .replace(/\s+-\s+.*\b(remaster(ed)?|live|version|edit|mix|mono|stereo|deluxe)\b.*$/i, ''),
-  );
+  return itemKey(plainTitle(title));
 }
 
 export function cleanItem(input) {
@@ -178,7 +182,6 @@ export function cleanSettings(current, patch) {
   if (typeof p.themeStrict === 'boolean') next.themeStrict = p.themeStrict;
   if (FORMATS.includes(p.format)) next.format = p.format;
   if (typeof p.scoring === 'boolean') next.scoring = p.scoring;
-  if (typeof p.quiz === 'boolean') next.quiz = p.quiz;
   return next;
 }
 
@@ -239,15 +242,18 @@ function findDuplicate(room, item, exceptId) {
 
 // ---------------------------------------------------------------- rooms & players
 
-// `init` can set the opening rules, e.g. { kind: 'movie' } for a movie night.
+// `init` can set the opening rules, e.g. { kind: 'movie' } for a movie night,
+// or { game: 'quiz' } for Who Sings It?
 export function createRoom(code, now, init = {}) {
+  const quiz = init?.game === 'quiz';
   return {
     code,
+    game: quiz ? 'quiz' : 'battle',
     createdAt: now,
     updatedAt: now,
     v: 0,
     hostId: null,
-    settings: cleanSettings(DEFAULT_SETTINGS, init),
+    settings: quiz ? cleanQuizSettings(QUIZ_DEFAULTS, init) : cleanSettings(DEFAULT_SETTINGS, init),
     players: {},
     order: [],
     alumni: {},      // players who left, so their picks can still be credited
@@ -256,6 +262,8 @@ export function createRoom(code, now, init = {}) {
     phase: 'lobby',
     submit: null,
     battle: null,
+    quiz: null,      // Who Sings It?
+    loading: false,  // Who Sings It?: the server is finding the songs
     final: null,
   };
 }
@@ -335,8 +343,8 @@ function removePlayer(room, pid, now, rng) {
   if (room.battle) {
     delete room.battle.votes[pid];
     delete room.battle.guesses[pid];
-    delete room.battle.answers[pid];
   }
+  forgetPlayer(room, pid);
   if (room.hostId === pid) {
     const next = activePlayers(room)[0] || playerList(room)[0];
     room.hostId = next ? next.id : null;
@@ -357,38 +365,6 @@ function startSubmit(room, now) {
 
 function voteDeadline(room, now) {
   return room.settings.voteSeconds ? now + room.settings.voteSeconds * 1000 : null;
-}
-
-// ---------------------------------------------------------------- quiz: who sings it?
-
-// Four artists to choose from: the right one and three that could pass for
-// it (from the built-in list, from around the same time when we know it).
-function quizOptions(entry, rng) {
-  const answer = entry.artist;
-  const taken = new Set([itemKey(answer)]);
-  const near = (r) => !entry.year || Math.abs(r.year - entry.year) <= 12;
-  const pool = shuffle(SONG_CATALOG.filter(near), rng).concat(shuffle(SONG_CATALOG, rng));
-  const decoys = [];
-  for (const r of pool) {
-    const k = itemKey(r.artist);
-    if (taken.has(k)) continue;
-    taken.add(k);
-    decoys.push(r.artist);
-    if (decoys.length === 3) break;
-  }
-  return shuffle([answer, ...decoys], rng);
-}
-
-function buildQuiz(room, ids, rng) {
-  const s = room.settings;
-  if (!s.quiz || !QUIZ_KINDS.includes(s.kind)) return {};
-  const out = {};
-  // Only picks with a preview to play (and an artist to name) make it in.
-  for (const id of ids) {
-    const e = room.entries[id];
-    if (e?.artist && e.deezerId) out[id] = quizOptions(e, rng);
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------- bracket
@@ -445,14 +421,10 @@ function nextBracketPair(br) {
 
 const isFresh = (b, id) => !b.seen.includes(id);
 const owns = (room, pid, id) => !!room.entries[id]?.by.includes(pid);
-const quizTargets = (room) => (room.battle.stage === 'quiz' ? room.battle.fighters.filter((id) => isFresh(room.battle, id) && room.battle.quiz[id]) : []);
 
 // What a player still has to do before the matchup can move on.
 function todo(room, pid) {
   const b = room.battle;
-  if (b.stage === 'quiz') {
-    return quizTargets(room).filter((id) => !owns(room, pid, id) && !b.answers[pid]?.[id]).length;
-  }
   if (b.stage !== 'voting') return 0;
   let left = b.votes[pid] ? 0 : 1;
   if (room.settings.scoring) {
@@ -467,37 +439,19 @@ function beginMatchup(room, fighters, now) {
   b.fighters = fighters;
   b.votes = {};
   b.guesses = {};
-  b.answers = {};
   b.result = null;
-  b.quizResult = null;
-  b.stage = 'quiz';
-  if (!quizTargets(room).length) b.stage = 'voting';
+  b.stage = 'voting';
   b.endsAt = voteDeadline(room, now);
 }
 
 const addPoints = (b, pid, kind, n, scored) => {
-  const p = (b.points[pid] ||= { guess: 0, quiz: 0, win: 0, champ: 0 });
+  const p = (b.points[pid] ||= { guess: 0, win: 0, champ: 0 });
   p[kind] += n;
   if (scored) {
-    const s = (scored[pid] ||= { guess: 0, quiz: 0, win: 0, champ: 0 });
+    const s = (scored[pid] ||= { guess: 0, win: 0, champ: 0 });
     s[kind] += n;
   }
 };
-
-// The quiz is over: reveal the artists and score the right answers.
-function endQuiz(room, now) {
-  const b = room.battle;
-  const result = {};
-  for (const id of quizTargets(room)) {
-    const answer = room.entries[id].artist;
-    const right = Object.keys(b.answers).filter((pid) => b.answers[pid][id] === answer);
-    for (const pid of right) addPoints(b, pid, 'quiz', POINTS.quiz);
-    result[id] = { answer, right, answers: Object.fromEntries(Object.entries(b.answers).map(([pid, a]) => [pid, a[id]]).filter(([, a]) => a)) };
-  }
-  b.quizResult = result;
-  b.stage = 'voting';
-  b.endsAt = voteDeadline(room, now);
-}
 
 function startBattle(room, now, rng) {
   const s = room.settings;
@@ -519,19 +473,16 @@ function startBattle(room, now, rng) {
     fighters: [],
     champ: null,           // classic: reigning champion, if one is in this matchup
     challenger: null,      // classic: the pick drawn most recently
-    stage: 'voting',       // 'quiz' -> 'voting' -> 'result'
+    stage: 'voting',       // 'voting' -> 'result'
     votes: {},
     guesses: {},           // pid -> { entryId: who they think picked it }
-    answers: {},           // pid -> { entryId: artist they named }
     endsAt: null,
     result: null,
-    quizResult: null,
     history: [],
     wins: {},
     champions: null,       // classic: { from: round, ids } once the champions round starts
     bracket: s.format === 'bracket' ? seedBracket(order) : null,
-    quiz: buildQuiz(room, order, rng),
-    points: {},            // pid -> { guess, quiz, win, champ }
+    points: {},            // pid -> { guess, win, champ }
     seen: [],              // picks that have been in a matchup (and so were revealed)
     startedAt: now,
   });
@@ -666,8 +617,9 @@ function nextMatchup(room, now, rng) {
   }
 }
 
-// Automatic transitions: everyone done, everyone answered or voted, timers.
+// Automatic transitions: everyone done adding, everyone voted, timers.
 function settle(room, now, rng) {
+  if (room.game === 'quiz') return settleQuiz(room, now, rng);
   let changed = false;
   if (room.phase === 'submit') {
     const count = entryCount(room);
@@ -682,17 +634,12 @@ function settle(room, now, rng) {
       changed = true;
     }
   }
-  if (room.phase === 'battle' && (room.battle.stage === 'quiz' || room.battle.stage === 'voting')) {
+  if (room.phase === 'battle' && room.battle.stage === 'voting') {
     const b = room.battle;
     const active = activePlayers(room);
     const allDone = active.length > 0 && active.every((p) => todo(room, p.id) === 0);
     if ((b.endsAt && now >= b.endsAt) || allDone) {
-      if (b.stage === 'quiz') {
-        endQuiz(room, now);
-        settle(room, now, rng); // maybe nobody has anything to do in the vote either
-      } else {
-        closeVoting(room, now, rng);
-      }
+      closeVoting(room, now, rng);
       changed = true;
     }
   }
@@ -725,15 +672,26 @@ export function tick(room, now, rng = Math.random) {
 
 // ---------------------------------------------------------------- actions
 
+const SHARED_MOVES = new Set(['profile', 'kick', 'makeHost', 'leave']);
+
 export function act(room, pid, action, now, rng = Math.random) {
   const me = room.players[pid];
   if (!me) throw new GameError('You are not in this party', 403);
   const type = action?.type;
   let out = {};
 
+  // Who Sings It? has its own moves; the shared ones (names, hosts, leaving) are below.
+  if (room.game === 'quiz' && !SHARED_MOVES.has(type)) {
+    out = quizAct(room, pid, action, now, rng);
+    settle(room, now, rng);
+    bump(room, now);
+    return out;
+  }
+
   switch (type) {
     case 'profile': {
-      requirePhase(room, 'lobby', 'submit');
+      if (room.game === 'quiz') requirePhase(room, 'lobby');
+      else requirePhase(room, 'lobby', 'submit');
       const name = cleanText(action.name, LIMITS.name) || me.name;
       const clash = playerList(room).find((p) => p.id !== pid && p.name.toLowerCase() === name.toLowerCase());
       if (clash) throw new GameError('Someone already has that name');
@@ -839,18 +797,6 @@ export function act(room, pid, action, now, rng = Math.random) {
       break;
     }
 
-    case 'quiz': {
-      // Who sings it? One of the four artists for a mystery pick.
-      requirePhase(room, 'battle');
-      const b = room.battle;
-      if (b.stage !== 'quiz' || action.round !== b.round) throw new GameError('Answers for that one are closed', 409);
-      if (!quizTargets(room).includes(action.entryId)) throw new GameError('That one is not a mystery');
-      if (owns(room, pid, action.entryId)) throw new GameError("That's your pick, no peeking 🤫");
-      if (!b.quiz[action.entryId].includes(action.answer)) throw new GameError('Pick one of the four answers');
-      (b.answers[pid] ||= {})[action.entryId] = action.answer;
-      break;
-    }
-
     case 'guess': {
       // Points game: who picked this one?
       requirePhase(room, 'battle');
@@ -861,15 +807,6 @@ export function act(room, pid, action, now, rng = Math.random) {
       if (owns(room, pid, action.entryId)) throw new GameError("That's your pick 🤫");
       if (!room.players[action.playerId] || action.playerId === pid) throw new GameError('Pick someone else in the party');
       (b.guesses[pid] ||= {})[action.entryId] = action.playerId;
-      break;
-    }
-
-    case 'reveal': {
-      // Host: end the quiz now, without waiting on stragglers.
-      requireHost(room, pid);
-      requirePhase(room, 'battle');
-      const b = room.battle;
-      if (b.stage === 'quiz' && action.round === b.round) endQuiz(room, now);
       break;
     }
 
@@ -939,6 +876,33 @@ export function act(room, pid, action, now, rng = Math.random) {
   return out;
 }
 
+// Who Sings It? starts in two steps, because the server has to find the
+// songs in between: the host asks (everyone sees "picking the songs…"), then
+// the songs arrive and the first one plays. `songs` never comes from a phone.
+export function prepareQuiz(room, pid, now) {
+  if (room.game !== 'quiz') throw new GameError('This party is a battle', 409);
+  requireHost(room, pid);
+  requirePhase(room, 'lobby', 'final');
+  if (room.loading) throw new GameError('Already picking the songs 🎵', 409);
+  room.loading = true;
+  bump(room, now);
+  return room.settings;
+}
+
+export function playQuiz(room, songs, now, rng = Math.random) {
+  try {
+    startQuiz(room, songs, now, rng);
+  } finally {
+    room.loading = false;
+    bump(room, now);
+  }
+}
+
+export function cancelQuiz(room, now) {
+  room.loading = false;
+  bump(room, now);
+}
+
 // Fill in cover/artist/etc. for something typed in by hand, or with
 // `replace`, switch a pick to its original release (album, cover, year). If
 // the details reveal it's a pick someone else already added, the two merge.
@@ -994,26 +958,14 @@ function entryView(room, e, pid, showBy) {
   };
 }
 
-// A pick still under wraps for "who sings it?": no title, artist or cover,
-// just enough to play its preview when it's up.
-function mysteryView(room, e, pid, playable) {
-  return {
-    id: e.id, kind: e.kind, mystery: true,
-    title: null, artist: null, album: null, cover: null, year: null, genres: [], explicit: false,
-    deezerId: playable ? e.deezerId : null,
-    mine: e.by.includes(pid),
-    by: null,
-  };
-}
-
 // The points game standings: everyone who played, most points first.
 function scoreboard(room) {
   const b = room.battle;
   const ids = new Set([...room.order, ...Object.keys(b.points)]);
   return [...ids]
     .map((id) => {
-      const p = b.points[id] || { guess: 0, quiz: 0, win: 0, champ: 0 };
-      return { ...personView(room, id), ...p, total: p.guess + p.quiz + p.win + p.champ };
+      const p = b.points[id] || { guess: 0, win: 0, champ: 0 };
+      return { ...personView(room, id), ...p, total: p.guess + p.win + p.champ };
     })
     .filter((r) => r.id)
     .sort((x, y) => y.total - x.total || y.win + y.champ - (x.win + x.champ));
@@ -1044,8 +996,10 @@ export function viewFor(room, pid, now) {
   const counts = {};
   for (const e of entryList(room)) for (const id of e.by) counts[id] = (counts[id] || 0) + 1;
 
+  const quiz = room.game === 'quiz';
   const view = {
     code: room.code,
+    game: room.game,
     v: room.v,
     now,
     phase: room.phase,
@@ -1061,8 +1015,9 @@ export function viewFor(room, pid, now) {
       host: p.id === room.hostId,
       count: counts[p.id] || 0,
       ready: room.phase === 'submit' ? p.ready : false,
-      // Done with this matchup: voted (and guessed), or answered the quiz.
-      voted: room.phase === 'battle' && (b.stage === 'voting' || b.stage === 'quiz') ? todo(room, p.id) === 0 : false,
+      // Done with this matchup: voted (and guessed, in the points game).
+      // In the quiz: answered this song, or placed a bet.
+      voted: quiz ? quizDone(room, p.id) : room.phase === 'battle' && b.stage === 'voting' ? todo(room, p.id) === 0 : false,
     })),
     hatCount: entryCount(room),
     mine: picksOf(room, pid)
@@ -1070,24 +1025,24 @@ export function viewFor(room, pid, now) {
       .map((e) => entryView(room, e, pid, false)),
   };
 
+  if (quiz) {
+    view.loading = !!room.loading;
+    view.quiz = quizView(room, pid, now);
+    if (room.phase === 'final') view.final = { at: room.final.at };
+    return view;
+  }
+
   if (room.phase === 'submit') view.submit = { endsAt: room.submit.endsAt, startedAt: room.submit.startedAt };
 
   if (b && (room.phase === 'battle' || room.phase === 'final')) {
     // King of the hill only sends picks already drawn from the hat; a bracket
-    // shows them all (that's the bracket). Songs still waiting for their
-    // "who sings it?" go out as mysteries.
+    // shows them all (that's the bracket).
     const listed = b.bracket || b.champions ? b.order : b.order.slice(0, b.next);
     const decided = new Set(b.history.flatMap((h) => h.fighters));
     // In the points game, pickers are revealed after each matchup (guessing them is the game).
     const reveal = s.scoring ? 'reveal' : s.reveal;
     const showBy = (id) => reveal === 'open' || (reveal === 'reveal' && (room.phase === 'final' || decided.has(id)));
-    const hidden = (id) => room.phase === 'battle' && b.quiz[id] && isFresh(b, id) && !(b.fighters.includes(id) && b.stage !== 'quiz');
-    view.entries = Object.fromEntries(
-      listed.map((id) => [
-        id,
-        hidden(id) ? mysteryView(room, room.entries[id], pid, b.fighters.includes(id)) : entryView(room, room.entries[id], pid, showBy(id)),
-      ]),
-    );
+    view.entries = Object.fromEntries(listed.map((id) => [id, entryView(room, room.entries[id], pid, showBy(id))]));
     const here = activePlayers(room);
     view.battle = {
       format: b.format,
@@ -1102,9 +1057,6 @@ export function viewFor(room, pid, now) {
       bracket: b.bracket,
       // Picks in this matchup for the first time (their pickers are still a secret).
       fresh: b.stage === 'result' ? [] : b.fighters.filter((id) => isFresh(b, id)),
-      quiz: Object.fromEntries((b.stage === 'quiz' ? quizTargets(room) : Object.keys(b.quizResult || {})).map((id) => [id, b.quiz[id]])),
-      quizResult: b.quizResult,
-      myAnswers: b.answers[pid] || {},
       myGuesses: b.guesses[pid] || {},
       myVote: b.votes[pid] || null,
       todo: room.phase === 'battle' ? todo(room, pid) : 0,

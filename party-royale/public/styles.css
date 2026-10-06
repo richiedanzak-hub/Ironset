@@ -1189,6 +1189,7 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .mode-card:active { transform: scale(0.97); }
 .mode-card.movie { background: linear-gradient(140deg, #ff5fa2, #7c4dff); }
 .mode-card.song { background: linear-gradient(140deg, #22d3ee, #6d28d9); box-shadow: 0 14px 30px -14px rgba(34, 211, 238, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.mode-card.quiz { grid-column: 1 / -1; min-height: 0; background: linear-gradient(140deg, #fbbf24, #f472b6 55%, #8b5cf6); box-shadow: 0 14px 30px -14px rgba(251, 191, 36, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
 .mode-card strong { font: 700 1.25rem/1.15 var(--font-display); }
 .mode-card span { font-size: 0.85rem; font-weight: 800; opacity: 0.9; }
 .seg.stacked button { display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.1; }
@@ -1201,33 +1202,11 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .cover-fallback.mystery .cf-title { font-size: 9cqw; }
 @keyframes mysteryGlow { 50% { box-shadow: inset 0 0 0 3px rgba(252, 211, 77, 0.55), 0 0 30px -6px rgba(168, 85, 247, 0.9); } }
 
-/* ---------------------------------------------------------------- bracket, quiz, guesses, scores */
+/* ---------------------------------------------------------------- bracket, guesses, scores */
 
 .battle-tools { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 .battle-tools .chip { padding: 6px 12px; font-size: 0.82rem; }
 
-.quiz-panel { display: flex; flex-direction: column; gap: 12px; }
-.quiz-card { padding: 14px; }
-.quiz-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.quiz-head .cover { width: 52px; flex: none; border-radius: 10px; }
-.quiz-head .cover .play-btn { width: 30px; height: 30px; right: 4px; bottom: 4px; font-size: 0.7rem; }
-.quiz-head strong { font: 700 1.05rem var(--font-display); }
-.quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.quiz-option {
-  padding: 12px 10px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font: 800 0.92rem var(--font-body);
-  line-height: 1.2;
-  cursor: pointer;
-}
-.quiz-option.on { background: var(--grad-hot); border-color: transparent; box-shadow: 0 8px 20px -10px rgba(236, 72, 153, 0.9); }
-.quiz-note { color: var(--muted); font-weight: 800; font-size: 0.9rem; }
-.quiz-reveal { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
-.quiz-reveal-row { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 16px; background: rgba(252, 211, 77, 0.1); border: 1px solid rgba(252, 211, 77, 0.4); font-weight: 700; }
-.quiz-reveal-row .small { color: var(--gold); }
 
 .guess-panel { padding: 14px; }
 .guess-panel h3 { font: 700 1.1rem var(--font-display); margin-bottom: 10px; }
@@ -1259,3 +1238,118 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .bracket-dot { width: 28px; height: 28px; flex: none; border-radius: 6px; border: 1px dashed var(--line-hi); }
 .bracket-now { position: absolute; top: 8px; right: 10px; font-size: 0.72rem; font-weight: 900; color: var(--hot); }
 .bracket-champ { text-align: center; font: 700 1.2rem var(--font-display); color: var(--gold); }
+
+/* ---------------------------------------------------------------- Who Sings It? */
+
+.qz-me { border: 1px solid var(--line); cursor: pointer; font: inherit; font-weight: 900; color: var(--gold); }
+.quiz .duel-title { margin: 10px 0 10px; }
+.qz-stage { position: relative; display: grid; place-items: center; height: 132px; margin: 0 0 12px; }
+.qz-disc {
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle, #f472b6 0 16%, #1a0b45 17% 19%, transparent 20%),
+    repeating-radial-gradient(circle, #151026 0 3px, #241a44 3px 5px);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08), 0 20px 50px -16px rgba(168, 85, 247, 0.9);
+}
+.qz-disc span { font: 700 1.3rem var(--font-display); color: #fff; }
+.qz-disc.spin { animation: qzSpin 2.2s linear infinite; }
+@keyframes qzSpin { to { transform: rotate(360deg); } }
+.qz-count {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 5.5rem var(--font-display);
+  color: var(--gold);
+  text-shadow: 0 6px 30px rgba(252, 211, 77, 0.6);
+  animation: qzPop 0.9s ease-out both;
+}
+@keyframes qzPop { from { transform: scale(1.8); opacity: 0; } 30% { transform: scale(1); opacity: 1; } to { transform: scale(0.85); opacity: 0.2; } }
+.qz-timer { position: relative; height: 26px; border-radius: 99px; background: rgba(10, 4, 30, 0.6); border: 1px solid var(--line); overflow: hidden; }
+.qz-timer i { position: absolute; inset: 0 auto 0 0; background: var(--grad-hot); border-radius: 99px; transition: width 0.15s linear; }
+.qz-timer.low i { background: linear-gradient(90deg, #fb7185, #f59e0b); }
+.qz-timer span { position: relative; display: block; text-align: center; font: 800 0.8rem/26px var(--font-body); }
+.qz-sound { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 38px; margin: 8px 0 2px; font-size: 0.85rem; font-weight: 800; color: var(--muted); }
+
+.qz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.qz-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 20px;
+  color: #fff;
+  text-align: left;
+  font: 800 1rem/1.2 var(--font-body);
+  cursor: pointer;
+  box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.22), 0 10px 22px -12px rgba(0, 0, 0, 0.7);
+  transition: transform 0.12s, opacity 0.25s, filter 0.25s;
+  overflow-wrap: anywhere;
+}
+.qz-option:active:not(:disabled) { transform: scale(0.96); }
+.qz-option:disabled { cursor: default; }
+.qz-option.o0 { background: linear-gradient(150deg, #f43f8e, #be185d); }
+.qz-option.o1 { background: linear-gradient(150deg, #8b5cf6, #5b21b6); }
+.qz-option.o2 { background: linear-gradient(150deg, #0ea5e9, #1d4ed8); }
+.qz-option.o3 { background: linear-gradient(150deg, #14b8a6, #047857); }
+.qz-option .shape { font-size: 0.9rem; opacity: 0.75; }
+.qz-option .label { font-size: 1.02rem; }
+.qz-option .who { display: flex; align-items: center; gap: 2px; min-height: 22px; }
+.qz-option .who b { margin-right: 4px; font-size: 1.05rem; }
+.qz-option .who .avatar { width: 22px; height: 22px; font-size: 12px; margin-left: -4px; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3); }
+.qz-options.locked .qz-option:not(.chosen), .qz-options.revealed .qz-option:not(.right):not(.wrong) { opacity: 0.38; filter: saturate(0.5); }
+.qz-option.chosen { box-shadow: 0 0 0 3px #fff, inset 0 -5px 0 rgba(0, 0, 0, 0.22); }
+.qz-option.right { background: linear-gradient(150deg, #22c55e, #15803d); box-shadow: 0 0 0 3px #bbf7d0, 0 0 30px -4px rgba(34, 197, 94, 0.8); animation: qzRight 0.5s ease-out; }
+.qz-option.wrong { background: linear-gradient(150deg, #f87171, #b91c1c); }
+@keyframes qzRight { 40% { transform: scale(1.05); } }
+
+.qz-song { display: flex; align-items: center; gap: 14px; margin-top: 6px; padding: 14px; animation: qzRise 0.45s ease-out both; }
+.qz-song .cover { width: 112px; flex: none; border-radius: 14px; box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.8); }
+.qz-song .grow { min-width: 0; }
+.qz-song .eyebrow { margin: 0 0 4px; }
+.qz-song h2 { font: 700 1.35rem/1.15 var(--font-display); margin: 0; overflow-wrap: anywhere; }
+.qz-artist { margin: 4px 0 2px; font-weight: 900; color: var(--gold); }
+@keyframes qzRise { from { transform: translateY(12px); opacity: 0; } }
+.qz-verdict { margin: 14px 0 4px; padding: 12px 14px; border-radius: 18px; text-align: center; font: 700 1.25rem var(--font-display); animation: qzRise 0.4s 0.1s ease-out both; }
+.qz-verdict.good { background: rgba(34, 197, 94, 0.16); border: 1px solid rgba(134, 239, 172, 0.5); color: #bbf7d0; }
+.qz-verdict.bad { background: rgba(251, 113, 133, 0.12); border: 1px solid rgba(251, 113, 133, 0.4); color: #fecdd3; }
+.qz-fast { margin-top: 12px; }
+.qz-standings .road-row.me { border-color: rgba(252, 211, 77, 0.55); background: rgba(252, 211, 77, 0.08); }
+.qz-standings .score { font: 700 1.05rem var(--font-display); color: var(--text); min-width: 54px; text-align: right; }
+.qz-delta { flex: none; font-weight: 900; font-size: 0.8rem; padding: 2px 8px; border-radius: 99px; }
+.qz-delta.up { color: #bbf7d0; background: rgba(34, 197, 94, 0.16); }
+.qz-delta.down { color: #fecdd3; background: rgba(251, 113, 133, 0.16); }
+
+.qz-bet .screen-sub { margin: -6px auto 14px; max-width: 340px; }
+.qz-hint { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px; text-align: center; border-color: rgba(252, 211, 77, 0.45); }
+.qz-hint .eyebrow { margin: 0; }
+.qz-hint strong { font: 700 1.5rem var(--font-display); color: var(--gold); }
+.qz-hint span:last-child { font-weight: 800; color: var(--muted); }
+.qz-wager { margin-top: 12px; padding: 16px; }
+.qz-amount { margin: 6px 0 2px; text-align: center; font: 700 3.2rem var(--font-display); color: var(--gold); text-shadow: 0 4px 24px rgba(252, 211, 77, 0.45); }
+.qz-range { width: 100%; margin: 6px 0 12px; accent-color: #fbbf24; height: 32px; }
+.qz-quick { justify-content: center; margin-bottom: 14px; }
+.qz-locked { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 12px; padding: 22px; }
+.qz-locked .big { font-size: 2.4rem; }
+.qz-locked strong { font: 700 1.5rem var(--font-display); color: var(--gold); }
+
+.qz-winners { display: flex; justify-content: center; gap: 14px; margin-top: 30px; }
+.qz-songs { display: flex; flex-direction: column; gap: 8px; }
+.qz-song-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); }
+.qz-song-row.final { border-color: rgba(252, 211, 77, 0.5); background: rgba(252, 211, 77, 0.07); }
+.qz-song-row .r { flex: none; width: 24px; text-align: center; font: 700 0.9rem var(--font-display); color: var(--dim); }
+.qz-song-row .cover { width: 56px; flex: none; border-radius: 10px; }
+.qz-song-row .cover .play-btn { width: 28px; height: 28px; right: 4px; bottom: 4px; font-size: 0.65rem; }
+.qz-song-row .grow { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.qz-song-row strong { font: 700 1rem var(--font-display); overflow-wrap: anywhere; }
+.qz-song-row .small { font-weight: 700; }
+.past-card .avatar { flex: none; }

@@ -25,9 +25,9 @@ const post = (path, body) =>
   fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 // Reads server-sent events from a stream until `until` returns true for a view.
-async function openStream(code, s) {
+async function openStream(code, s, from = base) {
   const controller = new AbortController();
-  const res = await fetch(`${base}/api/rooms/${code}/stream?p=${s.playerId}&s=${s.secret}`, { signal: controller.signal });
+  const res = await fetch(`${from}/api/rooms/${code}/stream?p=${s.playerId}&s=${s.secret}`, { signal: controller.signal });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type'), /text\/event-stream/);
   const reader = res.body.getReader();
@@ -223,4 +223,69 @@ test('movie nights: host one, see it on the invite, and search movies', async ()
   // Pages allow TMDB posters.
   const page = await fetch(`${base}/`);
   assert.match(page.headers.get('content-security-policy'), /image\.tmdb\.org/);
+});
+
+test('who sings it: the server finds the songs, plays clips, and never sends the answer early', async () => {
+  const songs = Array.from({ length: 6 }, (_, i) => ({
+    title: `Tune ${i}`, artist: `Singer ${i}`, album: 'Workout Hits', year: 2011, cover: null, deezerId: 500 + i, genres: [],
+    decoys: { artist: [`Wrong ${i}a`, `Wrong ${i}b`, `Wrong ${i}c`], song: [] },
+  }));
+  const asked = [];
+  const music = {
+    source: 'deezer',
+    async quizSongs(opts) {
+      asked.push(opts);
+      await new Promise((r) => setTimeout(r, 30));
+      return opts.theme?.genre === 'Polka' ? [] : songs.slice(0, opts.count);
+    },
+    async quizClip({ deezerId }) {
+      return `https://cdnt-preview.dzcdn.net/${deezerId}.mp3`;
+    },
+    async lookup(kind, item) {
+      return { found: true, item: { ...item, album: 'The Original', year: 1984 }, genres: ['Rock'], years: [1984] };
+    },
+  };
+  const app = createApp({ music, movies: createMovies({ apiKey: '', itunesBase: 'http://127.0.0.1:9' }), port: 0, rng: () => 0 });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const at = `http://127.0.0.1:${app.server.address().port}`;
+  const send = (path, body) => fetch(at + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    const host = await (await send('/api/rooms', { name: 'Mom', game: 'quiz' })).json();
+    const dad = await (await send(`/api/rooms/${host.code}/join`, { name: 'Dad' })).json();
+    const invite = await (await fetch(`${at}/api/rooms/${host.code}`)).json();
+    assert.equal(invite.game, 'quiz');
+    const act = (who, action) => send(`/api/rooms/${host.code}/act`, { p: who.playerId, s: who.secret, action });
+    await act(host, { type: 'settings', settings: { rounds: 5, theme: { genre: 'Polka' } } });
+
+    const none = await act(host, { type: 'start' });
+    assert.equal(none.status, 422);
+    assert.match((await none.json()).error, /enough songs/);
+    assert.equal((await act(dad, { type: 'start' })).status, 403);
+
+    await act(host, { type: 'settings', settings: { theme: { decade: '80s' } } });
+    const started = await act(host, { type: 'start' });
+    assert.equal(started.status, 200);
+    assert.deepEqual([asked.at(-1).count, asked.at(-1).theme.decade, asked.at(-1).ask], [6, '80s', 'artist'], 'five songs and the finale');
+    const room = app.rooms.get(host.code);
+    assert.equal(room.phase, 'quiz');
+
+    const view = await openStream(host.code, dad, at);
+    const v = await view.next((x) => x.phase === 'quiz');
+    view.close();
+    assert.equal(v.quiz.options.length, 4);
+    assert.ok(!JSON.stringify(v).includes('Tune 0'), 'the title stays on the server');
+
+    const clip = (who, round) => fetch(`${at}/api/rooms/${host.code}/clip?round=${round}&p=${who.playerId}&s=${who.secret}`);
+    assert.deepEqual(await (await clip(dad, 1)).json(), { url: 'https://cdnt-preview.dzcdn.net/500.mp3' }, 'just the audio');
+    assert.equal((await clip(dad, 2)).status, 404, 'not the next song');
+    assert.equal((await clip({ playerId: 'x', secret: 'y' }, 1)).status, 403);
+
+    // In the background, songs switch to their original album and year.
+    for (let i = 0; i < 50 && room.quiz.songs[0].album !== 'The Original'; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(room.quiz.songs[0].album, 'The Original');
+    assert.equal(room.quiz.songs[5].year, 1984, 'the finale song early, for its hint');
+  } finally {
+    app.server.closeAllConnections();
+    app.server.close();
+  }
 });

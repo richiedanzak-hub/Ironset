@@ -1,17 +1,18 @@
 # 🎉 Party Royale
 
-**Toss movies or songs in the hat. Battle them head‑to‑head. The last one standing wins the night.**
+**Battle your movies and songs head‑to‑head, or race to name that song. Everyone plays on their own phone.**
 
-One party game, two modes:
+Three games:
 
 - **🎬 Movie night.** Everyone adds movies they'd like to watch. The winner is tonight's movie, with where to stream it.
 - **🎧 Music battle.** Everyone adds songs (or albums, or artists) they love. Play the 30-second previews and crown the anthem of the night.
+- **🎤 Who sings it?** A music quiz. A song plays and everyone races to name the artist (or the song). Bet your points on the last one. [More below](#-who-sings-it).
 
-How a game goes:
+How a battle goes:
 
 1. **Fill the hat.** Everyone secretly adds picks, typed in or chosen from the ✨ ideas browser.
 2. **The bracket.** Picks pair off at random, everyone votes on their own phone, and the winners move on round by round (Quarterfinals, Semifinals, Final). Every pick gets the same shot.
-3. **Score points.** Guess who picked each one, name the artist of each mystery song, and earn points when your picks win.
+3. **Score points.** Guess who picked each one, and earn points when your picks win.
 4. **Crown the champ.** The last pick standing wins the night, and the player with the most points wins the game.
 
 ## The points game
@@ -21,17 +22,33 @@ It's on by default. The host can switch it off in the lobby.
 | Points | How you earn them |
 | --- | --- |
 | 🕵️ +1 | Guess who picked each pick, the first time it shows up |
-| 🎤 +1 | Name the artist of a mystery song (the **Who sings it?** quiz) |
 | ⭐ +2 | Your pick wins a matchup |
 | 👑 +3 | Your pick is the champion |
-
-**Who sings it?** (songs and albums): a pick's first matchup starts as a mystery. Play the preview, then choose the singer from four options. Nobody can answer for their own pick. Then the names are revealed and the vote begins.
 
 The **🗂️ The bracket** and **🏅 Scores** buttons show where things stand at any time. The final screen shows the scores podium and each player's breakdown.
 
 Everyone plays on their own phone. The host sends a link (or shows a QR code), and people join by typing their name. There are no accounts or app downloads.
 
-## What's in it
+## 🎤 Who sings it?
+
+A separate game from the battles: no hat, no picks. The game brings the songs.
+
+1. **A song plays.** After a 3‑2‑1, a 30-second preview starts. By default it plays on the host's phone, so everyone in the room hears one clean sound (hook it up to a speaker). Playing from different places? Switch it to every phone. Anyone can also tap "Play it here too".
+2. **Pick the answer.** Four big buttons on every phone. No changing your mind once you tap.
+3. **The reveal.** The cover, title, artist and original album, who picked what, who was fastest, and the scores.
+4. **Double or nothing.** Before the last song, you see a hint (say "The 80s · Rock"), then everyone secretly bets some or all of their points. Get it right and win what you bet, get it wrong and lose it. Anyone low on points can still bet up to 100.
+
+| Points | How you earn them |
+| --- | --- |
+| ✓ 100 | A right answer |
+| ⚡ up to +50 | Answering fast (the full 50 right away, less as the clock runs down) |
+| 💰 ± your bet | The last song, with the finale on |
+
+House rules: what to name (🎤 the artist, 🎵 the song, or 🔀 take turns), how many songs (5, 10, 15 or 20), time to answer (10–30 seconds), the theme (the same ready-made ones as the music battle, or your own genre, decade and vibe), clean songs only, and where the music plays.
+
+The songs: well-known ones that fit the theme, one per artist, each checked to make sure its preview plays. The wrong choices sound right on purpose: other well-known artists from the same kind of music and time, and, when you name the song, other songs by the same artist. Each song is switched to its original album and year once the game starts. Your phone never gets the answer before the reveal (not even a song id to look up).
+
+## What's in a battle
 
 - **Movies, songs, albums or artists.** The host picks one on the home screen and can switch in the lobby.
 - **A theme for the night (optional).** Ready-made themes for each mode (Horror night, Family movie night, 90s Rock, 80s Party, Road trip…) or your own genre, decade and name. The ideas browser sticks to it.
@@ -39,7 +56,7 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
 - **Two ways to play:**
   - 🏆 **Bracket** (default): picks pair off and the winners move on. Odd numbers get byes. Two picks from the same person don't meet in round 1 when that can be avoided. Ties are a coin flip.
   - 👑 **King of the hill:** the winner stays on and fights the next pick out of the hat. Only this mode has the **champions round** (every pick that won a matchup comes back for one last battle) and the tie options (coin flip, champ stays, or a 3-way showdown).
-- **House rules:** minimum and maximum picks per person, optional timers, the points game, Who sings it?, and (with points off) when to reveal who picked what.
+- **House rules:** minimum and maximum picks per person, optional timers, the points game, and (with points off) when to reveal who picked what.
 - **Ideas browser:**
   - Movies: popular, top rated, trending, hidden gems, surprise me; filter by genre, decade and streaming service; family friendly and under 2 hours
   - Music: today's charts, new, all-time classics, surprise me; filter by genre, decade and vibe; it keeps loading as you scroll and every phone gets its own shuffle
@@ -48,7 +65,7 @@ Everyone plays on their own phone. The host sends a link (or shows a QR code), a
   - Movies: where to watch (stream, free, rent, buy) by country, plus the trailer
   - Music: buttons that open the song itself on Spotify, Apple Music, YouTube and Deezer
   - the final scores podium (or, with points off, a "best taste" podium), everyone's picks and how far each got, and the road to the crown
-- **Past parties.** Each phone keeps the recap of every party it finished (up to 30), under 📜 Past parties.
+- **Past parties.** Each phone keeps the recap of every party it finished (up to 30), battles and quizzes, under 📜 Past parties.
 
 ## Where the data comes from
 
@@ -99,12 +116,13 @@ npm run dev     # restart on changes
 
 ```
 server.js              start the server
-src/game.js            the game rules (pure, fully tested)
+src/game.js            the battle rules, and what both games share (pure, fully tested)
+src/quiz.js            Who sings it? rules (pure, fully tested)
 src/app.js             HTTP API, static files, live updates (Server-Sent Events)
 src/music.js           Deezer / iTunes / song.link / built-in music list
 src/movies.js          TMDB / iTunes / built-in movie list
 src/*-catalog.js       the built-in backup lists
-public/js/             the app screens (home, lobby, submit, ideas, battle, final, past parties)
+public/js/             the app screens (home, lobby, submit, ideas, battle, final, quiz, past parties)
 ```
 
 | Variable | What it does |

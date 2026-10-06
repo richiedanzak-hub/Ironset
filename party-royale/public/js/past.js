@@ -1,10 +1,11 @@
-// Past parties: when a party crowns its champion, this phone keeps a copy of
-// the recap, so it can be looked at again any time. The server forgets
+// Past parties: when a party crowns its champion (or a quiz ends), this phone
+// keeps a copy of the recap, so it can be looked at again any time. The server forgets
 // parties after a few hours (and whenever it restarts), so the copy lives in
 // the phone's own storage.
 import { html } from './lib.js';
-import { Cover, themeEmoji, themeTitle, noun } from './ui.js';
+import { Avatar, Cover, themeEmoji, themeTitle, noun } from './ui.js';
 import { Recap } from './final.js';
+import { QuizRecap } from './quiz.js';
 
 const KEY = 'rr:past';
 const KEEP = 30;
@@ -12,7 +13,7 @@ const KEEP = 30;
 export function pastParties() {
   try {
     const list = JSON.parse(localStorage.getItem(KEY));
-    return Array.isArray(list) ? list.filter((p) => p?.id && p.entries?.[p.final?.winner]) : [];
+    return Array.isArray(list) ? list.filter((p) => p?.id && (p.game === 'quiz' ? p.quiz?.scores?.length : p.entries?.[p.final?.winner])) : [];
   } catch {
     return [];
   }
@@ -61,10 +62,26 @@ function PastList({ go }) {
     <header class="topbar"><button class="btn btn-quiet btn-sm" onClick=${() => go('/')}>← Home</button></header>
     <p class="eyebrow">Saved on this phone</p>
     <h1 class="screen-title">Past parties</h1>
-    <p class="screen-sub">Every party you finish is saved here, with the champion and everyone's picks.</p>
+    <p class="screen-sub">Every party you finish is saved here: the champion and everyone's picks, or the quiz scores and songs.</p>
     ${list.length
       ? html`<div class="stack section">
           ${list.map((p) => {
+            if (p.game === 'quiz') {
+              const top = p.quiz.scores[0];
+              const songs = p.quiz.history.length;
+              return html`<button class="past-card" key=${p.id} onClick=${() => go(`/past/${encodeURIComponent(p.id)}`)}>
+                <${Avatar} p=${top} size=${56} crown />
+                <span class="grow">
+                  <strong>🎤 ${top.id === p.meId ? 'You' : top.name} won Who sings it?</strong>
+                  <span>${top.points.toLocaleString()} points</span>
+                  <span class="past-meta">
+                    ${when(p.at)} · ${songs} ${songs === 1 ? 'song' : 'songs'} · ${p.players} ${p.players === 1 ? 'player' : 'players'}
+                    ${p.settings.theme ? html` · ${themeEmoji(p.settings.theme)} ${themeTitle(p.settings.theme)}` : null}
+                  </span>
+                </span>
+                <span class="chev">›</span>
+              </button>`;
+            }
             const champ = p.entries[p.final.winner];
             const kind = p.settings.kind;
             const count = Object.keys(p.entries).length;
@@ -97,7 +114,7 @@ function PastRecap({ id, go }) {
   return html`<main class="app">
     <header class="topbar"><button class="btn btn-quiet btn-sm" onClick=${() => go('/past')}>← Past parties</button></header>
     <p class="past-when">${when(data.at)} · party ${data.code}</p>
-    <${Recap} data=${data} />
+    ${data.game === 'quiz' ? html`<${QuizRecap} data=${data} />` : html`<${Recap} data=${data} />`}
     <div class="center section"><button class="btn btn-quiet btn-sm" onClick=${remove}>🗑️ Remove from this phone</button></div>
     <div class="dock">
       <button class="btn btn-hot btn-block btn-xl" onClick=${() => go('/')}>🎧 Start a new party</button>

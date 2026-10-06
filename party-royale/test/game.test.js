@@ -154,7 +154,7 @@ test('host can end submissions early', () => {
 
 // King of the hill without the points game, unless a test says otherwise.
 function toBattle(titles, settings = {}) {
-  const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'classic', scoring: false, quiz: false, ...settings });
+  const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'classic', scoring: false, ...settings });
   game.act(room, ids[0], { type: 'start' }, T0);
   titles.forEach((t, i) => add(room, ids[i % ids.length], t));
   game.act(room, ids[0], { type: 'endSubmit' }, T0, rng);
@@ -617,7 +617,7 @@ test('switching between movies and music clears a theme that no longer fits', ()
   assert.equal(room.settings.theme.genre, 'Comedy');
 });
 
-// ---------------------------------------------------------------- bracket, points, quiz
+// ---------------------------------------------------------------- bracket, points
 
 test('bracket: picks pair off and the winners move on until one is left', () => {
   const { room, ids } = toBattle(['A', 'B', 'C', 'D'], { format: 'bracket' });
@@ -669,7 +669,7 @@ test('bracket: round 1 never pits two picks from the same person when it can be 
   for (let seed = 1; seed <= 40; seed++) {
     let x = seed;
     const seeded = () => ((x = (x * 16807) % 2147483647) / 2147483647);
-    const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'bracket', scoring: false, quiz: false });
+    const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'bracket', scoring: false });
     game.act(room, ids[0], { type: 'start' }, T0);
     // Mom brings 3, Dad 2, Kid 1: 6 picks, so 2 byes and 2 real matchups.
     ['A', 'B', 'C'].forEach((t) => add(room, ids[0], t));
@@ -737,79 +737,13 @@ test('points game: guess who picked it, score when your picks win, and a bonus f
   const scores = game.viewFor(room, ids[0], T0).final.scores;
   assert.equal(scores.length, 3);
   assert.equal(scores[0].total, Math.max(...scores.map((r) => r.total)));
-  assert.ok(scores.every((r) => r.total === r.guess + r.quiz + r.win + r.champ));
+  assert.ok(scores.every((r) => r.total === r.guess + r.win + r.champ));
 });
 
-test('who sings it: mystery songs, four answers, and a point for the right artist', () => {
-  const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'bracket', scoring: true, quiz: true });
-  game.act(room, ids[0], { type: 'start' }, T0);
-  add(room, ids[0], 'Bohemian Rhapsody', { artist: 'Queen', deezerId: 1, year: 1975 });
-  add(room, ids[1], 'Hey Jude', { artist: 'The Beatles', deezerId: 2, year: 1968 });
-  add(room, ids[2], 'Thriller', { artist: 'Michael Jackson', deezerId: 3, year: 1982 });
-  add(room, ids[0], 'Typed Only Song');
-  game.act(room, ids[0], { type: 'endSubmit' }, T0, rng);
-  const b = room.battle;
-  assert.equal(b.stage, 'quiz');
-  const targets = b.fighters.filter((id) => b.quiz[id]);
-  assert.ok(targets.length >= 1);
-  const t = targets[0];
-  const owner = room.entries[t].by[0];
-  const guesser = ids.find((p) => p !== owner);
-  const v = game.viewFor(room, guesser, T0);
-  assert.equal(v.entries[t].mystery, true);
-  assert.equal(v.entries[t].title, null, 'no peeking at the title');
-  assert.equal(v.entries[t].artist, null);
-  assert.equal(v.entries[t].deezerId, room.entries[t].deezerId, 'but the preview can play');
-  const options = v.battle.quiz[t];
-  assert.equal(options.length, 4);
-  assert.equal(new Set(options).size, 4);
-  assert.ok(options.includes(room.entries[t].artist));
-  const unplayed = b.order.find((id) => !b.fighters.includes(id) && b.quiz[id]);
-  if (unplayed) assert.equal(v.entries[unplayed].mystery, true, 'picks still to come stay mysteries in the bracket');
-
-  assert.throws(() => game.act(room, owner, { type: 'quiz', round: b.round, entryId: t, answer: options[0] }, T0), /your pick/);
-  assert.throws(() => vote(room, guesser, t), /closed/);
-  assert.throws(() => game.act(room, guesser, { type: 'quiz', round: b.round, entryId: t, answer: 'Nobody' }, T0), /four answers/);
-  // The guesser gets it right; everyone else picks a wrong answer.
-  for (const pid of ids) {
-    for (const id of targets) {
-      if (room.entries[id].by.includes(pid)) continue;
-      const right = room.entries[id].artist;
-      const answer = pid === guesser ? right : b.quiz[id].find((a) => a !== right);
-      game.act(room, pid, { type: 'quiz', round: b.round, entryId: id, answer }, T0, rng);
-    }
-  }
-  assert.equal(b.stage, 'voting', 'everyone answered, so on to the vote');
-  assert.ok(b.quizResult[t].right.includes(guesser));
-  assert.equal(b.points[guesser].quiz, targets.filter((id) => !room.entries[id].by.includes(guesser)).length);
-  const after = game.viewFor(room, guesser, T0);
-  assert.equal(after.entries[t].title, room.entries[t].title, 'revealed for the vote');
-  assert.equal(after.battle.quizResult[t].answer, room.entries[t].artist);
-});
-
-test('who sings it: the host can reveal early, and it is off for movies', () => {
-  const { room, ids } = party(['Mom', 'Dad'], { maxPerPlayer: 0, quiz: true });
-  game.act(room, ids[0], { type: 'start' }, T0);
-  add(room, ids[0], 'Bohemian Rhapsody', { artist: 'Queen', deezerId: 1 });
-  add(room, ids[1], 'Hey Jude', { artist: 'The Beatles', deezerId: 2 });
-  game.act(room, ids[0], { type: 'endSubmit' }, T0, rng);
-  assert.equal(room.battle.stage, 'quiz');
-  assert.throws(() => game.act(room, ids[1], { type: 'reveal', round: 1 }, T0), /Only the host/);
-  game.act(room, ids[0], { type: 'reveal', round: 1 }, T0, rng);
-  assert.equal(room.battle.stage, 'voting');
-
-  const movies = party(['Mom', 'Dad'], { maxPerPlayer: 0, kind: 'movie', quiz: true });
-  game.act(movies.room, movies.ids[0], { type: 'start' }, T0);
-  add(movies.room, movies.ids[0], 'Jaws', { year: 1975 });
-  add(movies.room, movies.ids[1], 'Alien', { year: 1979 });
-  game.act(movies.room, movies.ids[0], { type: 'endSubmit' }, T0, rng);
-  assert.equal(movies.room.battle.stage, 'voting');
-});
-
-test('format, points and quiz settings', () => {
+test('format and points settings', () => {
   assert.equal(game.DEFAULT_SETTINGS.format, 'bracket');
   assert.equal(game.DEFAULT_SETTINGS.scoring, true);
-  const s = game.cleanSettings(game.DEFAULT_SETTINGS, { format: 'classic', scoring: false, quiz: false });
-  assert.deepEqual([s.format, s.scoring, s.quiz], ['classic', false, false]);
+  const s = game.cleanSettings(game.DEFAULT_SETTINGS, { format: 'classic', scoring: false });
+  assert.deepEqual([s.format, s.scoring], ['classic', false]);
   assert.equal(game.cleanSettings(s, { format: 'swiss' }).format, 'classic');
 });

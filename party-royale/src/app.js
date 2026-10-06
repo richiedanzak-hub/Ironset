@@ -12,6 +12,7 @@ import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomInt } from 'node:crypto';
 import * as game from './game.js';
+import { applySongDetails, clipSong, songsNeeded } from './quiz.js';
 import { checkTheme, createMusic } from './music.js';
 import { createMovies } from './movies.js';
 
@@ -211,6 +212,42 @@ export function createApp({
     return { ...move, item: info.item, checked: true };
   }
 
+  // Who Sings It?: find the songs, then start. Everyone sees "picking the
+  // songs…" meanwhile. Afterwards, each song is switched to its original
+  // album, cover and year, in the order they'll be played.
+  async function startQuiz(room, pid) {
+    const s = game.prepareQuiz(room, pid, now());
+    broadcast(room);
+    let songs;
+    try {
+      songs = await music.quizSongs({ theme: s.theme, clean: s.clean, count: songsNeeded(s), ask: s.ask, seed: `${room.code}${now()}` });
+    } catch (err) {
+      console.warn('[quiz songs]', err.message);
+      songs = [];
+    }
+    if (rooms.get(room.code) !== room) return;
+    try {
+      game.playQuiz(room, songs, now(), rng);
+    } finally {
+      broadcast(room);
+    }
+    refineSongs(room, room.quiz);
+  }
+
+  async function refineSongs(room, quiz) {
+    const order = quiz.songs.map((_, i) => i);
+    if (quiz.finale) order.splice(1, 0, order.pop()); // the finale hint needs the last song's year early
+    for (const i of order) {
+      if (room.quiz !== quiz || rooms.get(room.code) !== room) return;
+      try {
+        const info = await music.lookup('song', quiz.songs[i], { clean: room.settings.clean });
+        if (info.found && applySongDetails(room, quiz, i, { ...info.item, genres: info.genres })) broadcast(room);
+      } catch (err) {
+        console.warn('[quiz details]', err.message);
+      }
+    }
+  }
+
   // -------------------------------------------------------------- API
 
   async function api(req, res, url, parts) {
@@ -224,7 +261,7 @@ export function createApp({
     if (section === 'rooms') {
       if (!code && method === 'POST') {
         const body = await readJson(req);
-        const room = game.createRoom(newCode(), now(), { kind: body.kind });
+        const room = game.createRoom(newCode(), now(), { kind: body.kind, game: body.game });
         const { player } = game.joinRoom(room, body, now());
         rooms.set(room.code, room);
         return sendJson(res, 200, { code: room.code, playerId: player.id, secret: player.secret });
@@ -239,9 +276,19 @@ export function createApp({
           phase: room.phase,
           players: room.order.length,
           host: host ? { name: host.name, avatar: host.avatar } : null,
+          game: room.game,
           kind: room.settings.kind,
           theme: room.settings.theme,
         });
+      }
+
+      // Who Sings It?: this round's song, as a link to play. Just the audio:
+      // no title or artist.
+      if (action === 'clip' && method === 'GET') {
+        if (!game.authenticate(room, url.searchParams.get('p'), url.searchParams.get('s'))) throw new HttpError(403, 'Not in this party');
+        const song = clipSong(room, url.searchParams.get('round'));
+        if (!song) throw new HttpError(404, 'No song for that round');
+        return sendJson(res, 200, { url: (await music.quizClip(song)) || null });
       }
 
       if (action === 'join' && method === 'POST') {
@@ -282,6 +329,10 @@ export function createApp({
         const body = await readJson(req);
         const me = game.authenticate(room, body.p, body.s);
         if (!me) throw new HttpError(403, 'Not in this party');
+        if (room.game === 'quiz' && (body.action?.type === 'start' || body.action?.type === 'rematch')) {
+          await startQuiz(room, me.id);
+          return sendJson(res, 200, { ok: true });
+        }
         const move = body.action?.type === 'add' ? await checkPick(room, body.action) : body.action;
         const out = game.act(room, me.id, move, now(), rng);
         if (out.removed) dropStreams(room.code, out.removed, out.removed === me.id ? 'left' : 'kicked');

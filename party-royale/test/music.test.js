@@ -78,6 +78,8 @@ const popTracks = (id) => ({
 const DYNAMIC = [
   [/^\/playlist\/(\d+)\/tracks$/, (id) => (id >= 100000 ? popTracks(id) : null)],
   [/^\/artist\/(\d+)\/related$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => ({ ...artist((id * 10 + k + 1) % 1e9, `Related ${id}-${k}`) })) })],
+  // Chart songs on their own; Chart Song 3 has no preview anywhere.
+  [/^\/track\/(\d+)$/, (id) => (id >= 100 && id < 130 ? track(id, `Chart Song ${id - 100}`, artist(400 + id, `Star ${id - 100}`), 500 + id, id === 103 ? { preview: '' } : {}) : null)],
   [/^\/artist\/(\d+)\/top$/, (id) => ({ data: Array.from({ length: 10 }, (_, k) => track(id * 100 + k, `Top ${id}-${k}`, artist(id, `Artist ${id}`), id)) })],
 ];
 const nopic = { id: 77, name: 'Fan Band', picture_big: 'https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg' };
@@ -520,6 +522,34 @@ test('the built-in list takes over when Deezer is down', async () => {
   assert.equal(status.deezer.now.ok, false);
   assert.equal(status.itunes.now.ok, false);
   assert.ok(status.deezer.lastError);
+});
+
+test('who sings it: well-known songs, one per artist, each with a clip and believable wrong answers', async () => {
+  const m = music();
+  const songs = await m.quizSongs({ count: 8, ask: 'mix', seed: 'party' });
+  assert.equal(songs.length, 8);
+  assert.equal(new Set(songs.map((s) => s.artist)).size, 8, 'one song per artist');
+  assert.ok(!songs.some((s) => s.title === 'Chart Song 3'), 'no clip, no question');
+  for (const s of songs) {
+    assert.equal(s.decoys.artist.length, 3);
+    assert.ok(!s.decoys.artist.includes(s.artist));
+    assert.equal(new Set(s.decoys.artist).size, 3);
+    assert.equal(s.decoys.song.length, 3);
+    assert.ok(!s.decoys.song.includes(s.title));
+  }
+  const star = songs.find((s) => /^Star /.test(s.artist));
+  assert.ok(star.decoys.song.every((t) => t.startsWith('Top ')), 'other songs by the same artist');
+  const again = await m.quizSongs({ count: 8, ask: 'artist', seed: 'party' });
+  assert.deepEqual(again.map((s) => s.decoys.song), again.map(() => []), 'name-the-artist games skip the extra lookups');
+  const other = await m.quizSongs({ count: 8, ask: 'artist', seed: 'another party' });
+  assert.notDeepEqual(other.map((s) => s.title), again.map((s) => s.title), 'every game gets its own songs');
+});
+
+test('quiz clips are the song itself or nothing', async () => {
+  const m = music();
+  assert.match(await m.quizClip({ deezerId: 1, title: 'Bohemian Rhapsody', artist: 'Queen' }), /fresh1\.mp3/);
+  assert.match(await m.quizClip({ title: 'Hey Jude', artist: 'The Beatles' }), /heyjude\.m4a/, 'found on Apple by title and artist');
+  assert.equal(await m.quizClip({ deezerId: 103, title: 'Chart Song 3', artist: 'Star 3' }), null, 'never a different song that happens to match the search');
 });
 
 test('catalog rows are well formed', () => {

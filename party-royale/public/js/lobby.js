@@ -5,7 +5,8 @@ import { Avatar, DECADES, Seg, Stepper, ThemeBanner, VIBES, noun, themeRule, the
 import { sfx } from './sfx.js';
 
 export function ShareBody({ code }) {
-  const settings = useGame()?.view?.settings;
+  const partyView = useGame()?.view;
+  const settings = partyView?.settings;
   const theme = settings?.theme;
   const [link, setLink] = useState('');
   const [showQr, setShowQr] = useState(false);
@@ -26,7 +27,8 @@ export function ShareBody({ code }) {
     if (!navigator.share) return copy();
     try {
       const about = theme ? ` Theme: ${themeTitle(theme)}.` : '';
-      const what = settings?.kind === 'movie' ? '🎬 Join our movie night!' : '🎧 Join our music battle!';
+      const game = partyView?.game;
+      const what = game === 'quiz' ? '🎤 Join our music quiz!' : settings?.kind === 'movie' ? '🎬 Join our movie night!' : '🎧 Join our music battle!';
       await navigator.share({ title: 'Party Royale', text: `${what}${about} Party code: ${code}`, url: link });
     } catch {}
   };
@@ -99,7 +101,7 @@ const FALLBACK_GENRES = ['Pop', 'Rock', 'Rap/Hip Hop', 'R&B', 'Dance', 'Alternat
 
 const sameTheme = (a, b) => ['name', 'genre', 'decade', 'vibe'].every((k) => (a?.[k] || null) === (b?.[k] || null));
 
-function ThemePicker({ theme, set, kind }) {
+export function ThemePicker({ theme, set, kind }) {
   const movies = kind === 'movie';
   const PRESETS = movies ? MOVIE_PRESETS : MUSIC_PRESETS;
   const fallback = movies ? MOVIE_GENRES : FALLBACK_GENRES;
@@ -154,8 +156,6 @@ function ThemePicker({ theme, set, kind }) {
   </div>`;
 }
 
-const quizOn = (s) => s.quiz && (s.kind === 'song' || s.kind === 'album');
-
 export function rulesSummary(s) {
   const n = (count) => noun(s.kind, count);
   const bracket = s.format !== 'classic';
@@ -175,7 +175,6 @@ export function rulesSummary(s) {
     s.submitSeconds ? `⏱ ${Math.round(s.submitSeconds / 60)} min to add` : '⏱ No time limit',
     bracket ? '🏆 Bracket: winners move on' : '👑 King of the hill',
     s.scoring ? '🏅 Points game' : null,
-    quizOn(s) ? '🎤 Who sings it?' : null,
     s.scoring ? null : { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
     bracket ? null : { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
     s.voteSeconds ? `⚡ ${s.voteSeconds}s to vote` : null,
@@ -282,19 +281,6 @@ export function RulesCard() {
         options=${[['on', '🏅 On'], ['off', 'Off']]}
         onChange=${(v) => set({ scoring: v === 'on' })} />
     </div>
-    ${s.kind === 'song' || s.kind === 'album'
-      ? html`<div class="rule rule-col">
-          <div class="rule-text">
-            <strong>Who sings it?</strong>
-            <span>${s.quiz
-              ? `Each ${noun(s.kind)} starts as a mystery: hear the preview and pick the artist${s.scoring ? ' (+1)' : ''}, then it's revealed`
-              : 'Off: songs are shown right away'}</span>
-          </div>
-          <${Seg} label="Who sings it" value=${s.quiz ? 'on' : 'off'}
-            options=${[['on', '🎤 On'], ['off', 'Off']]}
-            onChange=${(v) => set({ quiz: v === 'on' })} />
-        </div>`
-      : null}
     ${s.scoring
       ? null
       : html`<div class="rule rule-col">
@@ -329,6 +315,26 @@ export function RulesCard() {
   </div>`;
 }
 
+export function WhosHere() {
+  const { view } = useGame();
+  return html`<section class="section">
+    <div class="section-head"><h2>Who's here</h2><span class="tag">${view.players.length} ${view.players.length === 1 ? 'player' : 'players'}</span></div>
+    <div class="players">
+      ${view.players.map(
+        (p) => html`<div class="player" key=${p.id}>
+          <${Avatar} p=${p} size=${58} off=${!p.online} crown=${p.host} />
+          <span class="player-name">${p.name}</span>
+          <span class="player-sub">${p.id === view.me.id ? 'you' : p.online ? '' : 'away'}</span>
+        </div>`,
+      )}
+      <div class="player" style=${{ opacity: 0.6 }}>
+        <span class="avatar ghost" style=${{ width: '58px', height: '58px', fontSize: '26px' }}>＋</span>
+        <span class="player-name">Waiting…</span>
+      </div>
+    </div>
+  </section>`;
+}
+
 export function Lobby() {
   const { view, act, code } = useGame();
   const host = view.players.find((p) => p.host);
@@ -345,22 +351,7 @@ export function Lobby() {
 
     <div class="card card-glow share-card section"><${ShareBody} code=${code} /></div>
 
-    <section class="section">
-      <div class="section-head"><h2>Who's here</h2><span class="tag">${view.players.length} ${view.players.length === 1 ? 'player' : 'players'}</span></div>
-      <div class="players">
-        ${view.players.map(
-          (p) => html`<div class="player" key=${p.id}>
-            <${Avatar} p=${p} size=${58} off=${!p.online} crown=${p.host} />
-            <span class="player-name">${p.name}</span>
-            <span class="player-sub">${p.id === view.me.id ? 'you' : p.online ? '' : 'away'}</span>
-          </div>`,
-        )}
-        <div class="player" style=${{ opacity: 0.6 }}>
-          <span class="avatar ghost" style=${{ width: '58px', height: '58px', fontSize: '26px' }}>＋</span>
-          <span class="player-name">Waiting…</span>
-        </div>
-      </div>
-    </section>
+    <${WhosHere} />
 
     <section class="section">
       <div class="section-head"><h2>House rules</h2>${view.me.host ? html`<span class="tag">tap to change</span>` : null}</div>

@@ -19,13 +19,14 @@ function Wordmark() {
       <span class="hat">🎩</span>
     </div>
     <h1 class="wordmark">Party<span>Royale</span></h1>
-    <p class="tagline">Toss movies or songs in the hat. Battle them head‑to‑head. The last one standing wins the night.</p>
+    <p class="tagline">Battle your movies and songs head‑to‑head, or race to name that song. Everyone plays on their own phone.</p>
   </div>`;
 }
 
 const MODES = {
   movie: { title: 'Host a movie night', button: '🎬 Movie night', sub: 'Pick what to watch together' },
   song: { title: 'Host a music battle', button: '🎧 Music battle', sub: 'Songs, albums or artists' },
+  quiz: { title: 'Host a music quiz', button: '🎤 Who sings it?', sub: 'A song plays: be the first to name it. Bet it all at the end', game: 'quiz' },
 };
 
 export function Home({ go }) {
@@ -40,7 +41,7 @@ export function Home({ go }) {
     if (!form.name.trim()) return toast('Pop your name in first 👆', 'error');
     setBusy(true);
     try {
-      const s = await request('/api/rooms', { ...form, kind });
+      const s = await request('/api/rooms', { ...form, kind: MODES[kind].game ? 'song' : kind, game: MODES[kind].game || 'battle' });
       profile.set(form);
       session.set(s.code, s);
       sfx.pop();
@@ -81,6 +82,7 @@ export function Home({ go }) {
         <div class="how-step"><span class="how-num">🎩</span><div><strong>Fill the hat</strong><span>Everyone secretly adds movies, or songs, albums or artists they love.</span></div></div>
         <div class="how-step"><span class="how-num">⚔️</span><div><strong>Head-to-head</strong><span>Two come out of the hat, everyone votes on their phone, and the winner stays on.</span></div></div>
         <div class="how-step"><span class="how-num">👑</span><div><strong>Crown the champ</strong><span>Last one standing wins: where to stream the movie, or links to play the song.</span></div></div>
+        <div class="how-step"><span class="how-num">🎤</span><div><strong>Or play Who sings it?</strong><span>A song plays and everyone races to name the artist or the song. Bet your points on the last one.</span></div></div>
       </div>
     </section>
 
@@ -149,11 +151,12 @@ export function JoinScreen({ code, go, onJoined }) {
     <div class="card card-glow invite-card">
       ${info.host ? html`<${Avatar} p=${{ ...info.host, color: '#fcd34d' }} size=${64} crown />` : null}
       <p class="eyebrow">You're invited!</p>
-      <h1 class="invite-title">${[hostName ? `${hostName}'s` : '', info.kind === 'movie' ? 'movie night' : 'music battle'].filter(Boolean).join(' ').replace(/^./, (c) => c.toUpperCase())}</h1>
+      <h1 class="invite-title">${[hostName ? `${hostName}'s` : '', info.game === 'quiz' ? 'music quiz' : info.kind === 'movie' ? 'movie night' : 'music battle'].filter(Boolean).join(' ').replace(/^./, (c) => c.toUpperCase())}</h1>
+      ${info.game === 'quiz' ? html`<p class="small muted">🎤 Who sings it? Name the song before anyone else</p>` : null}
       <div class="big-code" aria-label="Party code ${code}">${[...code].map((c) => html`<b>${c}</b>`)}</div>
       <p class="small muted" style=${{ marginTop: '10px' }}>
         ${info.players} ${info.players === 1 ? 'person' : 'people'} here ·
-        ${info.phase === 'lobby' ? ' getting ready' : info.phase === 'submit' ? ' filling the hat' : info.phase === 'battle' ? ' battling now' : ' crowned a champ'}
+        ${info.phase === 'lobby' ? ' getting ready' : info.phase === 'submit' ? ' filling the hat' : info.phase === 'battle' ? ' battling now' : info.phase === 'quiz' ? ' playing now' : info.game === 'quiz' ? ' just finished' : ' crowned a champ'}
       </p>
       ${info.theme ? html`<p style=${{ marginTop: '12px' }}><span class="pill pill-gold">${themeEmoji(info.theme)} Theme: ${themeTitle(info.theme)}</span></p>` : null}
     </div>
