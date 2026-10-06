@@ -2591,8 +2591,11 @@ const pickRow = { width: "100%", display: "flex", justifyContent: "space-between
 // One movement in one day. Collapsed it is a single readable line; a day of eight
 // movements should fit on a screen, not demand eight cards of steppers.
 function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst, groupLast, rounds,
-                   canUp, canDown, onUp, onDown, canLink, onToggleLink }) {
+                   canUp, canDown, onUp, onDown, canLink, onToggleLink, state }) {
   const [open, setOpen] = useState(false);
+  // The slot wears the lift's colour, so a day of work is scannable by movement
+  // rather than by reading every line. Accessories keep their own quieter hues.
+  const hue = hueFor(slot.ex, state);
   const up = (patch) => onChange({ ...slot, ...patch });
   const modeVal = { rpe: { step: 0.5, min: 5, max: 10 }, rir: { step: 0.5, min: 0, max: 6 }, pct: { step: 2.5, min: 30, max: 105 } }[slot.mode] || { step: 1, min: 1, max: 10 };
   const timed = slotTimed(slot);
@@ -2608,11 +2611,11 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
         </div>
       )}
       <Card style={{ padding: 0, marginBottom: grouped && !groupLast ? 4 : 9, overflow: "hidden",
-        borderLeft: grouped ? `3px solid ${C.blue}` : undefined }}>
+        borderLeft: grouped ? `3px solid ${hue}` : undefined }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 12px 11px 13px" }}>
           {!grouped && <span style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0,
-            background: slot.role === "main" ? C.red : C.blue, boxShadow: `0 0 10px ${slot.role === "main" ? C.red : C.blue}66` }} />}
-          {grouped && <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: C.blue, flexShrink: 0, width: 20 }}>{tag}</span>}
+            background: hue, boxShadow: `0 0 10px ${tint(hue, 0.5)}` }} />}
+          {grouped && <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: hue, flexShrink: 0, width: 20 }}>{tag}</span>}
           <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, flex: 1, background: "none", border: "none",
             padding: 0, textAlign: "left", color: C.text, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
             <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
@@ -2754,7 +2757,7 @@ function loggedOn(state, dateStr) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
-function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
+function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays, state }) {
   const cells = monthGrid(y, m);
   const todayS = todayStr();
   const navBtn = { width: 34, height: 34, borderRadius: R.pill, border: `1px solid ${C.line}`,
@@ -2783,7 +2786,11 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
           const ds = dateStrFromTs(d.getTime());
           const isToday = ds === todayS;
           const isSel = ds === sel;
-          const planned = ((program.days || {})[ds] || []).length;
+          const slots = (program.days || {})[ds] || [];
+          const planned = slots.length;
+          // One dot per movement, in that movement's colour, capped at three. A month
+          // of this and you read your own split off the calendar without labels.
+          const hues = slots.slice(0, 3).map((sl) => hueFor(sl.ex, state));
           const did = loggedDays[ds] || 0;
           return (
             <button key={i} onClick={() => onSel(ds)} style={{
@@ -2797,7 +2804,9 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
               <span>{d.getDate()}</span>
               <span style={{ display: "flex", gap: 2, height: 4, alignItems: "center" }}>
                 {did ? <span style={{ width: 4, height: 4, borderRadius: 99, background: isSel ? "#fff" : C.good }} /> : null}
-                {planned && !did ? <span style={{ width: 4, height: 4, borderRadius: 99, background: isSel ? "#fff" : C.blue }} /> : null}
+                {!did && hues.map((h, k) => (
+                  <span key={k} style={{ width: 4, height: 4, borderRadius: 99, background: isSel ? "#fff" : h }} />
+                ))}
               </span>
             </button>
           );
@@ -2808,7 +2817,10 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays }) {
           <span style={{ width: 5, height: 5, borderRadius: 99, background: C.good }} /> trained
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: C.faint }}>
-          <span style={{ width: 5, height: 5, borderRadius: 99, background: C.blue }} /> planned
+          <span style={{ display: "inline-flex", gap: 2 }}>
+            <span style={{ width: 5, height: 5, borderRadius: 99, background: C.red }} />
+            <span style={{ width: 5, height: 5, borderRadius: 99, background: C.violet }} />
+          </span> planned, by lift
         </span>
       </div>
     </Card>
@@ -3078,6 +3090,16 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
     setSelDate(addDays(sel, n));
   };
 
+  // "Done" counts planned days you actually logged something on, not every day you
+  // trained — a session you did off-plan is training, but it is not this block.
+  const blockStats = (() => {
+    const keys = Object.keys(days).sort();
+    const done = keys.filter((k) => k <= todayStr() && loggedOn(state, k).length > 0).length;
+    const fmtD = (k) => dayStart(k).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return { planned: keys.length, done, week: weekNoFor(program, todayStr()),
+      span: keys.length ? `${fmtD(keys[0])} – ${fmtD(keys[keys.length - 1])}` : "" };
+  })();
+
   const shift = (d) => setCur((c) => { const n = new Date(c.y, c.m + d, 1); return { y: n.getFullYear(), m: n.getMonth() }; });
   const jumpToday = () => { const d = new Date(); setCur({ y: d.getFullYear(), m: d.getMonth() }); setSelDate(todayStr()); };
 
@@ -3100,9 +3122,31 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
             {program.active ? <><Check size={15} /> Running</> : "Paused"}
           </Btn>
         </div>
-        <div style={{ display: "flex", gap: 14, marginTop: 13, alignItems: "center" }}>
+        {/* A block has a shape — how long, how far in, how much of it you actually did.
+            The header said none of that, so it was the one card on the screen carrying
+            no information. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 15 }}>
+          <Ring value={blockStats.done} max={Math.max(1, blockStats.planned)} size={62} stroke={6} color={C.red}>
+            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" }}>
+              {blockStats.planned ? Math.round((blockStats.done / blockStats.planned) * 100) : 0}
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 7.5, color: C.faint, fontWeight: 600 }}>%</span>
+          </Ring>
+          <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
+            {[["Week", blockStats.week > 0 ? String(blockStats.week) : "—"],
+              ["Done", String(blockStats.done)],
+              ["Planned", String(blockStats.planned)]].map(([k, v], i) => (
+              <div key={k} style={{ flex: 1, minWidth: 0, paddingLeft: i ? 11 : 0,
+                borderLeft: i ? `1px solid ${C.line}` : "none", marginLeft: i ? 11 : 0 }}>
+                <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 700, letterSpacing: "-0.02em" }}>{v}</div>
+                <div style={{ ...label2, color: C.faint, marginTop: 3 }}>{k}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
           <span style={{ fontSize: 11.5, color: C.faint }}>
-            {Object.keys(days).length} day{Object.keys(days).length === 1 ? "" : "s"} planned
+            {blockStats.span || "Nothing scheduled yet"}
           </span>
           <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
             fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>Reset</button>
@@ -3124,7 +3168,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
       )}
 
       <MonthCalendar y={cur.y} m={cur.m} sel={sel} onSel={pickDay} onShift={shift}
-        program={program} loggedDays={loggedDays} />
+        program={program} loggedDays={loggedDays} state={state} />
 
       <div>
         <SectionHead accent={C.amber} right={
@@ -3157,7 +3201,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
         )}
 
         {decorateSlots(slots).map((d) => (
-          <SlotCard key={d.sl.id} slot={d.sl} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+          <SlotCard key={d.sl.id} slot={d.sl} state={state} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
             groupLast={d.last} rounds={d.rounds}
             canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
             onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
@@ -4196,15 +4240,19 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
       <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
         sel={cur} unit={unit} todaySlots={[]} onPick={setSel} onCreate={setSel} />
 
-      <Card glow={`radial-gradient(120% 90% at 50% -10%, ${C.blue}1F, transparent 70%)`}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
-          {[["Current 1RM", model.e1rm, C.text], ["Best", best, C.text],
-            ["30-day", delta, delta > 0 ? C.good : delta < 0 ? C.red : C.text]].map(([l, v, col]) => (
-            <div key={l} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
-              borderRadius: 14, padding: "11px 12px" }}>
-              <div style={{ ...label, fontSize: 8.5 }}>{l}</div>
-              <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, marginTop: 4, color: col,
-                letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
+      <Card accent={hueFor(cur, state)}
+        glow={`radial-gradient(120% 90% at 50% -10%, ${tint(hueFor(cur, state), 0.13)}, transparent 70%)`}>
+        {/* Current sits against best and against the month's move, so the headline
+            number always has something to be read against. */}
+        <div style={{ display: "flex", marginBottom: 16 }}>
+          {[["Current 1RM", model.e1rm, hueFor(cur, state), true],
+            ["Best", best, C.text, false],
+            ["30-day", delta, delta > 0 ? C.good : delta < 0 ? C.red : C.muted, false]].map(([l, v, col, lead], i) => (
+            <div key={l} style={{ flex: 1, minWidth: 0, paddingLeft: i ? 12 : 0, marginLeft: i ? 12 : 0,
+              borderLeft: i ? `1px solid ${C.line}` : "none" }}>
+              <div style={{ ...label2, color: C.faint }}>{l}</div>
+              <div style={{ fontFamily: MONO, fontSize: lead ? 25 : 19, fontWeight: 700, marginTop: 6, color: col,
+                letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
                 {l === "30-day" && v != null && v > 0 ? "+" : ""}{v != null ? fmt(v) : "—"}
               </div>
             </div>
