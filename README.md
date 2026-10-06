@@ -2,5 +2,4 @@
 
 Also in this repo:
 
-- **[Reel Royale](reel-royale/)**: a movie-night party game. Toss movies in a hat, vote head-to-head, and crown tonight's movie.
-- **[Beat Royale](beat-royale/)**: the music version. Battle songs, albums or artists head-to-head with 30-second previews.
+- **[Party Royale](party-royale/)**: a party game for movie nights and music battles. Everyone tosses movies (or songs, albums, artists) in a hat, the group votes head-to-head, and the last one standing is crowned.

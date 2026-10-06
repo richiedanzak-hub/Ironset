@@ -1,22 +1,14 @@
 # One-click deploy on Render: New -> Blueprint -> pick this repo.
-# Reel Royale is the movie game (reel-royale/), Beat Royale the music game (beat-royale/).
+# Party Royale (party-royale/) is the movie night + music battle party game.
 services:
   - type: web
-    name: reel-royale
+    name: party-royale
     runtime: node
     plan: free
-    rootDir: reel-royale
+    rootDir: party-royale
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /api/config
     envVars:
       - key: TMDB_API_KEY
         sync: false
-  - type: web
-    name: beat-royale
-    runtime: node
-    plan: free
-    rootDir: beat-royale
-    buildCommand: npm install
-    startCommand: node server.js
-    healthCheckPath: /api/config

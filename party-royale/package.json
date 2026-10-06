@@ -1,0 +1,16 @@
+{
+  "name": "party-royale",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Toss movies or music in a hat, vote head-to-head, and crown a champion. A party game for movie nights and music battles.",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  }
+}

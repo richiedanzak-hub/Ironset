@@ -1,0 +1,10 @@
+{
+  "name": "Party Royale",
+  "short_name": "Party Royale",
+  "description": "Toss movies or songs in the hat, battle them head-to-head, and crown the winner of the night.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0726",
+  "theme_color": "#0f0726",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
