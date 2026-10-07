@@ -7,7 +7,8 @@ import { Lobby, RulesCard, ShareBody } from './lobby.js';
 import { Submit } from './submit.js';
 import { Battle } from './battle.js';
 import { Final } from './final.js';
-import { QuizFinal, QuizGame, QuizLobby, QuizRules } from './quiz.js';
+import { QuizFinal, QuizGame, QuizIntro, QuizLobby, QuizRules } from './quiz.js';
+import { GuideSheet, guideFor } from './howto.js';
 import { Past } from './past.js';
 import { sfx } from './sfx.js';
 
@@ -76,6 +77,7 @@ function MenuSheet({ open, onClose, show, leave, go }) {
   return html`<${Sheet} open=${open} onClose=${onClose} title="Menu">
     <div class="menu-list">
       <button class="menu-item" onClick=${() => show('share')}><span class="ic">🎟️</span>Invite people</button>
+      <button class="menu-item" onClick=${() => show('guide')}><span class="ic">❓</span>How to play</button>
       ${canRules ? html`<button class="menu-item" onClick=${() => show('rules')}><span class="ic">📜</span>House rules</button>` : null}
       <button class="menu-item" onClick=${() => setMuted(sfx.toggle())}><span class="ic">${muted ? '🔇' : '🔊'}</span>Sound ${muted ? 'off' : 'on'}</button>
       ${view.phase === 'lobby' || view.phase === 'final'
@@ -167,7 +169,9 @@ function Party({ code, go }) {
 
   const ctx = { view, act, code, sess, offset, status };
   const quiz = view.game === 'quiz';
-  const Screen = quiz ? { lobby: QuizLobby, quiz: QuizGame, final: QuizFinal }[view.phase] : { lobby: Lobby, submit: Submit, battle: Battle, final: Final }[view.phase];
+  const Screen = quiz
+    ? { lobby: QuizLobby, quiz: view.quiz?.stage === 'intro' ? QuizIntro : QuizGame, final: QuizFinal }[view.phase]
+    : { lobby: Lobby, submit: Submit, battle: Battle, final: Final }[view.phase];
   return html`<${GameCtx.Provider} value=${ctx}>
     <main class="app">
       <${TopBar} open=${setSheet} />
@@ -176,6 +180,7 @@ function Party({ code, go }) {
     <${Sheet} open=${sheet === 'share'} onClose=${() => setSheet(null)} title="Invite the crew"><${ShareBody} code=${code} /></${Sheet}>
     <${Sheet} open=${sheet === 'rules'} onClose=${() => setSheet(null)} title=${quiz ? 'Quiz rules' : 'House rules'}>${quiz ? html`<${QuizRules} />` : html`<${RulesCard} />`}</${Sheet}>
     <${CrewSheet} open=${sheet === 'crew'} onClose=${() => setSheet(null)} />
+    <${GuideSheet} part=${guideFor(view)} open=${sheet === 'guide'} onClose=${() => setSheet(null)} />
     <${MenuSheet} open=${sheet === 'menu'} onClose=${() => setSheet(null)} show=${setSheet} leave=${leave} go=${go} />
   </${GameCtx.Provider}>`;
 }

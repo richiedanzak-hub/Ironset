@@ -7,6 +7,7 @@ import { Avatar, Confetti, Countdown, Cover, PlayButton, Seg, Sheet, ThemeBanner
 import { ShareBody, ThemePicker, WhosHere } from './lobby.js';
 import { Podium } from './final.js';
 import { saveParty } from './past.js';
+import { Guide, GuideSheet, markSeen, useGuide } from './howto.js';
 import { sfx } from './sfx.js';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
@@ -330,6 +331,51 @@ function Bet({ q, meId, act }) {
   </div>`;
 }
 
+// Before the first song: how to play, on every phone. It starts when every
+// guest taps "I'm ready", or when the host starts it.
+export function QuizIntro() {
+  const { view, act, code } = useGame();
+  const q = view.quiz;
+  const me = view.players.find((p) => p.id === view.me.id);
+  const host = view.players.find((p) => p.host);
+  const here = view.players.filter((p) => p.online);
+  const guests = here.filter((p) => !p.host);
+  const readyCount = guests.filter((p) => p.voted).length;
+  useEffect(() => markSeen(code, 'quiz'), []);
+  const ready = () => {
+    sfx.pop();
+    act({ type: 'ready' });
+  };
+  const start = () => {
+    sfx.whoosh();
+    act({ type: 'next', round: 0, stage: 'intro' });
+  };
+  return html`<div class="quiz">
+    <p class="eyebrow">🎤 Who sings it? · ${q.total} songs${q.finale ? ' + a finale' : ''}</p>
+    <h1 class="screen-title">How to play</h1>
+    <p class="screen-sub">Have a quick read: the first song starts when everyone's ready.</p>
+    <div class="section"><${Guide} part="quiz" /></div>
+    <div class="voters">
+      <p class="small muted" style=${{ fontWeight: 800 }}>${guests.length ? `${readyCount} of ${guests.length} ready` : 'Just you so far'}</p>
+      <div class="face-row">
+        ${here.map((p) => html`<${Avatar} key=${p.id} p=${p} size=${36} className=${p.voted ? '' : 'waiting'} badge=${p.voted ? '✓' : null} />`)}
+      </div>
+    </div>
+    <div class="dock">
+      ${view.me.host
+        ? html`<div>
+            <button class="btn btn-gold btn-block btn-xl" onClick=${start}>▶ Start the first song</button>
+            <p class="dock-note">${guests.length
+              ? readyCount === guests.length ? "Everyone's ready!" : `${readyCount} of ${guests.length} ready. It starts by itself once everyone is.`
+              : 'Playing solo? Start whenever you like.'}</p>
+          </div>`
+        : me?.voted
+          ? html`<div class="card center" style=${{ padding: '14px' }}><strong class="dots">✓ You're ready! Waiting for ${guests.length - readyCount ? 'the others' : host ? host.name : 'the host'}</strong></div>`
+          : html`<button class="btn btn-hot btn-block btn-xl" onClick=${ready}>I'm ready! 🙌</button>`}
+    </div>
+  </div>`;
+}
+
 export function QuizGame() {
   const { view, act, code, sess, offset } = useGame();
   const q = view.quiz;
@@ -341,6 +387,8 @@ export function QuizGame() {
   const [alsoHere, setAlsoHere] = useState(false); // play on this phone too, when the host's phone is the speaker
   const [blocked, setBlocked] = useState(false); // the phone wants a tap before it plays
   const [typing, setTyping] = useState(false); // the answer box has the keyboard up
+  // Joined after the how-to-play screen? It shows between songs instead.
+  const [guide, setGuide] = useGuide('quiz', { auto: q.stage === 'reveal' });
   const urls = useRef({});
   const host = view.players.find((p) => p.host);
   const listen = s.sound === 'all' || view.me.host || alsoHere;
@@ -506,7 +554,9 @@ export function QuizGame() {
     <${Sheet} open=${sheet} onClose=${() => setSheet(false)} title="🏅 Scores">
       <${Standings} scores=${q.scores} meId=${meId} />
       <p class="small muted" style=${{ marginTop: '14px' }}>✓ 100 for a right answer, plus up to 50 for speed${s.answers === 'type' ? ' · 💡 half with a hint' : ''}${q.finale ? ' · 💰 the last song is double or nothing' : ''}</p>
+      <button class="chip soft" style=${{ marginTop: '12px' }} onClick=${() => (setSheet(false), setGuide(true))}>❓ How to play</button>
     </${Sheet}>
+    <${GuideSheet} part="quiz" open=${guide} onClose=${() => setGuide(false)} />
   </div>`;
 }
 

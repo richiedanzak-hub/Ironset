@@ -15,6 +15,7 @@
 // them to `startQuiz`. Views never include an answer before its reveal.
 //
 // Phases:  lobby -> quiz -> final
+//   First:      intro (how to play, until every guest is ready or the host starts)
 //   Each song:  play (a 3-2-1, then answers open) -> reveal
 //   Before the last song, with the finale on:  wager
 
@@ -177,7 +178,8 @@ export function startQuiz(room, songs, now, rng = Math.random) {
     total,               // songs before the finale
     finale,              // a double-or-nothing song comes last
     round: 0,
-    stage: 'play',       // 'play' -> 'reveal' (and 'wager' before the final song)
+    stage: 'intro',      // 'intro' (how to play) -> 'play' -> 'reveal' (and 'wager' before the final song)
+    ready: {},           // pid -> true: read how to play and ready for the first song
     ask: null,           // 'artist' | 'song' for this round
     finalAsk: null,      // the final song's question, announced while betting
     options: [],
@@ -192,7 +194,6 @@ export function startQuiz(room, songs, now, rng = Math.random) {
     startedAt: now,
   };
   for (const p of Object.values(room.players)) p.ready = false;
-  beginRound(room, now, rng);
 }
 
 function beginRound(room, now, rng) {
@@ -284,6 +285,15 @@ export function settleQuiz(room, now, rng = Math.random) {
   const q = room.quiz;
   if (room.phase !== 'quiz' || !q) return false;
   const people = here(room);
+  if (q.stage === 'intro') {
+    // The host starts it whenever they like; it also starts once every guest
+    // has read how to play.
+    const guests = people.filter((p) => p.id !== room.hostId);
+    if (guests.length > 0 && guests.every((p) => q.ready[p.id])) {
+      beginRound(room, now, rng);
+      return true;
+    }
+  }
   if (q.stage === 'play') {
     const all = people.length > 0 && people.every((p) => q.answers[p.id]);
     if (all || now >= q.endsAt) {
@@ -307,6 +317,7 @@ export function forgetPlayer(room, pid) {
   delete room.quiz.answers[pid];
   delete room.quiz.wagers[pid];
   delete room.quiz.hints[pid];
+  delete room.quiz.ready[pid];
 }
 
 const requireHost = (room, pid) => {
@@ -328,6 +339,13 @@ export function quizAct(room, pid, action, now, rng = Math.random) {
     case 'rematch':
       // The server finds the songs first and then calls startQuiz.
       throw new GameError('Hang on, still picking the songs', 409);
+
+    case 'ready': {
+      // Read how to play: ready for the first song.
+      if (room.phase !== 'quiz' || q.stage !== 'intro') return {};
+      q.ready[pid] = true;
+      return {};
+    }
 
     case 'hint': {
       // The four choices, for half the points.
@@ -365,7 +383,8 @@ export function quizAct(room, pid, action, now, rng = Math.random) {
       // answers or bets early. The round and stage make a double tap harmless.
       requireHost(room, pid);
       if (room.phase !== 'quiz' || action.round !== q.round || action.stage !== q.stage) return {};
-      if (q.stage === 'play') reveal(room, now);
+      if (q.stage === 'intro') beginRound(room, now, rng);
+      else if (q.stage === 'play') reveal(room, now);
       else if (q.stage === 'wager') beginRound(room, now, rng);
       else if (q.stage === 'reveal') {
         if (q.round < q.total) beginRound(room, now, rng);
@@ -429,6 +448,7 @@ function scoreboard(room) {
 export const quizDone = (room, pid) => {
   const q = room.quiz;
   if (room.phase !== 'quiz' || !q) return false;
+  if (q.stage === 'intro') return pid === room.hostId || !!q.ready[pid];
   if (q.stage === 'play') return !!q.answers[pid];
   if (q.stage === 'wager') return q.wagers[pid] != null;
   return false;

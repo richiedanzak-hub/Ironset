@@ -29,6 +29,8 @@ The **🗂️ The bracket** and **🏅 Scores** buttons show where things stand 
 
 Everyone plays on their own phone. The host sends a link (or shows a QR code), and people join by typing their name. There are no accounts or app downloads.
 
+**How to play, built in.** Each part of a game opens with a short guide on every phone: the steps, tonight's theme, how scoring works and how to win, written for the house rules the host picked. Battles show one while everyone fills the hat and another when the battle starts; Who sings it? shows one just before the first song, which starts once every guest taps "I'm ready" (or when the host starts it). Any guide can be opened again from ❓ How to play.
+
 ## 🎤 Who sings it?
 
 A separate game from the battles: no hat, no picks. The game brings the songs.

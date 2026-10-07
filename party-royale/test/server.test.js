@@ -270,7 +270,10 @@ test('who sings it: the server finds the songs, plays clips, and never sends the
     assert.equal(room.phase, 'quiz');
 
     const view = await openStream(host.code, dad, at);
-    const v = await view.next((x) => x.phase === 'quiz');
+    const intro = await view.next((x) => x.phase === 'quiz');
+    assert.equal(intro.quiz.stage, 'intro', 'how to play comes first');
+    await act(host, { type: 'next', round: 0, stage: 'intro' });
+    const v = await view.next((x) => x.quiz?.stage === 'play');
     view.close();
     assert.deepEqual(v.quiz.options, [], 'type the answer: no choices unless you ask for a hint');
     assert.ok(!JSON.stringify(v).includes('Tune 0'), 'the title stays on the server');

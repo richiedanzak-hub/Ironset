@@ -3,6 +3,7 @@
 // everyone also guesses who picked what.
 import { html, useState, useEffect, useRef } from './lib.js';
 import { Avatar, Countdown, Cover, PlayButton, Sheet, bracketProgress, bracketRoundName, durationText, places, isMovie, itemMeta, noun, playAll, prefetchPreviews, runtimeText, stopPreview, useGame } from './ui.js';
+import { GuideSheet, useGuide } from './howto.js';
 import { sfx } from './sfx.js';
 
 const names = (people) => {
@@ -335,6 +336,7 @@ export function Battle() {
   const prog = br ? bracketProgress(br, at.r, at.k) : null;
   const [drawSeen, setDrawSeen] = useState(0); // round whose tie-break animation we've shown
   const [intro, setIntro] = useState(() => b.round === 1 && b.stage !== 'result' && Date.now() + offset.current - b.startedAt < 3000);
+  const [guide, setGuide] = useGuide('battle', { delay: intro ? 2900 : 300 });
   const lastRound = useRef(b.round);
   const champs = b.champions;
   const champRound = champs ? b.round - champs.from + 1 : 0;
@@ -443,12 +445,11 @@ export function Battle() {
       <span class="pill">${br ? `⚔️ ${b.left} ${b.left === 1 ? 'matchup' : 'matchups'} left` : champs ? `👑 ${b.left} more ${b.left === 1 ? 'champ' : 'champs'}` : `🎩 ${b.left} left`}</span>
     </div>
     <div class="progress ${champs ? 'gold' : ''}"><i style=${{ width: `${Math.max(4, (done / outOf) * 100)}%` }} /></div>
-    ${br || scoring
-      ? html`<div class="battle-tools">
-          ${br ? html`<button class="chip soft" onClick=${() => setSheet('bracket')}>🗂️ The bracket</button>` : null}
-          ${scoring ? html`<button class="chip soft" onClick=${() => setSheet('scores')}>🏅 Scores</button>` : null}
-        </div>`
-      : null}
+    <div class="battle-tools">
+      ${br ? html`<button class="chip soft" onClick=${() => setSheet('bracket')}>🗂️ The bracket</button>` : null}
+      ${scoring ? html`<button class="chip soft" onClick=${() => setSheet('scores')}>🏅 Scores</button>` : null}
+      <button class="chip soft" onClick=${() => (sfx.tap(), setGuide(true))}>❓ How it works</button>
+    </div>
 
     ${revealed
       ? html`<div class="banner" key=${`b${b.round}`}>
@@ -543,5 +544,6 @@ export function Battle() {
       ? html`<${ChampionsIntro} items=${champs.ids.map((id) => E[id])} kind=${view.settings.kind} onDone=${() => setChampIntro(false)} />`
       : null}
     <${ItemInfo} item=${info} onClose=${() => setInfo(null)} />
+    <${GuideSheet} part="battle" open=${guide} onClose=${() => setGuide(false)} />
   </div>`;
 }

@@ -1395,3 +1395,23 @@ details.fold[open] summary .chev { transform: rotate(90deg); }
 .qz-mark { flex: none; font: 700 1rem var(--font-display); }
 .qz-answer-row.good .qz-mark { color: #bbf7d0; }
 .qz-answer-row.bad .qz-mark { color: #fecdd3; }
+
+/* ---------------------------------------------------------------- how to play */
+
+.howto { display: flex; flex-direction: column; gap: 14px; }
+.howto-steps { gap: 14px; }
+.howto-steps .how-num { width: 46px; height: 46px; font-size: 22px; border-radius: 16px; }
+.howto-steps .how-step { align-items: flex-start; }
+.howto-steps .how-step strong { margin-top: 2px; }
+.howto-steps .how-step span { display: block; line-height: 1.35; }
+.howto-box { padding: 14px 16px; border-radius: 20px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+.howto-box h3 { margin: 0 0 8px; font: 700 1.1rem var(--font-display); }
+.howto-box p { margin: 6px 0 0; font-weight: 700; color: var(--muted); line-height: 1.4; }
+.howto-box p:first-of-type { margin-top: 0; }
+.howto-pts { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.howto-pts + .howto-pts { border-top: 1px solid var(--line); }
+.howto-pts b { flex: none; min-width: 48px; text-align: center; padding: 3px 8px; border-radius: 99px; font: 700 0.95rem var(--font-display); color: var(--gold); background: rgba(252, 211, 77, 0.12); border: 1px solid rgba(252, 211, 77, 0.35); }
+.howto-pts span { font-weight: 700; font-size: 0.9rem; }
+.howto-box.win { border-color: rgba(252, 211, 77, 0.45); background: rgba(252, 211, 77, 0.07); }
+.howto-box.win p { color: var(--text); }
+.howto-chip { margin-top: 10px; }

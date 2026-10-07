@@ -4,6 +4,7 @@ import { request } from './api.js';
 import { Avatar, Countdown, Cover, PlayButton, ThemeBanner, findPick, itemKey, itemMeta, noun, stopPreview, themeRule, toast, useGame } from './ui.js';
 import { IdeasSheet } from './ideas.js';
 import { MovieIdeasSheet } from './movie-ideas.js';
+import { GuideSheet, useGuide } from './howto.js';
 import { sfx } from './sfx.js';
 
 const itemFields = (m) => ({
@@ -147,6 +148,7 @@ export function Submit() {
   const me = view.players.find((p) => p.id === view.me.id);
   const mine = view.mine;
   const [ideas, setIdeas] = useState(false);
+  const [guide, setGuide] = useGuide('fill', { delay: 400 });
   useEffect(() => stopPreview, []);
   const full = s.maxPerPlayer > 0 && mine.length >= s.maxPerPlayer;
   const need = Math.max(0, s.minPerPlayer - mine.length);
@@ -199,6 +201,7 @@ export function Submit() {
 
     <h1 class="screen-title section" style=${{ marginTop: '22px' }}>Toss in your ${noun(s.kind, 2)}</h1>
     <p class="screen-sub">${limitText}. Your picks stay secret until they're drawn 🤫</p>
+    <button class="chip soft howto-chip" onClick=${() => (sfx.tap(), setGuide(true))}>❓ How to play</button>
     ${s.theme ? html`<div class="section" style=${{ marginTop: '14px' }}><${ThemeBanner} theme=${s.theme} sub=${rule || 'Keep it on theme!'} /></div>` : null}
 
     <div class="stack section" style=${{ marginTop: '16px' }}>
@@ -284,5 +287,6 @@ export function Submit() {
       onRemove=${remove}
       countText=${`${mine.length}${s.maxPerPlayer ? ` of ${s.maxPerPlayer}` : ''} picked`}
     />
+    <${GuideSheet} part="fill" open=${guide} onClose=${() => setGuide(false)} />
   </div>`;
 }

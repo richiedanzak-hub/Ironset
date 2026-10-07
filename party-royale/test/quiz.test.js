@@ -26,9 +26,11 @@ const song = (i, extra = {}) => ({
 });
 const songs = (n) => Array.from({ length: n }, (_, i) => song(i + 1));
 
+// Starts the quiz and skips the how-to-play screen (the host starts the first song).
 function begin(room, ids, list, t = T0) {
   game.prepareQuiz(room, ids[0], t);
   game.playQuiz(room, list, t, rng);
+  game.act(room, ids[0], { type: 'next', round: 0, stage: 'intro' }, t, rng);
 }
 
 const answer = (room, pid, choice, t) => game.act(room, pid, { type: 'answer', round: room.quiz.round, choice }, t, rng);
@@ -76,6 +78,42 @@ test('the host starts it, the server brings the songs, and nobody can sneak song
   assert.equal(q.endsAt, q.startsAt + 20_000);
   assert.equal(q.options.length, 4);
   assert.ok(q.options.includes('Singer 1'));
+});
+
+test('how to play comes first, until every guest is ready or the host starts the first song', () => {
+  const { room, ids } = party();
+  game.prepareQuiz(room, ids[0], T0);
+  game.playQuiz(room, songs(4), T0, rng);
+  const q = room.quiz;
+  assert.equal(q.stage, 'intro');
+  assert.equal(q.round, 0);
+  const v = game.viewFor(room, ids[1], T0);
+  assert.equal(v.quiz.stage, 'intro');
+  assert.deepEqual(v.quiz.options, []);
+  assert.throws(() => game.act(room, ids[1], { type: 'answer', round: 0, choice: 'x' }, T0), /closed/);
+  game.act(room, ids[1], { type: 'ready' }, T0, rng);
+  assert.equal(q.stage, 'intro');
+  assert.equal(game.viewFor(room, ids[2], T0).quiz.done, 2, 'faces show who is ready (the host counts)');
+  assert.equal(game.viewFor(room, ids[2], T0).players.find((p) => p.id === ids[1]).voted, true);
+  game.act(room, ids[2], { type: 'ready' }, T0 + 5000, rng);
+  assert.equal(q.stage, 'play', 'everyone is ready: the first song');
+  assert.equal(q.round, 1);
+  assert.equal(q.startsAt, T0 + 5000 + COUNTDOWN_MS, 'after a 3-2-1');
+
+  // The host doesn't have to wait for everyone.
+  const other = party(['Mom', 'Dad']);
+  game.prepareQuiz(other.room, other.ids[0], T0);
+  game.playQuiz(other.room, songs(3), T0, rng);
+  assert.throws(() => game.act(other.room, other.ids[1], { type: 'next', round: 0, stage: 'intro' }, T0), /Only the host/);
+  game.act(other.room, other.ids[0], { type: 'next', round: 0, stage: 'intro' }, T0, rng);
+  assert.equal(other.room.quiz.stage, 'play');
+
+  // Playing alone: nobody else to wait for, but it doesn't skip the guide.
+  const solo = party(['Mom']);
+  game.prepareQuiz(solo.room, solo.ids[0], T0);
+  game.playQuiz(solo.room, songs(3), T0, rng);
+  game.tick(solo.room, T0 + 1000, rng);
+  assert.equal(solo.room.quiz.stage, 'intro');
 });
 
 test('a round: answers stay secret, right ones score more when fast, then the reveal', () => {
