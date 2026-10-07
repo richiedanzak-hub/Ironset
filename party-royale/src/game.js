@@ -18,7 +18,7 @@
 //           classic  king of the hill: the winner stays on and faces the next
 //                    pick drawn from the hat. With the champions round on,
 //                    every pick that won a matchup then goes again.
-//           In the points game, players also guess who picked each pick.
+//           Players score by how far the picks they put in the hat get.
 //   final   the last pick standing is crowned, and the points are counted
 
 import { randomBytes } from 'node:crypto';
@@ -41,14 +41,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   themeStrict: true,   // true = picks outside the theme's genre or decade are turned away (checked by the server)
   champions: false,    // classic only: every pick that won a matchup battles again at the end
   format: 'bracket',   // 'bracket' (pair off, winners move on) | 'classic' (king of the hill)
-  scoring: true,       // points game: guess who picked what, and score when your picks win
 });
 
-// The points game.
+// Points: how far the picks you put in the hat get.
 export const POINTS = {
-  guess: 1,    // guessed who picked it
-  win: 2,      // your pick won a matchup
-  champ: 3,    // your pick is the champion
+  win: 1,      // each matchup one of your picks wins
+  champ: 3,    // bonus when your pick is the champion
 };
 
 export const KINDS = ['movie', 'song', 'album', 'artist'];
@@ -181,7 +179,6 @@ export function cleanSettings(current, patch) {
   if (typeof p.champions === 'boolean') next.champions = p.champions;
   if (typeof p.themeStrict === 'boolean') next.themeStrict = p.themeStrict;
   if (FORMATS.includes(p.format)) next.format = p.format;
-  if (typeof p.scoring === 'boolean') next.scoring = p.scoring;
   return next;
 }
 
@@ -342,7 +339,6 @@ function removePlayer(room, pid, now, rng) {
   }
   if (room.battle) {
     delete room.battle.votes[pid];
-    delete room.battle.guesses[pid];
   }
   forgetPlayer(room, pid);
   if (room.hostId === pid) {
@@ -419,39 +415,17 @@ function nextBracketPair(br) {
 
 // ---------------------------------------------------------------- matchups
 
-const isFresh = (b, id) => !b.seen.includes(id);
-const owns = (room, pid, id) => !!room.entries[id]?.by.includes(pid);
-
-// What a player still has to do before the matchup can move on.
-function todo(room, pid) {
-  const b = room.battle;
-  if (b.stage !== 'voting') return 0;
-  let left = b.votes[pid] ? 0 : 1;
-  if (room.settings.scoring) {
-    left += b.fighters.filter((id) => isFresh(b, id) && !owns(room, pid, id) && !b.guesses[pid]?.[id]).length;
-  }
-  return left;
-}
+const hasVoted = (room, pid) => room.battle.stage === 'voting' && !!room.battle.votes[pid];
 
 function beginMatchup(room, fighters, now) {
   const b = room.battle;
   b.round += 1;
   b.fighters = fighters;
   b.votes = {};
-  b.guesses = {};
   b.result = null;
   b.stage = 'voting';
   b.endsAt = voteDeadline(room, now);
 }
-
-const addPoints = (b, pid, kind, n, scored) => {
-  const p = (b.points[pid] ||= { guess: 0, win: 0, champ: 0 });
-  p[kind] += n;
-  if (scored) {
-    const s = (scored[pid] ||= { guess: 0, win: 0, champ: 0 });
-    s[kind] += n;
-  }
-};
 
 function startBattle(room, now, rng) {
   const s = room.settings;
@@ -475,15 +449,12 @@ function startBattle(room, now, rng) {
     challenger: null,      // classic: the pick drawn most recently
     stage: 'voting',       // 'voting' -> 'result'
     votes: {},
-    guesses: {},           // pid -> { entryId: who they think picked it }
     endsAt: null,
     result: null,
     history: [],
     wins: {},
     champions: null,       // classic: { from: round, ids } once the champions round starts
     bracket: s.format === 'bracket' ? seedBracket(order) : null,
-    points: {},            // pid -> { guess, win, champ }
-    seen: [],              // picks that have been in a matchup (and so were revealed)
     startedAt: now,
   });
   for (const p of playerList(room)) p.ready = false;
@@ -547,20 +518,6 @@ function closeVoting(room, now, rng) {
   if (winner) b.wins[winner] = (b.wins[winner] || 0) + 1;
   const tied = leaders.length > 1 ? leaders : null;
 
-  // Points: right guesses on who picked the new picks, and a win for the
-  // winner's picker(s).
-  const scored = {};
-  const guessed = {};
-  if (s.scoring) {
-    for (const id of fighters.filter((f) => isFresh(b, f))) {
-      const right = Object.keys(b.guesses).filter((pid) => room.players[pid] && owns(room, b.guesses[pid][id], id));
-      for (const pid of right) addPoints(b, pid, 'guess', POINTS.guess, scored);
-      guessed[id] = right;
-    }
-    if (winner) for (const pid of room.entries[winner].by) addPoints(b, pid, 'win', POINTS.win, scored);
-  }
-  for (const id of fighters) if (isFresh(b, id)) b.seen.push(id);
-
   let last;
   let toChampions = 0;
   if (b.bracket) {
@@ -575,9 +532,7 @@ function closeVoting(room, now, rng) {
     toChampions = champions >= 2 ? champions : 0;
     last = empty && !toChampions;
   }
-  if (last && s.scoring) for (const pid of room.entries[winner].by) addPoints(b, pid, 'champ', POINTS.champ, scored);
-
-  b.result = { winner, losers, survivors, tied, tally, votes, method, last, toChampions, guessed, guesses: b.guesses, scored };
+  b.result = { winner, losers, survivors, tied, tally, votes, method, last, toChampions };
   b.history.push({
     round: b.round, fighters: [...fighters], champ: b.champ, winner, losers, survivors, tally, method,
     champions: !!b.champions, bracketRound: b.bracket ? b.bracket.at.r : null,
@@ -637,7 +592,7 @@ function settle(room, now, rng) {
   if (room.phase === 'battle' && room.battle.stage === 'voting') {
     const b = room.battle;
     const active = activePlayers(room);
-    const allDone = active.length > 0 && active.every((p) => todo(room, p.id) === 0);
+    const allDone = active.length > 0 && active.every((p) => b.votes[p.id]);
     if ((b.endsAt && now >= b.endsAt) || allDone) {
       closeVoting(room, now, rng);
       changed = true;
@@ -797,19 +752,6 @@ export function act(room, pid, action, now, rng = Math.random) {
       break;
     }
 
-    case 'guess': {
-      // Points game: who picked this one?
-      requirePhase(room, 'battle');
-      const b = room.battle;
-      if (!room.settings.scoring) throw new GameError('Guessing is off tonight');
-      if (b.stage !== 'voting' || action.round !== b.round) throw new GameError('Guessing for that matchup is closed', 409);
-      if (!b.fighters.includes(action.entryId) || !isFresh(b, action.entryId)) throw new GameError("You already know who picked that one");
-      if (owns(room, pid, action.entryId)) throw new GameError("That's your pick 🤫");
-      if (!room.players[action.playerId] || action.playerId === pid) throw new GameError('Pick someone else in the party');
-      (b.guesses[pid] ||= {})[action.entryId] = action.playerId;
-      break;
-    }
-
     case 'close': {
       requireHost(room, pid);
       requirePhase(room, 'battle');
@@ -958,33 +900,22 @@ function entryView(room, e, pid, showBy) {
   };
 }
 
-// The points game standings: everyone who played, most points first.
-function scoreboard(room) {
+// The standings: everyone who put something in the hat, with a point for
+// every matchup their picks won and a bonus if theirs is the champion.
+function standings(room) {
   const b = room.battle;
-  const ids = new Set([...room.order, ...Object.keys(b.points)]);
-  return [...ids]
-    .map((id) => {
-      const p = b.points[id] || { guess: 0, win: 0, champ: 0 };
-      return { ...personView(room, id), ...p, total: p.guess + p.win + p.champ };
-    })
-    .filter((r) => r.id)
-    .sort((x, y) => y.total - x.total || y.win + y.champ - (x.win + x.champ));
-}
-
-// Points = matchups won by the picks you put in the hat.
-function pickerBoard(room) {
-  const b = room.battle;
+  const champion = room.final?.winner || null;
   const score = new Map();
   for (const e of entryList(room)) {
     for (const pid of e.by) {
-      const cur = score.get(pid) || { points: 0, champ: false };
-      cur.points += b.wins[e.id] || 0;
-      if (room.final && room.final.winner === e.id) cur.champ = true;
+      const cur = score.get(pid) || { wins: 0, champ: false, best: null };
+      cur.wins += b.wins[e.id] || 0;
+      if (champion === e.id) cur.champ = true;
       score.set(pid, cur);
     }
   }
   return [...score.entries()]
-    .map(([pid, s]) => ({ ...personView(room, pid), ...s }))
+    .map(([pid, r]) => ({ ...personView(room, pid), wins: r.wins, champ: r.champ, points: r.wins * POINTS.win + (r.champ ? POINTS.champ : 0) }))
     .filter((r) => r.id)
     .sort((x, y) => y.points - x.points || Number(y.champ) - Number(x.champ));
 }
@@ -1015,9 +946,8 @@ export function viewFor(room, pid, now) {
       host: p.id === room.hostId,
       count: counts[p.id] || 0,
       ready: room.phase === 'submit' ? p.ready : false,
-      // Done with this matchup: voted (and guessed, in the points game).
-      // In the quiz: answered this song, or placed a bet.
-      voted: quiz ? quizDone(room, p.id) : room.phase === 'battle' && b.stage === 'voting' ? todo(room, p.id) === 0 : false,
+      // Voted in this matchup. In the quiz: answered this song, or placed a bet.
+      voted: quiz ? quizDone(room, p.id) : room.phase === 'battle' ? hasVoted(room, p.id) : false,
     })),
     hatCount: entryCount(room),
     mine: picksOf(room, pid)
@@ -1039,8 +969,7 @@ export function viewFor(room, pid, now) {
     // shows them all (that's the bracket).
     const listed = b.bracket || b.champions ? b.order : b.order.slice(0, b.next);
     const decided = new Set(b.history.flatMap((h) => h.fighters));
-    // In the points game, pickers are revealed after each matchup (guessing them is the game).
-    const reveal = s.scoring ? 'reveal' : s.reveal;
+    const reveal = s.reveal;
     const showBy = (id) => reveal === 'open' || (reveal === 'reveal' && (room.phase === 'final' || decided.has(id)));
     view.entries = Object.fromEntries(listed.map((id) => [id, entryView(room, room.entries[id], pid, showBy(id))]));
     const here = activePlayers(room);
@@ -1055,13 +984,10 @@ export function viewFor(room, pid, now) {
       champ: b.champ,
       challenger: b.challenger,
       bracket: b.bracket,
-      // Picks in this matchup for the first time (their pickers are still a secret).
-      fresh: b.stage === 'result' ? [] : b.fighters.filter((id) => isFresh(b, id)),
-      myGuesses: b.guesses[pid] || {},
       myVote: b.votes[pid] || null,
-      todo: room.phase === 'battle' ? todo(room, pid) : 0,
-      votedCount: here.filter((p) => todo(room, p.id) === 0).length,
-      scores: s.scoring ? scoreboard(room) : null,
+      votedCount: here.filter((p) => b.votes[p.id]).length,
+      // How far everyone's picks have got (only when pickers get revealed).
+      standings: s.reveal === 'hidden' ? null : standings(room),
       result: b.result
         ? { ...b.result, voters: Object.fromEntries(Object.keys(b.result.votes).map((id) => [id, personView(room, id)])) }
         : null,
@@ -1079,8 +1005,7 @@ export function viewFor(room, pid, now) {
     view.final = {
       winner: room.final.winner,
       at: room.final.at,
-      pickers: s.reveal === 'hidden' && !s.scoring ? null : pickerBoard(room),
-      scores: s.scoring ? scoreboard(room) : null,
+      pickers: s.reveal === 'hidden' ? null : standings(room),
     };
   }
   return view;

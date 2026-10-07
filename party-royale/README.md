@@ -11,21 +11,19 @@ Three games:
 How a battle goes:
 
 1. **Fill the hat.** Everyone secretly adds picks, typed in or chosen from the ✨ ideas browser.
-2. **The bracket.** Picks pair off at random, everyone votes on their own phone, and the winners move on round by round (Quarterfinals, Semifinals, Final). Every pick gets the same shot.
-3. **Score points.** Guess who picked each one, and earn points when your picks win.
-4. **Crown the champ.** The last pick standing wins the night, and the player with the most points wins the game.
+2. **The bracket.** Picks pair off at random, everyone votes on their own phone for the one they like best (that's all), and the winners move on round by round (Quarterfinals, Semifinals, Final). Every pick gets the same shot.
+3. **Crown the champ.** The last pick standing wins the night.
 
-## The points game
+## Scoring
 
-It's on by default. The host can switch it off in the lobby.
+Your score is how far the picks you put in the hat get:
 
-| Points | How you earn them |
+| Points | |
 | --- | --- |
-| 🕵️ +1 | Guess who picked each pick, the first time it shows up |
-| ⭐ +2 | Your pick wins a matchup |
-| 👑 +3 | Your pick is the champion |
+| ⭐ +1 | Every matchup one of your picks wins |
+| 👑 +3 | Bonus if your pick is the champion |
 
-The **🗂️ The bracket** and **🏅 Scores** buttons show where things stand at any time. The final screen shows the scores podium and each player's breakdown.
+Most points has the best taste 🏆. The **🗂️ The bracket** and **🏅 Standings** buttons show where things stand at any time, and the final screen has the podium. (With "Reveal who picked what" set to never, picks stay secret and there's no scoring.)
 
 Everyone plays on their own phone. The host sends a link (or shows a QR code), and people join by typing their name. There are no accounts or app downloads.
 
@@ -60,7 +58,7 @@ The songs: well-known ones that fit the theme, one per artist, each checked to m
 - **Two ways to play:**
   - 🏆 **Bracket** (default): picks pair off and the winners move on. Odd numbers get byes. Two picks from the same person don't meet in round 1 when that can be avoided. Ties are a coin flip.
   - 👑 **King of the hill:** the winner stays on and fights the next pick out of the hat. Only this mode has the **champions round** (every pick that won a matchup comes back for one last battle) and the tie options (coin flip, champ stays, or a 3-way showdown).
-- **House rules:** minimum and maximum picks per person, optional timers, the points game, and (with points off) when to reveal who picked what.
+- **House rules:** minimum and maximum picks per person, optional timers, and when to reveal who picked what.
 - **Ideas browser:**
   - Movies: popular, top rated, trending, hidden gems, surprise me; filter by genre, decade and streaming service; family friendly and under 2 hours
   - Music: today's charts, new, all-time classics, surprise me; filter by genre, decade and vibe; it keeps loading as you scroll and every phone gets its own shuffle
@@ -68,7 +66,7 @@ The songs: well-known ones that fit the theme, one per artist, each checked to m
 - **Champion screen:**
   - Movies: where to watch (stream, free, rent, buy) by country, plus the trailer
   - Music: buttons that open the song itself on Spotify, Apple Music, YouTube and Deezer
-  - the final scores podium (or, with points off, a "best taste" podium), everyone's picks and how far each got, and the road to the crown
+  - the "best taste" podium, everyone's picks and how far each got, and the road to the crown
 - **Past parties.** Each phone keeps the recap of every party it finished (up to 30), battles and quizzes, under 📜 Past parties.
 
 ## Where the data comes from

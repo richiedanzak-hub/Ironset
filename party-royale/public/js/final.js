@@ -2,7 +2,6 @@
 // how it got here. The same recap shows past parties saved on this phone.
 import { html, useState, useEffect, useMemo } from './lib.js';
 import { request, region as myRegion } from './api.js';
-import { ScoreList } from './battle.js';
 import { Avatar, Confetti, Cover, PlayButton, bracketRoundName, durationText, isMovie, places, itemMeta, noun, prefetchPreviews, runtimeText, stopPreview, themeEmoji, themeTitle, useGame } from './ui.js';
 import { saveParty, snapshot } from './past.js';
 import { sfx } from './sfx.js';
@@ -219,7 +218,7 @@ function EveryonesPicks({ data }) {
           <div class="picks-head">
             <${Avatar} p=${p} size=${36} crown=${p.champ} />
             <strong class="grow">${p.id === data.meId ? 'You' : p.name}</strong>
-            <span class="tag">${picks.length} ${noun(kind, picks.length)} · ⭐ ${p.points}</span>
+            <span class="tag">${picks.length} ${noun(kind, picks.length)} · 🏅 ${p.points}</span>
           </div>
           ${picks.map((e) => html`<${PickRow} key=${e.id} e=${e} data=${data} person=${p} />`)}
         </div>`;
@@ -358,13 +357,9 @@ export function Recap({ data, live = false }) {
     </div>
 
     ${movie ? html`<${WatchCard} movie=${champ} onDetails=${setExtra} />` : html`<${ListenCard} links=${links} />`}
-    ${data.final.scores
-      ? html`<${Podium} pickers=${data.final.scores.map((r) => ({ ...r, points: r.total, champ: r.champ > 0 }))} meId=${data.meId}
-            title="🏅 Final scores" tag="guesses + wins" icon="🏅" />
-          <section class="section card"><${ScoreList} scores=${data.final.scores} meId=${data.meId} /></section>`
-      : data.final.pickers?.length > 1
-        ? html`<${Podium} pickers=${data.final.pickers} meId=${data.meId} />`
-        : null}
+    ${data.final.pickers?.length > 1
+      ? html`<${Podium} pickers=${data.final.pickers} meId=${data.meId} tag="⭐ +1 a win · 👑 +3 champion" icon="🏅" />`
+      : null}
     <${EveryonesPicks} data=${data} />
     <${Road} history=${b.history} entries=${E} bracket=${b.bracket} />
   </div>`;

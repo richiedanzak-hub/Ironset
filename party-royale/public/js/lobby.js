@@ -56,10 +56,11 @@ export function ShareBody({ code }) {
   </div>`;
 }
 
+const POINTS_HELP = 'Your picks score ⭐ +1 for every matchup they win, and 👑 +3 if one is the champion';
 const REVEAL_HELP = {
-  hidden: 'Nobody ever finds out who added what 🤫',
-  reveal: 'Each pick is revealed once its matchup is decided',
-  open: 'Everyone sees who added each pick while voting',
+  hidden: "Nobody ever finds out who added what 🤫 (so there's no scoring)",
+  reveal: `Each pick is revealed once its matchup is decided. ${POINTS_HELP}`,
+  open: `Everyone sees who added each pick while voting. ${POINTS_HELP}`,
 };
 
 const TIE_HELP = {
@@ -174,8 +175,8 @@ export function rulesSummary(s) {
     s.clean && s.kind !== 'movie' ? '🧼 Clean picks only' : null,
     s.submitSeconds ? `⏱ ${Math.round(s.submitSeconds / 60)} min to add` : '⏱ No time limit',
     bracket ? '🏆 Bracket: winners move on' : '👑 King of the hill',
-    s.scoring ? '🏅 Points game' : null,
-    s.scoring ? null : { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
+    { hidden: '🤫 Picks stay secret', reveal: '🎭 Pickers revealed after each vote', open: '👀 Pickers shown while voting' }[s.reveal],
+    s.reveal === 'hidden' ? null : '🏅 ⭐ +1 a win · 👑 +3 champion',
     bracket ? null : { coin: '🪙 Ties: coin flip', champ: '👑 Ties: champ stays', keep: '⚔️ Ties: 3‑way showdown' }[s.ties],
     s.voteSeconds ? `⚡ ${s.voteSeconds}s to vote` : null,
     !bracket && s.champions ? '🏆 Champions round at the end' : null,
@@ -271,24 +272,11 @@ export function RulesCard() {
         onChange=${(v) => set({ format: v })} />
     </div>
     <div class="rule rule-col">
-      <div class="rule-text">
-        <strong>Points game</strong>
-        <span>${s.scoring
-          ? '🕵️ +1 for guessing who picked each one · ⭐ +2 when your pick wins a matchup · 👑 +3 if yours is the champion'
-          : 'Off: just vote for your favorites'}</span>
-      </div>
-      <${Seg} label="Points game" value=${s.scoring ? 'on' : 'off'}
-        options=${[['on', '🏅 On'], ['off', 'Off']]}
-        onChange=${(v) => set({ scoring: v === 'on' })} />
+      <div class="rule-text"><strong>Reveal who picked what?</strong><span>${REVEAL_HELP[s.reveal]}</span></div>
+      <${Seg} label="Reveal pickers" value=${s.reveal}
+        options=${[['hidden', '🤫 Never'], ['reveal', '🎭 After vote'], ['open', '👀 Always']]}
+        onChange=${(v) => set({ reveal: v })} />
     </div>
-    ${s.scoring
-      ? null
-      : html`<div class="rule rule-col">
-          <div class="rule-text"><strong>Reveal who picked what?</strong><span>${REVEAL_HELP[s.reveal]}</span></div>
-          <${Seg} label="Reveal pickers" value=${s.reveal}
-            options=${[['hidden', '🤫 Never'], ['reveal', '🎭 After vote'], ['open', '👀 Always']]}
-            onChange=${(v) => set({ reveal: v })} />
-        </div>`}
     ${bracket
       ? null
       : html`<div class="rule rule-col">

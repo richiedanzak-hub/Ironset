@@ -53,13 +53,16 @@ function Box({ title, rows, lines, className = '' }) {
 const Theme = ({ s }) =>
   s.theme ? html`<${ThemeBanner} theme=${s.theme} sub=${(s.themeStrict !== false && themeRule(s.theme, s.kind)) || 'Keep it on theme!'} />` : null;
 
+// Points come from how far the picks you put in the hat get. With pickers
+// kept secret, there's nothing to score.
+const scored = (s) => s.reveal !== 'hidden';
+
 function battleScoring(s) {
-  return s.scoring
-    ? html`<${Box} title="🏅 The points game" rows=${[
-        ['+1', `🕵️ For each right guess of who picked a ${noun(s.kind)}`],
-        ['+2', '⭐ Each time one of your picks wins a matchup'],
-        ['+3', '👑 If your pick is the champion'],
-      ]} />`
+  return scored(s)
+    ? html`<${Box} title="🏅 Scoring" rows=${[
+        ['+1', `⭐ Every matchup one of your ${noun(s.kind, 2)} wins`],
+        ['+3', '👑 Bonus if yours is the champion'],
+      ]} lines=${[REVEAL[s.reveal]]} />`
     : html`<${Box} title="🏅 Scoring" lines=${['No points tonight: just vote for your favorites.', REVEAL[s.reveal]]} />`;
 }
 
@@ -67,7 +70,7 @@ function battleWin(s) {
   const one = noun(s.kind);
   return html`<${Box} className="win" title="🏆 How to win" lines=${[
     `The last ${one} standing is the champion${s.kind === 'movie' ? ": that's tonight's movie" : ''}.`,
-    s.scoring ? 'The player with the most points wins the game.' : 'Whoever picked it gets the bragging rights.',
+    scored(s) ? 'Whoever has the most points (their picks went furthest) has the best taste 🏆' : 'Whoever picked it gets the bragging rights.',
   ]} />`;
 }
 
@@ -87,7 +90,7 @@ function FillGuide({ s }) {
     <${Steps} steps=${[
       ['🔍', `Add ${many}`, `Search any ${noun(s.kind)}, or tap ✨ Need ideas? to browse.${movie ? '' : ' ▶ plays a preview.'}`],
       ['🎯', 'How many', `${limit} Changed your mind? Tap ✕ to take one back out.`],
-      ['🤫', 'Keep it secret', s.scoring ? "Nobody sees who added what. In the points game, everyone tries to guess, so surprise them!" : "Nobody sees who added what while you add them."],
+      ['🤫', 'Keep it secret', 'Nobody sees who added what while you add them.'],
       ['✅', 'Tap “I’m done”', s.submitSeconds ? `The battle starts when everyone's done, or when the ${Math.round(s.submitSeconds / 60)}‑minute timer runs out.` : "The battle starts when everyone's done (the host can start it sooner)."],
       ['⚔️', 'Then the battle', bracket ? `Your ${many} pair off in a bracket. Everyone votes, and the winners move on until one is left.` : `King of the hill: two at a time, everyone votes, and the winner stays on to face the next one.`],
     ]} />
@@ -107,11 +110,10 @@ function BattleGuide({ s, count }) {
       bracket
         ? ['🗂️', 'The bracket', `${count ? `All ${count} ${many}` : `The ${many}`} pair off at random. The winner of each matchup moves on, round by round, to the final.${byes ? ' With an odd number, a few get a free pass (a bye) into round 2.' : ''}`]
         : ['👑', 'King of the hill', `Two come out of the hat. The winner stays on and takes on the next one, until the hat is empty.${s.champions ? ' Then every winner comes back for one last champions round.' : ''}`],
-      ['👆', 'Vote', `Tap the one you like best. ${movie ? 'ⓘ shows what it’s about.' : '▶ plays a preview, or 🔊 plays both.'} You can change your vote until everyone's in.`],
-      s.scoring ? ['🕵️', 'Guess who picked it', `The first time a ${noun(s.kind)} shows up, tap who you think added it (not your own).`] : null,
+      ['👆', 'Vote', `Just tap the one you like best: that's all. ${movie ? 'ⓘ shows what it’s about.' : '▶ plays a preview, or 🔊 plays both.'} You can change your vote until everyone's in.`],
       ['⚖️', 'A tie?', bracket ? TIES.coin : TIES[s.ties]],
       s.voteSeconds ? ['⏱', `${s.voteSeconds} seconds a matchup`, 'Then the votes are counted, ready or not.'] : null,
-      bracket || s.scoring ? ['📊', 'Where things stand', `Tap ${[bracket && '🗂️ The bracket', s.scoring && '🏅 Scores'].filter(Boolean).join(' or ')} at the top, any time.`] : null,
+      bracket || scored(s) ? ['📊', 'Where things stand', `Tap ${[bracket && '🗂️ The bracket', scored(s) && '🏅 Standings'].filter(Boolean).join(' or ')} at the top, any time.`] : null,
     ]} />
     ${battleScoring(s)}
     ${battleWin(s)}

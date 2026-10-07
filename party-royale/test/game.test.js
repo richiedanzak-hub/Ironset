@@ -152,9 +152,9 @@ test('host can end submissions early', () => {
   assert.equal(room.phase, 'battle');
 });
 
-// King of the hill without the points game, unless a test says otherwise.
+// King of the hill, unless a test says otherwise.
 function toBattle(titles, settings = {}) {
-  const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'classic', scoring: false, ...settings });
+  const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'classic', ...settings });
   game.act(room, ids[0], { type: 'start' }, T0);
   titles.forEach((t, i) => add(room, ids[i % ids.length], t));
   game.act(room, ids[0], { type: 'endSubmit' }, T0, rng);
@@ -669,7 +669,7 @@ test('bracket: round 1 never pits two picks from the same person when it can be 
   for (let seed = 1; seed <= 40; seed++) {
     let x = seed;
     const seeded = () => ((x = (x * 16807) % 2147483647) / 2147483647);
-    const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'bracket', scoring: false });
+    const { room, ids } = party(['Mom', 'Dad', 'Kid'], { maxPerPlayer: 0, format: 'bracket' });
     game.act(room, ids[0], { type: 'start' }, T0);
     // Mom brings 3, Dad 2, Kid 1: 6 picks, so 2 byes and 2 real matchups.
     ['A', 'B', 'C'].forEach((t) => add(room, ids[0], t));
@@ -685,65 +685,48 @@ test('bracket: round 1 never pits two picks from the same person when it can be 
   }
 });
 
-test('points game: guess who picked it, score when your picks win, and a bonus for the champion', () => {
-  const { room, ids } = toBattle(['A', 'B', 'C', 'D'], { format: 'bracket', scoring: true, reveal: 'open' });
+test('points: a point for every matchup your picks win, and a bonus for the champion', () => {
+  const { room, ids } = toBattle(['A', 'B', 'C', 'D'], { format: 'bracket' });
   const b = room.battle;
   const owner = (id) => room.entries[id].by[0];
   const [x, y] = b.fighters;
-  assert.equal(game.viewFor(room, ids[0], T0).entries[x].by, null, 'pickers stay secret while guessing');
+  assert.equal(game.viewFor(room, ids[0], T0).entries[x].by, null, 'pickers stay secret while voting');
+  assert.throws(() => game.act(room, ids[0], { type: 'guess', round: b.round, entryId: x, playerId: ids[1] }, T0), /Unknown move/, 'no guessing: just vote');
   for (const pid of ids) vote(room, pid, x);
-  assert.equal(b.stage, 'voting', 'not done until the guesses are in');
-  const someoneElse = (pid) => ids.find((p) => p !== pid);
-  assert.throws(() => game.act(room, owner(x), { type: 'guess', round: b.round, entryId: x, playerId: someoneElse(owner(x)) }, T0), /your pick/);
-  assert.throws(() => game.act(room, ids[0], { type: 'guess', round: b.round, entryId: x, playerId: ids[0] }, T0), /someone else/);
-  // Everyone guesses x right and y wrong.
-  for (const pid of ids) {
-    for (const id of [x, y]) {
-      if (owner(id) === pid) continue;
-      const guess = id === x ? owner(x) : ids.find((p) => p !== pid && p !== owner(y));
-      game.act(room, pid, { type: 'guess', round: b.round, entryId: id, playerId: guess }, T0, rng);
-    }
-  }
-  assert.equal(b.stage, 'result');
-  for (const pid of ids) {
-    const want = { guess: owner(x) === pid ? 0 : 1, win: owner(x) === pid ? 2 : 0 };
-    assert.equal(b.points[pid]?.guess || 0, want.guess);
-    assert.equal(b.points[pid]?.win || 0, want.win);
-  }
-  assert.deepEqual(b.result.guessed[x].sort(), ids.filter((p) => p !== owner(x)).sort());
-  assert.deepEqual(b.result.guessed[y], []);
+  assert.equal(b.stage, 'result', 'everyone voted, so that is that');
   assert.ok(game.viewFor(room, ids[0], T0).entries[x].by.length, 'revealed after the matchup');
+  const after = game.viewFor(room, ids[0], T0).battle.standings;
+  assert.equal(after.find((r) => r.id === owner(x)).points, 1);
+  assert.equal(after.find((r) => r.id === owner(y)).points, 0);
 
-  // Finish: the same pick wins everything.
+  // The same pick wins everything: two wins, and the crown.
   while (room.phase === 'battle') {
     if (b.stage === 'result') next(room, ids[0]);
     if (room.phase !== 'battle') break;
     const pick = b.fighters.includes(x) ? x : b.fighters[0];
-    if (b.fighters.includes(x)) {
-      assert.throws(() => game.act(room, ids.find((p) => p !== owner(x)), { type: 'guess', round: b.round, entryId: x, playerId: owner(x) }, T0), /already know/);
-    }
-    for (const pid of ids) {
-      vote(room, pid, pick);
-      for (const id of b.fighters) {
-        if (b.stage === 'voting' && !b.seen.includes(id) && !room.entries[id].by.includes(pid)) {
-          game.act(room, pid, { type: 'guess', round: b.round, entryId: id, playerId: ids.find((p) => p !== pid) }, T0, rng);
-        }
-      }
-    }
+    for (const pid of ids) vote(room, pid, pick);
   }
   assert.equal(room.final.winner, x);
-  assert.equal(b.points[owner(x)].win, 4, 'two wins');
-  assert.equal(b.points[owner(x)].champ, 3);
-  const scores = game.viewFor(room, ids[0], T0).final.scores;
-  assert.equal(scores.length, 3);
-  assert.equal(scores[0].total, Math.max(...scores.map((r) => r.total)));
-  assert.ok(scores.every((r) => r.total === r.guess + r.win + r.champ));
+  const board = game.viewFor(room, ids[0], T0).final.pickers;
+  const top = board[0];
+  assert.equal(top.id, owner(x));
+  assert.deepEqual([top.wins, top.champ, top.points], [2, true, 2 * game.POINTS.win + game.POINTS.champ]);
+  assert.ok(board.every((r) => r.points === r.wins * game.POINTS.win + (r.champ ? game.POINTS.champ : 0)));
+  assert.equal(board.reduce((n, r) => n + r.wins, 0), 3, 'three matchups, three wins handed out');
 });
 
-test('format and points settings', () => {
+test('with pickers kept secret, there are no standings to give them away', () => {
+  const { room, ids } = toBattle(['A', 'B'], { reveal: 'hidden' });
+  for (const pid of ids) vote(room, pid, room.battle.fighters[0]);
+  assert.equal(game.viewFor(room, ids[0], T0).battle.standings, null);
+  next(room, ids[0]);
+  assert.equal(game.viewFor(room, ids[0], T0).final.pickers, null);
+});
+
+test('format settings', () => {
   assert.equal(game.DEFAULT_SETTINGS.format, 'bracket');
-  assert.equal(game.DEFAULT_SETTINGS.scoring, true);
-  const s = game.cleanSettings(game.DEFAULT_SETTINGS, { format: 'classic', scoring: false });
-  assert.deepEqual([s.format, s.scoring], ['classic', false]);
+  assert.equal('scoring' in game.DEFAULT_SETTINGS, false, 'no separate points game');
+  const s = game.cleanSettings(game.DEFAULT_SETTINGS, { format: 'classic' });
+  assert.equal(s.format, 'classic');
   assert.equal(game.cleanSettings(s, { format: 'swiss' }).format, 'classic');
 });
