@@ -181,7 +181,8 @@ function buildModel(sets, allSets) {
     // and not one pound more, so a rough day protects your max while a real PR is
     // still credited at exactly the weight you actually moved. Declaring yourself
     // wrecked can therefore never be used to talk your numbers upward.
-    if (s.cond != null && s.cond < 1) obs = Math.min(obs, Math.max(e != null ? e : raw, raw));
+    if ((s.cond != null && s.cond < 1) || (s.carry != null && s.carry < 1))
+      obs = Math.min(obs, Math.max(e != null ? e : raw, raw));
     e = e == null ? obs : e + 0.35 * reliability(s.reps, s.rpe) * (obs - e);
     points.push({ ts: s.ts, value: e, obs });
   }
@@ -1203,13 +1204,21 @@ function App() {
         const rscM = learnRecoveryScale(ex[m].sets);
         for (const s of ex[m].sets) {
           if (s.backoff) continue;
-          const ob = freshCorrect(e1rmFromSet(s.weight, s.reps, s.rpe), s, ex[m].sets, rscM);
-          all.push({ ts: s.ts, obs: ob / r, reps: s.reps, rpe: s.rpe });
+          const rawS = e1rmFromSet(s.weight, s.reps, s.rpe);
+          const ob = freshCorrect(rawS, s, ex[m].sets, rscM);
+          all.push({ ts: s.ts, obs: ob / r, reps: s.reps, rpe: s.rpe,
+            raw: rawS / r, held: s.carry != null && s.carry < 1 });
         }
       }
       all.sort((a, b) => a.ts - b.ts);
       let e = null; const points = [];
-      for (const x of all) { e = e == null ? x.obs : e + 0.35 * reliability(x.reps, x.rpe) * (x.obs - e); points.push({ ts: x.ts, value: e }); }
+      for (const x of all) {
+        // Undoing the day's handicap may hold the estimate where it was; it may never
+        // lift it past what the bar actually weighed.
+        const ob = x.held ? Math.min(x.obs, Math.max(e != null ? e : x.raw, x.raw)) : x.obs;
+        e = e == null ? ob : e + 0.35 * reliability(x.reps, x.rpe) * (ob - e);
+        points.push({ ts: x.ts, value: e });
+      }
       const out = { e1rm: e, points, count: all.length };
       famCache[root] = out; return out;
     };
@@ -1418,6 +1427,129 @@ function residualFatigue(sets, refTs, includeToday) {
   return { raw: total, days: top.days, peak: top.peak };
 }
 
+// Within a session there is no question of whether work was recent enough to matter —
+// it all does. So this counts volume at the effort it was performed, where the
+// week-over-week measure deliberately ignores everything below RPE 8: three sets of
+// five at 8 leaves nothing to carry into next Tuesday, but it absolutely leaves
+// something for the deadlift you are about to do twenty minutes from now.
+const SESSION_K = 0.018;
+const SESSION_CAP = 0.085;   // other lifts alone never explain more than 8.5%
+function sessionStrain(sets) {
+  let S = 0, peak = 0, n = 0;
+  for (const s of sets) {
+    if (s.reps == null && s.secs != null) continue;      // timed work carries no load
+    S += Math.max(1, s.reps || 1) * fatigueEffort(s.rpe == null ? 8 : s.rpe) * (s.backoff ? 0.65 : 1);
+    if (!s.backoff) peak = Math.max(peak, s.rpe || 0);
+    n++;
+  }
+  return { S, peak, n };
+}
+// Everything else you have already trained today, weighted by how much of it this
+// lift actually needs. The lift's own earlier sets are left out: back-offs already
+// read the set in front of them, and counting both would charge you twice.
+function sessionCarry(state, sel, dayStr, beforeTs) {
+  const out = { raw: 0, from: null, sets: 0, peak: 0, share: 0 };
+  if (!sel || !state || !state.exercises) return out;
+  let top = 0;
+  for (const [name, ex] of Object.entries(state.exercises)) {
+    if (name === sel || !ex.sets || !ex.sets.length) continue;
+    const todays = ex.sets.filter((st) => dateStrFromTs(st.ts) === dayStr && (beforeTs == null || st.ts < beforeTs));
+    if (!todays.length) continue;
+    const { S, peak, n } = sessionStrain(todays);
+    if (S <= 0) continue;
+    const share = carryover(name, sel, state);
+    const c = SESSION_K * S * share;
+    out.raw += c;
+    if (c > top) { top = c; out.from = name; out.sets = n; out.peak = peak; out.share = share; }
+  }
+  out.raw = Math.min(SESSION_CAP, out.raw);
+  return out;
+}
+
+/* --------------------------- what a lift demands -------------------------- */
+// Fatigue does not travel evenly. Squats reach your deadlift hard, your bench a
+// little, and your curls essentially not at all — and that is not about how "big"
+// either lift is, it is about what they have in common. So each movement carries a
+// profile of what it taxes, and carryover between two movements is how much of what
+// the second one needs was already spent by the first.
+//
+// This replaced a string test that asked whether a name contained "press", which put
+// Leg Press in the same bucket as Bench Press and a different one from Squat.
+const SYSTEMS = ["legs", "post", "push", "pull", "core", "grip", "sys"];
+const DEMAND = {
+  squat:    { legs: 0.95, post: 0.40, core: 0.45, sys: 0.85 },
+  deadlift: { legs: 0.55, post: 1.00, pull: 0.35, core: 0.50, grip: 0.60, sys: 0.95 },
+  bench:    { push: 1.00, core: 0.15, sys: 0.55 },
+  press:    { push: 0.85, core: 0.35, sys: 0.50 },
+  back:     { pull: 0.90, post: 0.25, grip: 0.45, sys: 0.35 },
+  legs:     { legs: 0.80, post: 0.25, sys: 0.25 },
+  armsPush: { push: 0.55, sys: 0.12 },
+  armsPull: { pull: 0.55, grip: 0.25, sys: 0.12 },
+  core:     { core: 0.85, sys: 0.15 },
+  oly:      { legs: 0.70, post: 0.70, push: 0.35, pull: 0.45, grip: 0.45, sys: 1.00 },
+  carry:    { grip: 1.00, core: 0.70, post: 0.45, sys: 0.55 },
+  grip:     { grip: 1.00, sys: 0.10 },
+  cond:     { legs: 0.35, sys: 0.35 },
+  // Shoulder isolation sits in the press category but behaves nothing like a press:
+  // no trunk, no systemic cost worth counting.
+  delt:     { push: 0.50, sys: 0.10 },
+};
+// The arms category holds both ends of the arm, and they borrow from opposite lifts:
+// your triceps are spent by pressing, your biceps by pulling.
+const armSide = (n) => /curl|chin|hammer|preacher|spider|concentration|drag|zottman|bayesian|21s/i.test(n || "")
+  ? "armsPull" : "armsPush";
+function demandKey(name, state) {
+  const L = libFind(name);
+  if (L) {
+    if (L.c === "arms") return armSide(name);
+    // The press category also carries raises, flies and rear-delt work. A lateral
+    // raise is not an overhead press with a smaller number on it.
+    if (L.c === "press") {
+      if (/face pull|pull-?apart|rear delt|powell|prone trap|upright row/i.test(name)) return "back";
+      if (/raise|fly|flye|pec deck|rotation|wall slide|scap/i.test(name)) return "delt";
+    }
+    return DEMAND[L.c] ? L.c : "legs";
+  }
+  // A movement you named yourself, read off the name — and its parent if it has one,
+  // since a variation taxes what its main lift taxes.
+  const ex = state && state.exercises && state.exercises[name];
+  if (ex && ex.parent && ex.parent !== name) return demandKey(ex.parent, state);
+  const n = (name || "").toLowerCase();
+  if (/squat|lunge|leg press|split|step-?up/.test(n)) return "squat";
+  if (/dead|rdl|hinge|good ?morning|hip thrust|swing|clean|snatch/.test(n)) return "deadlift";
+  if (/bench|fly|flye|chest/.test(n)) return "bench";
+  if (/lateral raise|front raise|rear delt|reverse fly/.test(n)) return "delt";
+  if (/ohp|overhead|shoulder|press/.test(n)) return "press";
+  if (/row|pulldown|pull-?up|chin|lat /.test(n)) return "back";
+  if (/curl|tricep|pushdown|skull|extension|dip|kickback/.test(n)) return armSide(n);
+  if (/plank|crunch|ab |sit-?up|hollow|pallof/.test(n)) return "core";
+  if (/carry|walk|farmer|yoke/.test(n)) return "carry";
+  return "legs";
+}
+// An accessory is not a main lift wearing different clothes: a Leg Press loads the
+// quads about as hard as a squat but costs far less systemically and asks almost
+// nothing of the trunk. Anything the catalogue does not tie to a main lift gets that
+// discount, which is what keeps machine work from spending your whole day.
+function demandOf(name, state) {
+  const base = DEMAND[demandKey(name, state)] || DEMAND.legs;
+  const L = libFind(name);
+  const ex = state && state.exercises && state.exercises[name];
+  const tied = (L && L.m) || (ex && ex.parent) || LIFT_HUE[name] != null;
+  if (tied) return base;
+  const out = {};
+  for (const k of SYSTEMS) out[k] = (base[k] || 0) * (k === "sys" ? 0.5 : k === "post" ? 0.6 : 1);
+  return out;
+}
+// How much of what B needs was already spent by A. Weighted by B's own demands, so a
+// lift is only reduced by fatigue in the systems it actually relies on.
+function carryover(fromName, toName, state) {
+  if (fromName === toName) return 1;
+  const a = demandOf(fromName, state), b = demandOf(toName, state);
+  let num = 0, den = 0;
+  for (const k of SYSTEMS) { const bk = b[k] || 0; den += bk; num += bk * (a[k] || 0); }
+  return den > 0 ? Math.max(0, Math.min(1, num / den)) : 0;
+}
+
 // Freshness correction for the ESTIMATOR: a set performed under predicted residual
 // fatigue is converted toward fresh terms — but never beyond the impairment the
 // lifter's own rating actually showed. Hit your target effort? You weren't impaired,
@@ -1431,6 +1563,13 @@ function freshCorrect(obs, s, sets, rsc) {
   // the app's guess and can simply be wrong.
   const cond = (s.cond != null && s.cond >= COND_FLOOR && s.cond < 1) ? s.cond : 1;
   obs = obs / cond;
+  // Carryover from earlier the same day is divided back out on the same terms. It is
+  // not a guess about how recovered you are — it is arithmetic on work you logged an
+  // hour ago, and the prescription was already cut by exactly this much. Deadlifting
+  // after squats every week should not slowly convince the app your deadlift is
+  // shrinking. The guard below still stops it being used to inflate anything.
+  const car = (s.carry != null && s.carry >= CARRY_FLOOR && s.carry < 1) ? s.carry : 1;
+  obs = obs / car;
   const rd = trimFor(residualFatigue(sets, s.ts).raw, rsc);
   if (rd < 0.01) return obs;
   let corr = 0.85 * rd;
@@ -1529,6 +1668,7 @@ const GEAR = {
 const GEAR_KEYS = ["belt", "sleeves", "shoes", "away"];
 const GEAR_FLOOR = 0.96;   // kit alone never explains more than 4%
 const COND_FLOOR = 0.88;   // and everything together never more than 12%
+const CARRY_FLOOR = 0.90;  // same-day carryover never explains more than 10%
 
 function gearFactor(gear, cls) {
   let f = 1;
@@ -2591,7 +2731,7 @@ const pickRow = { width: "100%", display: "flex", justifyContent: "space-between
 // One movement in one day. Collapsed it is a single readable line; a day of eight
 // movements should fit on a screen, not demand eight cards of steppers.
 function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst, groupLast, rounds,
-                   canUp, canDown, onUp, onDown, canLink, onToggleLink, state }) {
+                   canUp, canDown, onUp, onDown, canLink, onToggleLink, state, onPickBoLift }) {
   const [open, setOpen] = useState(false);
   // The slot wears the lift's colour, so a day of work is scannable by movement
   // rather than by reading every line. Accessories keep their own quieter hues.
@@ -2621,7 +2761,7 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
             <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
               overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
             <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-              {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}` : ""}
+              {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : ""}
             </span>
           </button>
           <button aria-label="Move up" disabled={!canUp} onClick={() => canUp && onUp()} style={mvBtn(canUp)}>
@@ -2690,6 +2830,38 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                     min={slot.bo.mode === "pct" ? 30 : slot.bo.mode === "rir" ? 0 : 5} max={slot.bo.mode === "pct" ? 105 : slot.bo.mode === "rir" ? 6 : 10}
                     onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
                 </div>
+              </div>
+            )}
+            {/* Back-offs don't have to be the lift you topped out on. Dropping to a
+                paused or deficit variation after the top set is ordinary programming,
+                and Train could already do it — the planner could not. */}
+            {slot.bo && (
+              <div style={{ marginTop: 13 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 700 }}>Back-offs run on</span>
+                  {slot.bo.lift && slot.bo.lift !== slot.ex && (
+                    <button onClick={() => up({ bo: { ...slot.bo, lift: null } })}
+                      style={{ background: "none", border: "none", color: C.red, fontWeight: 800,
+                        fontSize: 11, cursor: "pointer", padding: 0 }}>Same as above</button>
+                  )}
+                </div>
+                <button onClick={() => onPickBoLift && onPickBoLift(slot.id)}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
+                    background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line2}`, borderRadius: R.ctrl,
+                    padding: "10px 12px", cursor: "pointer", color: C.text, textAlign: "left",
+                    WebkitTapHighlightColor: "transparent" }}>
+                  <span style={{ width: 4, height: 16, borderRadius: 2, flexShrink: 0,
+                    background: hueFor(slot.bo.lift || slot.ex, state) }} />
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 13, overflow: "hidden",
+                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.bo.lift || slot.ex}</span>
+                  <ChevronDown size={15} style={{ color: C.faint, flexShrink: 0 }} />
+                </button>
+                {slot.bo.lift && slot.bo.lift !== slot.ex && (
+                  <div style={{ fontSize: 10.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
+                    Loads come off {slot.bo.lift}'s own share of {slot.ex}, and still chain down from
+                    how the top set actually went.
+                  </div>
+                )}
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
@@ -3202,6 +3374,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
 
         {decorateSlots(slots).map((d) => (
           <SlotCard key={d.sl.id} slot={d.sl} state={state} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+            onPickBoLift={(id) => setPicking({ mode: "bo", id })}
             groupLast={d.last} rounds={d.rounds}
             canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
             onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
@@ -3226,7 +3399,13 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
       </div>
 
       <ExercisePicker open={!!picking} onClose={() => setPicking(null)} existing={Object.keys(state.exercises)}
-        onPick={(name) => { if (picking && picking.mode === "swap") swapSlot(picking.id, name); else addSlot(name); }} />
+        onPick={(name) => {
+          if (!picking) return;
+          if (picking.mode === "swap") swapSlot(picking.id, name);
+          else if (picking.mode === "bo") writeSlots(slots.map((x) => x.id === picking.id
+            ? { ...x, bo: { ...x.bo, lift: name === x.ex ? null : name } } : x));
+          else addSlot(name);
+        }} />
       <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={"week " + weekNo}
         onClone={(rule) => { cloneWeek(rule); setSelDate(addDays(sel, 7)); }} />
       <DaySheet open={dayOpen} onClose={() => setDayOpen(false)} dateStr={sel} days={days}
@@ -3468,9 +3647,23 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     if (sl.mode === "pct") setTopPct(sl.val); else setTInt(sl.val);
     if (sl.bo && setSetting) {
       const b = sl.bo;
+      // A back-off movement named in the plan has to exist before Train can point at
+      // it, and has to be wired to the lift it came off, or its loads would be read
+      // against nothing.
+      if (b.lift && b.lift !== sl.ex && !state.exercises[b.lift]) {
+        const BL = libFind(b.lift);
+        addExercise(b.lift, sl.ex, BL ? BL.r : undefined);
+        // addExercise selects what it creates, which is right when you add a movement
+        // by hand and wrong here: you tapped the top set, not its back-off.
+        setSel(sl.ex);
+      }
+      // Every back-off set carries the chosen movement, so the plan's intent survives
+      // into the session rather than being re-picked by hand each time.
+      const steps = b.lift && b.lift !== sl.ex
+        ? Array.from({ length: Math.max(1, b.sets) }).map(() => ({ lift: b.lift })) : [];
       setSetting("backoff", { ...(settings.backoff || {}), sets: b.sets, reps: b.reps,
         rpe: b.mode === "rir" ? Math.max(5, 10 - b.val) : b.mode === "rpe" ? b.val : 7,
-        pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct, steps: [] });
+        pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct, steps });
     }
   };
   const loadPlanned = (it) => {
@@ -3494,25 +3687,32 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // lifts (squat↔deadlift) at 35%, and unrelated patterns at a whisper (5%) — a
   // brutal deadlift day reaches your squat, but barely touches your bench.
   const recovery = useMemo(() => {
-    if (!selEx || e1rm == null) return { drop: 0, days: 0, peak: 0, from: null };
+    const none = { drop: 0, days: 0, peak: 0, from: null, carry: null, carryDrop: 0, priorDrop: 0 };
+    if (!selEx || e1rm == null) return none;
     const refTs = tsFromDateStr(logDate) + 1;
     const scale = learnRecoveryScale(selEx.sets);
-    const rootOf = (n) => { let r = n, hop = 0; while (state.exercises[r] && state.exercises[r].parent && hop++ < 4) r = state.exercises[r].parent; return r; };
-    const groupOf = (n) => { const r = rootOf(n).toLowerCase(); if (/squat|dead|pull|hinge|rdl/.test(r)) return "lower"; if (/bench|press|dip/.test(r)) return "press"; return "other"; };
     const own = residualFatigue(selEx.sets, refTs);
-    let total = own.raw, top = { c: own.raw, days: own.days, peak: own.peak, name: null };
-    const gSel = groupOf(sel);
+    let prior = own.raw, top = { c: own.raw, days: own.days, peak: own.peak, name: null };
     for (const [name, other] of Object.entries(state.exercises)) {
       if (name === sel) continue;
-      const fam = rootOf(name) === rootOf(sel);
-      const gOther = groupOf(name);
-      const w = fam ? 0.6 : (gSel !== "other" && gSel === gOther ? 0.35 : (gSel === "other" || gOther === "other" ? 0.15 : 0.05));
+      const w = carryover(name, sel, state);
+      if (w < 0.03) continue;
       const r = residualFatigue(other.sets, refTs);
       const c = w * r.raw;
-      total += c;
+      prior += c;
       if (c > top.c) top = { c, days: r.days, peak: r.peak, name };
     }
-    return { drop: trimFor(total, scale), days: top.days, peak: top.peak, from: top.name };
+    // Work already done today, which the window above deliberately excludes.
+    const today = todayStr();
+    const carry = sessionCarry(state, sel, logDate, logDate === today ? Date.now() : null);
+    // One cap over both, then split back out for display — otherwise two separate
+    // caps could stack into a trim bigger than either is allowed to be.
+    const drop = trimFor(prior + carry.raw, scale);
+    const sum = prior + carry.raw;
+    return { drop, days: top.days, peak: top.peak, from: top.name,
+      carry: carry.raw > 0 ? carry : null,
+      carryDrop: sum > 0 ? drop * (carry.raw / sum) : 0,
+      priorDrop: sum > 0 ? drop * (prior / sum) : 0 };
   }, [selEx, sel, state.exercises, e1rm, logDate]);
   // Declared conditions ride on top of predicted training debt: independent causes
   // of the same shortfall, so they multiply. Everything downstream — the top set,
@@ -3642,6 +3842,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate),
       fromRec, tReps, tRpe, rec: recR, note: note.trim() || undefined,
       cond: condFactor < 1 ? condFactor : undefined,
+      carry: recovery.carryDrop > 0.004 ? 1 - recovery.carryDrop : undefined,
     });
     setNote(""); setFromRec(false); setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
@@ -3934,9 +4135,14 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                   {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
                 </div>
               ))}
-            {recovery.drop >= 0.01 && (
+            {recovery.carry && recovery.carryDrop >= 0.01 && (
               <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round(recovery.drop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
+                Trimmed {fmt(Math.round(recovery.carryDrop * 1000) / 10)}% — {recovery.carry.sets} {recovery.carry.from} set{recovery.carry.sets === 1 ? "" : "s"} earlier today
+              </div>
+            )}
+            {recovery.priorDrop >= 0.01 && (
+              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                Trimmed {fmt(Math.round(recovery.priorDrop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
               </div>
             )}
             {condFactor < 0.999 && (
@@ -4122,6 +4328,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           fade from past sessions. Back-offs stay out of your 1RM estimate so a tired one never drags your numbers down. Your daily check-in works the same way
           from the other end: it trims what you're asked to lift by a few percent, records that handicap against every set you log under it, and divides it back
           out before your max is updated — so a rough week changes today's loads without ever being recorded as lost strength.
+          Work you have already done earlier the same day counts too, in proportion to how much the two movements actually share: squats take a real bite
+          out of a deadlift later that session, a smaller one out of a bench, and essentially nothing out of a curl. That handicap is recorded and divided
+          back out the same way, so training your deadlift after squats every week never reads as your deadlift shrinking.
         </Card>
       )}
 
