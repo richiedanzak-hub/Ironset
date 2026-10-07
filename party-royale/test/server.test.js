@@ -265,7 +265,7 @@ test('who sings it: the server finds the songs, plays clips, and never sends the
     await act(host, { type: 'settings', settings: { theme: { decade: '80s' } } });
     const started = await act(host, { type: 'start' });
     assert.equal(started.status, 200);
-    assert.deepEqual([asked.at(-1).count, asked.at(-1).theme.decade, asked.at(-1).ask], [6, '80s', 'artist'], 'five songs and the finale');
+    assert.deepEqual([asked.at(-1).count, asked.at(-1).theme.decade, asked.at(-1).ask, asked.at(-1).level], [6, '80s', 'artist', 'medium'], 'five songs and the finale');
     const room = app.rooms.get(host.code);
     assert.equal(room.phase, 'quiz');
 

@@ -40,11 +40,15 @@ test('who sings it: its own kind of party, with its own rules', () => {
   const fresh = game.createRoom('ABCD', T0, { game: 'quiz' });
   assert.equal(fresh.game, 'quiz');
   assert.deepEqual([fresh.settings.ask, fresh.settings.answers, fresh.settings.rounds, fresh.settings.seconds, fresh.settings.wager], ['artist', 'type', 10, 30, true]);
+  assert.equal(fresh.settings.level, 'medium');
   const { room, ids } = party();
   game.act(room, ids[0], { type: 'settings', settings: { ask: 'mix', rounds: 5, seconds: 15, sound: 'all', theme: { decade: '80s' }, rounds2: 9 } }, T0);
   assert.deepEqual([room.settings.ask, room.settings.rounds, room.settings.seconds, room.settings.sound, room.settings.theme.decade], ['mix', 5, 15, 'all', '80s']);
   game.act(room, ids[0], { type: 'settings', settings: { rounds: 7, seconds: 3, ask: 'lyrics' } }, T0);
   assert.deepEqual([room.settings.ask, room.settings.rounds, room.settings.seconds], ['mix', 5, 15], 'only the offered choices');
+  game.act(room, ids[0], { type: 'settings', settings: { level: 'hard' } }, T0);
+  game.act(room, ids[0], { type: 'settings', settings: { level: 'impossible' } }, T0);
+  assert.equal(room.settings.level, 'hard', 'easy, medium or hard only');
   assert.throws(() => game.act(room, ids[1], { type: 'settings', settings: { rounds: 20 } }, T0), /Only the host/);
   assert.throws(() => game.act(room, ids[0], { type: 'add', item: { title: 'x' } }, T0), /not available/);
   assert.equal(game.viewFor(room, ids[0], T0).game, 'quiz');

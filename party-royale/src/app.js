@@ -221,7 +221,7 @@ export function createApp({
     broadcast(room);
     let songs;
     try {
-      songs = await music.quizSongs({ theme: s.theme, clean: s.clean, count: songsNeeded(s), ask: s.ask, seed: `${room.code}${now()}` });
+      songs = await music.quizSongs({ theme: s.theme, clean: s.clean, count: songsNeeded(s), ask: s.ask, level: s.level, seed: `${room.code}${now()}` });
     } catch (err) {
       console.warn('[quiz songs]', err.message);
       songs = [];

@@ -342,6 +342,7 @@ export function createMusic({
     genres: [],
     rank: t.rank || 0,
     artistId: t.artist?.id || null,
+    albumId: t.album?.id || null,
   });
 
   const fromAlbum = (a, artist = a.artist) => ({
@@ -1117,10 +1118,16 @@ export function createMusic({
   const NOT_QUIZ = /\b(karaoke|instrumental|remix(ed)?|live|acoustic|cover|tribute|lullaby|8-bit|sped up|slowed|medley|mashup)\b/i;
   const NOT_QUIZ_ARTIST = /\b(karaoke|tribute|hit crew|cover band|lullaby|twinkle|kidz bop|various artists|workout|party crew|countdown singers)\b/i;
   const quizable = (m) => m.title && m.artist && !NOT_QUIZ.test(m.title) && !NOT_QUIZ_ARTIST.test(m.artist);
-  // "Queen" and "Queen & David Bowie" are too close to tell apart.
+  // "Queen" and "Queen & David Bowie" are too close to tell apart, but Pink
+  // and Pink Floyd (or Prince and Princess Nokia) are different artists.
+  const nameWords = (name) =>
+    String(name || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/^\s*the\s+/, '').match(/[a-z0-9]+|[&,+]/g) || [];
+  const JOINERS = new Set(['&', ',', '+', 'and', 'feat', 'ft', 'featuring', 'with', 'x', 'vs']);
   const sameArtist = (a, b) => {
-    const [x, y] = [itemKey(a), itemKey(b)];
-    return x === y || (x.length > 3 && y.includes(x)) || (y.length > 3 && x.includes(y));
+    if (itemKey(a) === itemKey(b)) return true;
+    let [x, y] = [nameWords(a), nameWords(b)];
+    if (x.length > y.length) [x, y] = [y, x];
+    return x.length > 0 && x.every((w, i) => w === y[i]) && JOINERS.has(y[x.length]);
   };
 
   // A quiz clip has to be the song itself, never a lookalike, so unlike
@@ -1148,40 +1155,73 @@ export function createMusic({
   }
 
   // Does a quiz song really fit the theme? Playlists called "2000s rock"
-  // still slip in a pop hit or two. The genre goes by the artist's own albums
-  // (what they're mostly filed under), and the year by the earliest of their
-  // own albums the song is on (not a compilation's date). Returns true, false,
-  // or null when it can't tell, and keeps the year it found.
+  // still slip in pop hits. The song's home is the earliest of the artist's
+  // own albums it's on (not a compilation). The genre is that album's (or,
+  // if Deezer didn't file it, what the artist is mostly filed under), and
+  // the year is when that album came out. Returns true, false, or 'maybe'
+  // when the genre fits but the year can't be told. A genre that can't be
+  // told is a no: better a song left out than a pop song in a rock quiz.
   async function quizFit(m, theme) {
     const id = m.artistId || (await deezer('/search/artist', { q: m.artist, limit: 1 }, 6 * HOUR)).data?.[0]?.id;
     const albums = id ? await ownAlbums(id) : [];
-    if (!albums.length) return null;
+    if (!albums.length) return theme.genre ? false : 'maybe';
+    const own = new Map(albums.map((a) => [a.id, a]));
+    const versions = (await deezer('/search/track', { q: `track:${quote(m.title)} artist:${quote(m.artist)}`, limit: 50 }, 24 * HOUR)).data || [];
+    const homes = [m.albumId, ...versions.filter((v) => songKey(v.title_short || v.title) === songKey(m.title)).map((v) => v.album?.id)]
+      .map((albumId) => own.get(albumId))
+      .filter(Boolean)
+      .sort((x, y) => String(x.release_date || '9999').localeCompare(String(y.release_date || '9999')));
+    const home = homes[0] || null;
     const info = { item: m, genres: [], years: [] };
-    if (theme.genre) info.genres = unique(artistGenres(albums, await genreNames()));
-    if (theme.decade) {
-      const own = new Map(albums.map((a) => [a.id, a]));
-      const versions = (await deezer('/search/track', { q: `track:${quote(m.title)} artist:${quote(m.artist)}`, limit: 50 }, 24 * HOUR)).data || [];
-      const years = versions
-        .filter((v) => songKey(v.title_short || v.title) === songKey(m.title) && own.has(v.album?.id))
-        .map((v) => yearOf(own.get(v.album.id).release_date))
-        .filter(Boolean);
-      if (years.length) info.years = [(m.year = Math.min(...years))];
+    if (theme.genre) {
+      const names = await genreNames();
+      if (home?.genre_id > 0 && names.get(home.genre_id)) info.genres = [names.get(home.genre_id)];
+      else info.genres = mainGenres(albums, names);
+      if (!info.genres.length) return false;
     }
+    const year = yearOf(home?.release_date);
+    if (year) info.years = [(m.year = year)];
     if (!checkTheme(info, theme).ok) return false;
-    return (theme.genre && !info.genres.length) || (theme.decade && !info.years.length) ? null : true;
+    return theme.decade && !year ? 'maybe' : true;
   }
 
-  async function quizSongs({ theme = null, clean = false, count = 10, ask = 'artist', seed = '' } = {}) {
+  // What an artist is mostly filed under: their most common genre.
+  function mainGenres(albums, names) {
+    const count = new Map();
+    for (const a of albums) if (a.genre_id > 0 && names.has(a.genre_id)) count.set(a.genre_id, (count.get(a.genre_id) || 0) + 1);
+    const most = Math.max(0, ...count.values());
+    return [...count].filter(([, n]) => n === most && most > 0).map(([gid]) => names.get(gid));
+  }
+
+  // How well known the songs are, as a slice of the candidates sorted most
+  // popular first (Deezer's rank): the biggest hits, hits and fan
+  // favorites, or deeper cuts.
+  const LEVEL_BAND = { easy: [0, 0.3], medium: [0.15, 0.6], hard: [0.45, 1] };
+
+  // Artists Deezer says are like this one: wrong choices that sound right.
+  async function relatedArtists(m) {
+    try {
+      const id = m.artistId || (await deezer('/search/artist', { q: m.artist, limit: 1 }, 6 * HOUR)).data?.[0]?.id;
+      return id ? ((await deezer(`/artist/${id}/related`, { limit: 20 }, 24 * HOUR)).data || []) : [];
+    } catch (err) {
+      warnOnce('Deezer related artists', err);
+      return [];
+    }
+  }
+
+  async function quizSongs({ theme = null, clean = false, count = 10, ask = 'artist', level = 'medium', seed = '' } = {}) {
     const rand = seeded(`quiz|${seed}`);
     const filters = { kind: 'song', genre: theme?.genre || '', decade: theme?.decade || '', vibe: theme?.vibe || '', clean, seed: `quiz${seed}` };
     // With no decade: today's hits and the all-time classics, so everyone at
-    // the party knows a few.
+    // the party knows a few. Hard games also dig into hidden gems and deep cuts.
     const lists = theme?.decade && theme.decade !== '2020s' ? ['classics', 'top'] : ['top', 'classics'];
-    // A genre or decade rules some songs out, so look a little further.
+    if (level === 'hard') lists.push('surprise');
+    // Enough songs to split into easy, medium and hard, and more when a
+    // genre or decade will rule some out.
     const strict = !!(theme?.genre || theme?.decade);
     const pool = [];
     const seen = new Set();
-    for (let page = 1; page <= (strict ? 6 : 4) && pool.length < count * (strict ? 5 : 3); page++) {
+    for (let page = 1; page <= 6 && pool.length < count * (strict ? 7 : 5); page++) {
       const found = await Promise.all(lists.map((list) => browse({ ...filters, list, page })));
       for (const m of found.flatMap((r) => r.results)) {
         const k = sameKey(m);
@@ -1192,54 +1232,60 @@ export function createMusic({
       if (found.every((r) => !r.more)) break;
     }
 
-    // One song per artist, the best-known ones, mixed up.
+    // One song per artist, most popular first.
     const byArtist = [];
     for (const m of [...pool].sort((a, b) => (b.rank || 0) - (a.rank || 0))) {
       if (!byArtist.some((x) => sameArtist(x.artist, m.artist))) byArtist.push(m);
     }
-    // The best-known songs, mixed up; then, if those run out, the rest.
-    const window = Math.max(count * 2, 16);
-    const picks = [...shuffle(byArtist.slice(0, window), rand), ...byArtist.slice(window)].slice(0, strict ? 60 : window);
+    // The difficulty's slice, mixed up; then, if those run out, the songs
+    // nearest to it in popularity.
+    const [lo, hi] = LEVEL_BAND[level] || LEVEL_BAND.medium;
+    const from = Math.floor(byArtist.length * lo);
+    const to = Math.max(Math.ceil(byArtist.length * hi), Math.min(byArtist.length, from + count * 2));
+    const band = byArtist.slice(from, to);
+    const distance = (i) => (i < from ? from - i : i - to);
+    const others = byArtist.map((m, i) => [m, i]).filter(([, i]) => i < from || i >= to).sort((x, y) => distance(x[1]) - distance(y[1])).map(([m]) => m);
+    const picks = [...shuffle(band, rand), ...others].slice(0, strict ? 60 : band.length + count);
 
     // Only songs whose preview plays and, with a genre or decade, that fit it.
-    // Songs it can't be sure about only go in if the sure ones run out.
-    const fit = new Map(); // song -> true | false | null (can't tell)
+    const fit = new Map(); // song -> true | false | 'maybe' (the genre fits; the year can't be told)
     const chosen = [];
-    const unsure = [];
+    const maybe = [];
     const until = Date.now() + 8000; // don't keep the party waiting
     for (let at = 0; chosen.length < count && at < picks.length && Date.now() < until; ) {
       const batch = picks.slice(at, at + Math.ceil((count - chosen.length) * (strict ? 1.5 : 1)) + 2);
       at += batch.length;
       const checked = await Promise.all(
         batch.map(async (m) => {
-          const verdict = strict ? await quizFit(m, theme).catch(() => null) : true;
+          const verdict = strict ? await quizFit(m, theme).catch(() => false) : true;
           fit.set(m, verdict);
-          return verdict !== false && (await quizClip(m).then(Boolean, () => false)) ? verdict : false;
+          return verdict && (await quizClip(m).then(Boolean, () => false)) ? verdict : false;
         }),
       );
       batch.forEach((m, i) => {
         if (checked[i] === true && chosen.length < count) chosen.push(m);
-        else if (checked[i] === null) unsure.push(m);
+        else if (checked[i] === 'maybe') maybe.push(m);
       });
     }
-    for (const m of unsure) if (chosen.length < count) chosen.push(m);
+    for (const m of maybe) if (chosen.length < count) chosen.push(m);
 
-    // Wrong choices should be names people know, from the same kind of music,
-    // or they give the answer away.
-    const famous = byArtist.slice(0, 40).filter((x) => fit.get(x) !== false);
+    // Wrong choices that sound right: artists Deezer says are like this one,
+    // then others from the same lists (same kind of music, about as well
+    // known, from around the same time), never ones that clearly don't fit.
+    const usable = byArtist.filter((x) => fit.get(x) !== false);
+    const rankOf = (x) => x.rank || 0;
     const near = (a, b) => !a.year || !b.year || Math.abs(a.year - b.year) <= 10;
     const inTheme = (r) => (!theme?.genre || r.genre === theme.genre) && (!theme?.decade || checkTheme({ item: r, genres: [], years: [r.year] }, { decade: theme.decade }).ok);
-    function artistDecoys(m) {
-      const others = famous.filter((x) => !sameArtist(x.artist, m.artist));
-      const sure = others.filter((x) => fit.get(x) === true);
-      const rest = others.filter((x) => fit.get(x) !== true);
-      const names = [
-        ...shuffle(sure.filter((x) => near(m, x)), rand),
-        ...shuffle(sure.filter((x) => !near(m, x)), rand),
-        ...shuffle(rest.filter((x) => near(m, x)), rand),
-        ...shuffle(rest.filter((x) => !near(m, x)), rand),
-      ].map((x) => x.artist);
-      names.push(...shuffle(byArtist.slice(40).filter((x) => fit.get(x) !== false), rand).map((x) => x.artist));
+    const ruledOut = new Set(byArtist.filter((x) => fit.get(x) === false).map((x) => itemKey(x.artist)));
+    async function artistDecoys(m) {
+      const related = (await relatedArtists(m)).filter((a) => a.name && !ruledOut.has(itemKey(a.name)));
+      // The closest matches first, mixed up a little.
+      const close = [...shuffle(related.slice(0, 6), rand), ...related.slice(6)].map((a) => a.name);
+      const alike = usable
+        .filter((x) => !sameArtist(x.artist, m.artist))
+        .sort((x, y) => Number(!near(m, x)) - Number(!near(m, y)) || Math.abs(rankOf(x) - rankOf(m)) - Math.abs(rankOf(y) - rankOf(m)))
+        .map((x) => x.artist);
+      const names = [...close, ...alike];
       // In case the lists ran short: the built-in list, theme first.
       names.push(...shuffle(SONG_CATALOG.filter(inTheme), rand).map((r) => r.artist), ...shuffle(SONG_CATALOG, rand).map((r) => r.artist));
       const out = [];
@@ -1250,27 +1296,31 @@ export function createMusic({
       return out;
     }
 
+    // Other songs by the same artist; if they have too few, songs by artists
+    // like them; then songs from the lists.
     async function songDecoys(m) {
-      let titles = [];
+      const out = [];
+      const keys = new Set([songKey(m.title)]);
+      const take = (titles) => {
+        for (const t of titles) {
+          const k = songKey(t);
+          if (!k || keys.has(k) || out.length === 3) continue;
+          keys.add(k);
+          out.push(t);
+        }
+      };
+      const topOf = async (artistId) => {
+        const top = (await deezer(`/artist/${artistId}/top`, { limit: 25 }, 6 * HOUR)).data || [];
+        return shuffle(top.map(fromTrack).filter(quizable).slice(0, 8), rand).map((t) => plainTitle(t.title));
+      };
       try {
         const id = m.artistId || (await deezer('/search/artist', { q: m.artist, limit: 1 }, 6 * HOUR)).data?.[0]?.id;
-        if (id) {
-          const top = (await deezer(`/artist/${id}/top`, { limit: 25 }, 6 * HOUR)).data || [];
-          titles = shuffle(top.map(fromTrack).filter(quizable).slice(0, 8), rand).map((t) => plainTitle(t.title));
-        }
+        if (id) take(await topOf(id));
+        if (out.length < 3) for (const a of (await relatedArtists(m)).slice(0, 2)) if (out.length < 3) take((await topOf(a.id)).slice(0, 2));
       } catch (err) {
         warnOnce('Deezer top songs', err);
       }
-      // Other songs by the same artist; if there aren't enough, songs from the lists.
-      const out = [];
-      const keys = new Set([songKey(m.title)]);
-      for (const t of [...titles, ...shuffle(famous, rand).map((x) => x.title)]) {
-        const k = songKey(t);
-        if (!k || keys.has(k)) continue;
-        keys.add(k);
-        out.push(t);
-        if (out.length === 3) break;
-      }
+      take(shuffle(usable, rand).map((x) => x.title));
       return out;
     }
 
@@ -1283,7 +1333,7 @@ export function createMusic({
         cover: m.cover,
         deezerId: m.deezerId,
         genres: m.genres?.length ? m.genres : theme?.genre ? [theme.genre] : [],
-        decoys: { artist: artistDecoys(m), song: ask === 'artist' ? [] : await songDecoys(m) },
+        decoys: { artist: await artistDecoys(m), song: ask === 'artist' ? [] : await songDecoys(m) },
       })),
     );
   }

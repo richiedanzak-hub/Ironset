@@ -19,6 +19,12 @@ const ANSWER_HELP = {
   choice: 'Four choices every time, no typing. Easiest for little ones',
 };
 
+const LEVEL_HELP = {
+  easy: 'The biggest hits: songs everybody knows',
+  medium: 'Hits and fan favorites',
+  hard: 'Deeper cuts and hidden gems, for real music nerds',
+};
+
 const ASK_HELP = {
   artist: 'A song plays: who sings it?',
   song: 'A song plays: what is it called? (The choices are all by the same artist)',
@@ -32,6 +38,7 @@ export function quizSummary(s) {
     s.theme ? `${themeEmoji(s.theme)} ${themeTitle(s.theme)}` : '🎲 Hits and classics',
     { artist: '🎤 Name the artist', song: '🎵 Name the song', mix: '🔀 Artist or song' }[s.ask],
     s.answers === 'choice' ? '🔘 Pick from four' : '⌨️ Type it (💡 hints for half points)',
+    { easy: '🙂 Easy: the biggest hits', medium: '😎 Medium', hard: '🔥 Hard: deeper cuts' }[s.level],
     `🎶 ${s.rounds} songs`,
     `⏱ ${s.seconds}s to answer`,
     s.wager ? '💰 Double or nothing to finish' : null,
@@ -57,6 +64,12 @@ export function QuizRules() {
         <span>${s.theme ? 'Every song fits the theme' : "Optional: today's hits and all-time classics, or pick a genre, decade or vibe"}</span>
       </div>
       <${ThemePicker} theme=${s.theme} set=${set} kind="song" />
+    </div>
+    <div class="rule rule-col">
+      <div class="rule-text"><strong>How hard?</strong><span>${LEVEL_HELP[s.level]}</span></div>
+      <${Seg} label="How hard" value=${s.level}
+        options=${[['easy', '🙂 Easy'], ['medium', '😎 Medium'], ['hard', '🔥 Hard']]}
+        onChange=${(v) => set({ level: v })} />
     </div>
     <div class="rule rule-col">
       <div class="rule-text"><strong>What do you name?</strong><span>${ASK_HELP[s.ask]}</span></div>

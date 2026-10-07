@@ -24,6 +24,7 @@ export const QUIZ_DEFAULTS = Object.freeze({
   kind: 'song',    // always songs (shared screens read this)
   ask: 'artist',   // what to name: 'artist' | 'song' (the title) | 'mix' (take turns)
   answers: 'type', // 'type' (type it, or take a hint for half points) | 'choice' (always four choices)
+  level: 'medium', // how well known the songs are: 'easy' (the biggest hits) | 'medium' | 'hard' (deeper cuts)
   rounds: 10,      // songs before the finale
   seconds: 30,     // time to answer each one
   sound: 'host',   // 'host' (one phone plays it: best in one room) | 'all' (every phone)
@@ -41,6 +42,7 @@ export const QUIZ_POINTS = {
 
 export const ASKS = ['artist', 'song', 'mix'];
 export const ANSWER_MODES = ['type', 'choice'];
+export const LEVELS = ['easy', 'medium', 'hard'];
 export const ROUND_COUNTS = [5, 10, 15, 20];
 export const ANSWER_SECONDS = [10, 15, 20, 30];
 export const COUNTDOWN_MS = 3000;   // the 3-2-1 before each song
@@ -51,6 +53,7 @@ export function cleanQuizSettings(current, patch) {
   const p = patch && typeof patch === 'object' ? patch : {};
   if (ASKS.includes(p.ask)) next.ask = p.ask;
   if (ANSWER_MODES.includes(p.answers)) next.answers = p.answers;
+  if (LEVELS.includes(p.level)) next.level = p.level;
   if (ROUND_COUNTS.includes(Number(p.rounds))) next.rounds = Number(p.rounds);
   if (ANSWER_SECONDS.includes(Number(p.seconds))) next.seconds = Number(p.seconds);
   if (p.sound === 'host' || p.sound === 'all') next.sound = p.sound;
