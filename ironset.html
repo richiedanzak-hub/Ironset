@@ -1466,6 +1466,61 @@ function sessionCarry(state, sel, dayStr, beforeTs) {
   return out;
 }
 
+/* ------------------------------ rest between sets ------------------------- */
+// How much the last set still costs you depends on how long ago it was, and the model
+// was silently assuming a normal rest for everything. Two minutes and five minutes are
+// different sets. Strength between sets returns on roughly an exponential approach to
+// baseline — quick at first, then slower — so the debt owed from the previous set
+// decays the same way.
+const REST_TAU = 150;                                   // ~63% back by two and a half minutes
+const restRecovered = (secs) => 1 - Math.exp(-Math.max(0, secs || 0) / REST_TAU);
+// What a normal rest is depends on what you are doing: nobody takes three minutes
+// between sets of leg extensions, and taking ninety seconds between heavy squats is a
+// different exercise from the one you planned.
+const restRefFor = (name, state) => (isAccessory(name, state) ? 90 : 180);
+// The previous set's cost, scaled by how long you actually rested against that normal.
+// Clamped at both ends: rushing can cost you more but not unboundedly, and no amount of
+// standing around makes a set inside a session free.
+function restFactor(secs, refSecs) {
+  if (secs == null || !(secs > 0)) return 1;
+  const owed = 1 - restRecovered(secs), ref = 1 - restRecovered(refSecs || 180);
+  if (!(ref > 0)) return 1;
+  return Math.max(0.45, Math.min(1.6, owed / ref));
+}
+const fmtRest = (secs) => {
+  const v = Math.max(0, Math.round(secs || 0));
+  return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
+};
+
+/* --------------------------------- warming up ----------------------------- */
+// The ramp everybody does on paper and nobody wants to do in their head. Percentages
+// are of the working set rather than of the max, so a trimmed day brings the whole
+// ladder down with it instead of burning the session before the set that counts.
+// Heavier top sets get more rungs, because the jumps a 600 lb pull needs are not the
+// jumps a 135 lb press needs.
+const WARM_RAMPS = {
+  3: [[0.50, 5], [0.70, 3], [0.87, 1]],
+  4: [[0.40, 5], [0.60, 4], [0.75, 2], [0.88, 1]],
+  5: [[0.35, 5], [0.50, 4], [0.65, 3], [0.80, 2], [0.90, 1]],
+  6: [[0.30, 5], [0.45, 5], [0.58, 3], [0.70, 2], [0.82, 1], [0.91, 1]],
+};
+function warmupPlan(target, bar, round) {
+  if (!(target > 0) || !(bar > 0) || target <= bar * 1.15) return [];
+  const ratio = target / bar;
+  const n = Math.max(3, Math.min(6, Math.round(ratio / 1.9) + 1));
+  const out = [{ weight: bar, reps: 5, bar: true }];
+  let last = bar;
+  for (const [pct, reps] of WARM_RAMPS[n]) {
+    const w = roundTo(target * pct, round);
+    // A rung that rounds onto the one below it is not a rung — drop it rather than
+    // asking someone to load the same bar twice.
+    if (w <= last || w >= target) continue;
+    out.push({ weight: w, reps, pct });
+    last = w;
+  }
+  return out;
+}
+
 /* ------------------------- what an accessory is worth --------------------- */
 // Nobody tests a one-rep leg extension, so a one-rep leg extension number is one
 // nobody can use — it reads like precision about something you will never attempt.
@@ -3653,6 +3708,32 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const accPoints = useMemo(() => (accMode && model.points
     ? model.points.map((pt) => ({ ts: pt.ts, value: workingWeight(pt.value, accReps) })) : null),
     [accMode, model.points, accReps]);
+
+  // Rest is not a gadget bolted on the side — it is already in the maths, because the
+  // set driving your next load has a timestamp. The clock on screen is a readout of
+  // something the recommendation is reading anyway, which is why the suggested weight
+  // climbs while you stand there.
+  const [tick, setTick] = useState(() => Date.now());
+  const lastSetToday = useMemo(() => {
+    let best = null;
+    for (const ex of Object.values(state.exercises || {}))
+      for (const st of (ex.sets || []))
+        if (dateStrFromTs(st.ts) === logDate && (!best || st.ts > best.ts)) best = st;
+    return best;
+  }, [state.exercises, logDate]);
+  const restSecs = (lastSetToday && logDate === todayStr())
+    ? Math.max(0, (tick - lastSetToday.ts) / 1000) : null;
+  // Stop ticking long after the last set: nothing on screen changes any more, and a
+  // phone in a gym bag should not be running a timer for an hour.
+  const resting = restSecs != null && restSecs < 20 * 60;
+  useEffect(() => {
+    if (!resting) return;
+    const t = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [resting]);
+  const restTarget = restRefFor(sel, state);
+  const [showWarm, setShowWarm] = useState(false);
+  const [warmOpen, setWarmOpen] = useState(null);
   const selEx = sel ? state.exercises[sel] : null;
   const DAYK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const todayPlan = (plan || {})[DAYK[(new Date(tsFromDateStr(logDate)).getDay() + 6) % 7]] || [];
@@ -3771,6 +3852,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   const rec = percentMode ? (ref != null ? ref * (topPct / 100) : null) : (effE1rm != null ? weightForTarget(effE1rm, tReps, tRpe) : null);
   const recR = rec != null ? roundTo(rec, round) : null;
+  // Built off the recommendation rather than the max, so everything below it already
+  // carries today's trim.
+  const warmup = useMemo(() => warmupPlan(recR, bar, round), [recR, bar, round]);
   // predicted effort for a % prescription, measured against the app's true estimate
   const predRpe = (percentMode && effE1rm != null && recR != null) ? Math.max(1, Math.min(10, 10 - (repsAtPct((recR / effE1rm) * 100) - tReps))) : null;
   const strongDay = (!percentMode && effE1rm != null && tRpe < 10) ? roundTo(weightForTarget(effE1rm, tReps, Math.min(10, tRpe + 0.5)), round) : null;
@@ -3822,17 +3906,22 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const boTarget = (boStep.lift && state.exercises[boStep.lift] && boFamily.indexOf(boStep.lift) >= 0) ? boStep.lift : sel;
   // the driving set, always normalised into MAIN-lift terms so the chain stays comparable
   const prevForBo = (() => {
-    if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe) / (ratioOf(lastBo.lift) || 1), reps: lastBo.reps, rpe: lastBo.rpe };
+    if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe) / (ratioOf(lastBo.lift) || 1), reps: lastBo.reps, rpe: lastBo.rpe, ts: lastBo.ts };
     const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
-    if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe };
+    if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe, ts: topToday.ts };
     if (effE1rm != null) return { implied: effE1rm, reps: tReps, rpe: tRpe };
     return null;
   })();
+  // How long you have actually rested off the set that drives this one.
+  const boRestSecs = (prevForBo && prevForBo.ts && logDate === todayStr())
+    ? Math.max(0, (tick - prevForBo.ts) / 1000) : null;
+  const boRestF = restFactor(boRestSecs, restTarget);
   const boSug = (() => {
     const r = ratioOf(boTarget) || 1;
     if (percentMode) return ref != null ? roundTo(ref * (boStepPct / 100) * r, round) : null;
     if (!prevForBo) return null;
-    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K) * (lastBo ? scaleChain : scaleTop));
+    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K)
+      * (lastBo ? scaleChain : scaleTop) * boRestF);
     return roundTo(weightForTarget(effCap * r, boReps, boRpe), round);
   })();
   // What the prescription says this set should feel like: the target RPE directly, or in
@@ -3858,6 +3947,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     logSet(boTarget, { weight: roundTo(w, round), reps: boReps, rpe: curBo.rpe, ts: tsFromDateStr(logDate),
       backoff: true, fromRec: false, tReps: boReps, tRpe: percentMode ? Math.round(boBaseRpe * 2) / 2 : boRpe,
       cond: conditionFactor(dayCheckin, liftClass(boTarget)) < 1 ? conditionFactor(dayCheckin, liftClass(boTarget)) : undefined,
+      rest: boRestSecs != null && boRestSecs < 1800 ? Math.round(boRestSecs) : undefined,
       rec: boSug != null ? boSug : roundTo(w, round) });
     setBoDraft(null);
   };
@@ -3885,6 +3975,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       fromRec, tReps, tRpe, rec: recR, note: note.trim() || undefined,
       cond: condFactor < 1 ? condFactor : undefined,
       carry: recovery.carryDrop > 0.004 ? 1 - recovery.carryDrop : undefined,
+      // Recorded rather than only used, so the history knows how this session was run.
+      rest: restSecs != null && restSecs < 1800 ? Math.round(restSecs) : undefined,
     });
     setNote(""); setFromRec(false); setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
@@ -4205,12 +4297,53 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 Trimmed {fmt(Math.round((1 - condFactor) * 1000) / 10)}% — {condWhy}
               </div>
             )}
-            {/* plates */}
-            <button onClick={() => setShowPlates((v) => !v)} style={{ marginTop: 12, background: "none", border: "none",
-              color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-              Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
-            </button>
+            {/* plates and the ramp up to them */}
+            <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+              <button onClick={() => setShowPlates((v) => !v)} style={{ background: "none", border: "none",
+                color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
+              </button>
+              {warmup.length > 1 && (
+                <button onClick={() => setShowWarm((v) => !v)} style={{ background: "none", border: "none",
+                  color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Warm-up <ChevronDown size={14} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                </button>
+              )}
+            </div>
             {showPlates && <PlateView total={recR} bar={bar} denoms={denoms} unit={unit} />}
+            {showWarm && warmup.length > 1 && (
+              <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
+                overflow: "hidden" }}>
+                {warmup.map((w, i) => (
+                  <button key={i} onClick={() => setWarmOpen(warmOpen === i ? null : i)}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 13px",
+                      background: warmOpen === i ? "rgba(255,255,255,0.04)" : "none", border: "none",
+                      borderTop: i ? `1px solid ${C.line}` : "none", color: C.text, cursor: "pointer",
+                      textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+                    <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0 }}>
+                      {w.bar ? "BAR" : `${Math.round(w.pct * 100)}%`}
+                    </span>
+                    <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
+                      fontVariantNumeric: "tabular-nums" }}>
+                      {fmt(w.weight)}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{unit}</span>
+                    </span>
+                    <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>× {w.reps}</span>
+                    <span style={{ flex: 1 }} />
+                    <ChevronDown size={13} style={{ color: C.faint, flexShrink: 0,
+                      transform: warmOpen === i ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                  </button>
+                ))}
+                {warmOpen != null && warmup[warmOpen] && !warmup[warmOpen].bar && (
+                  <div style={{ padding: "0 13px 11px" }}>
+                    <PlateView total={warmup[warmOpen].weight} bar={bar} denoms={denoms} unit={unit} />
+                  </div>
+                )}
+                <div style={{ fontSize: 10.5, color: C.faint, padding: "9px 13px 11px", lineHeight: 1.5,
+                  borderTop: `1px solid ${C.line}` }}>
+                  Percentages of today's working set, so a trimmed day brings the ramp down with it.
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div style={{ color: C.muted, fontSize: 13.5, padding: "18px 8px", lineHeight: 1.5 }}>
@@ -4386,7 +4519,41 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           Work you have already done earlier the same day counts too, in proportion to how much the two movements actually share: squats take a real bite
           out of a deadlift later that session, a smaller one out of a bench, and essentially nothing out of a curl. That handicap is recorded and divided
           back out the same way, so training your deadlift after squats every week never reads as your deadlift shrinking.
+          Rest counts as well: the set driving your next load has a timestamp, so the suggestion climbs while you stand there. Ninety seconds
+          and five minutes are not the same set, and the app no longer pretends they are — though past about five minutes the gain flattens out,
+          because no amount of standing around makes a set inside a session free.
         </Card>
+      )}
+
+      {/* Counts up rather than down, because recovery has no finish line — the bar just
+          says when you have had a normal rest for this kind of work. Standing there
+          longer keeps helping, and the next suggested load keeps saying so. */}
+      {resting && restSecs >= 3 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(82px + env(safe-area-inset-bottom, 0px))",
+          zIndex: 31, display: "flex", justifyContent: "center", padding: "0 12px", pointerEvents: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 13, width: "100%", maxWidth: 456,
+            background: "rgba(14,17,25,0.95)", backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
+            border: `1px solid ${restSecs >= restTarget ? tint(C.good, 0.45) : C.line2}`,
+            borderRadius: R.ctrl, padding: "10px 14px", pointerEvents: "auto",
+            boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
+            <span style={{ fontFamily: MONO, fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em",
+              color: restSecs >= restTarget ? C.good : C.text, fontVariantNumeric: "tabular-nums",
+              minWidth: 52 }}>{fmtRest(restSecs)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", height: 4, borderRadius: 2, background: "rgba(255,255,255,0.07)",
+                overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", borderRadius: 2,
+                  width: `${Math.min(100, (restSecs / restTarget) * 100)}%`,
+                  background: restSecs >= restTarget ? C.good : selHue, transition: "width 1s linear" }} />
+              </span>
+              <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 5 }}>
+                {restSecs >= restTarget
+                  ? `rested · ${fmtRest(restTarget)} is normal here`
+                  : `${fmtRest(restTarget - restSecs)} to a normal rest`}
+              </span>
+            </span>
+          </div>
+        </div>
       )}
 
       <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
