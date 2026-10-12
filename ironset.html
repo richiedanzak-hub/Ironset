@@ -100,6 +100,9 @@ const Pencil = mkIcon(<g><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 
 const Zap = mkIcon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>);
 const Calendar = mkIcon(<g><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></g>);
 const Play = mkIcon(<polygon points="5 3 19 12 5 21 5 3"/>);
+const Film = mkIcon(<g><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="7" y1="4" x2="7" y2="20"/><line x1="17" y1="4" x2="17" y2="20"/><line x1="2" y1="12" x2="22" y2="12"/></g>);
+const Camera = mkIcon(<g><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></g>);
+const Upload = mkIcon(<g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></g>);
 const Share = mkIcon(<g><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></g>);
 function loadState() {
   try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw);
@@ -658,6 +661,218 @@ async function askPersist() {
   catch (e) { return false; }
 }
 
+/* ------------------------------ set video -------------------------------
+   A lifter's own footage is the only honest record of what a rep looked like.
+   Video is far too big for localStorage, so the blobs live in IndexedDB and
+   localStorage keeps nothing but a small index: which set has a clip, how long
+   it is and what it costs. Thumbnails live in their own store so a timeline of
+   twenty sets does not have to pull twenty videos into memory to draw itself.
+------------------------------------------------------------------------- */
+const MEDIA_DB = "ironset-media", S_BLOB = "blobs", S_THUMB = "thumbs";
+let mediaDbP = null;
+function mediaDb() {
+  if (mediaDbP) return mediaDbP;
+  mediaDbP = new Promise((res, rej) => {
+    if (typeof indexedDB === "undefined") return rej(new Error("no storage for video on this browser"));
+    const req = indexedDB.open(MEDIA_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(S_BLOB)) db.createObjectStore(S_BLOB);
+      if (!db.objectStoreNames.contains(S_THUMB)) db.createObjectStore(S_THUMB);
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error || new Error("could not open video storage"));
+  });
+  return mediaDbP;
+}
+function mediaTx(stores, mode, fn) {
+  return mediaDb().then((db) => new Promise((res, rej) => {
+    const tx = db.transaction(stores, mode);
+    let req;
+    try { req = fn(tx); } catch (e) { return rej(e); }
+    tx.oncomplete = () => res(req && "result" in req ? req.result : undefined);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error || new Error("video storage is full"));
+  }));
+}
+const clipSave = (id, blob, thumb) => mediaTx([S_BLOB, S_THUMB], "readwrite", (tx) => {
+  tx.objectStore(S_BLOB).put(blob, id);
+  if (thumb) tx.objectStore(S_THUMB).put(thumb, id);
+});
+const clipBlob = (id) => mediaTx([S_BLOB], "readonly", (tx) => tx.objectStore(S_BLOB).get(id));
+const clipThumb = (id) => mediaTx([S_THUMB], "readonly", (tx) => tx.objectStore(S_THUMB).get(id));
+const clipDrop = (id) => mediaTx([S_BLOB, S_THUMB], "readwrite", (tx) => {
+  tx.objectStore(S_BLOB).delete(id);
+  tx.objectStore(S_THUMB).delete(id);
+});
+const clipKeys = () => mediaTx([S_BLOB], "readonly", (tx) => tx.objectStore(S_BLOB).getAllKeys());
+
+/* What a phone will actually write. Safari gives mp4, everything else webm —
+   either is fine, because the file never has to leave the browser that made it. */
+const VIDEO_MIMES = [
+  "video/mp4;codecs=avc1.42E01E", "video/mp4",
+  "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm",
+];
+function pickMime() {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  for (const m of VIDEO_MIMES) if (MediaRecorder.isTypeSupported(m)) return m;
+  return "";
+}
+const canRecord = () => !!(typeof MediaRecorder !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+const canCompress = () => !!(typeof MediaRecorder !== "undefined" && typeof HTMLCanvasElement !== "undefined"
+  && HTMLCanvasElement.prototype.captureStream && pickMime());
+
+const CLIP_MAX_SECS = 120;
+const CLIP_BIG = 10 * 1024 * 1024;   // above this, shrink it before keeping it
+const CLIP_SIDE = 640;               // long edge after shrinking — plenty to judge a rep
+const CLIP_RATE = 1.1e6;
+
+const fmtSecs = (s) => {
+  const v = Math.max(0, Math.round(s || 0));
+  return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
+};
+
+function loadVideo(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const v = document.createElement("video");
+    v.preload = "auto"; v.muted = true; v.playsInline = true;
+    v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
+    v.onloadedmetadata = () => res({ v, url });
+    v.onerror = () => { URL.revokeObjectURL(url); rej(new Error("that file isn't a video this browser can read")); };
+    v.src = url;
+  });
+}
+
+/* A browser's own recording carries no duration in its header until it has been
+   played through, so the length reads as Infinity. Seeking past the end forces
+   the real figure out. */
+function videoDuration(v) {
+  if (isFinite(v.duration) && v.duration > 0) return Promise.resolve(v.duration);
+  return new Promise((res) => {
+    let done = false;
+    const finish = () => { if (done) return; done = true;
+      res(isFinite(v.duration) && v.duration > 0 ? v.duration : 0); };
+    const onTime = () => { if (v.currentTime > 0) { v.removeEventListener("timeupdate", onTime); finish(); } };
+    v.addEventListener("timeupdate", onTime);
+    v.addEventListener("durationchange", () => { if (isFinite(v.duration) && v.duration > 0) finish(); });
+    setTimeout(finish, 2000);
+    try { v.currentTime = 1e101; } catch (e) { finish(); }
+  });
+}
+
+/* One frame, a third of the way in — far enough past the un-rack to show the
+   lift rather than someone walking into shot. */
+async function grabThumb(blob) {
+  let handle = null;
+  try {
+    handle = await loadVideo(blob);
+    const { v, url } = handle;
+    const dur = await videoDuration(v);
+    await new Promise((res) => {
+      let settled = false;
+      const go = () => { if (!settled) { settled = true; res(); } };
+      v.onseeked = go;
+      setTimeout(go, 1800);
+      try { v.currentTime = Math.min(Math.max(0.1, dur * 0.33), Math.max(0, dur - 0.05)); } catch (e) { go(); }
+    });
+    const w = v.videoWidth, h = v.videoHeight;
+    let thumb = null;
+    if (w && h) {
+      const k = Math.min(1, 300 / Math.max(w, h));
+      const c = document.createElement("canvas");
+      c.width = Math.max(2, Math.round(w * k)); c.height = Math.max(2, Math.round(h * k));
+      try {
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        thumb = c.toDataURL("image/jpeg", 0.7);
+        if (thumb.length < 400) thumb = null;
+      } catch (e) { thumb = null; }
+    }
+    URL.revokeObjectURL(url);
+    return { dur, w, h, thumb };
+  } catch (e) {
+    if (handle) URL.revokeObjectURL(handle.url);
+    return { dur: 0, w: 0, h: 0, thumb: null };
+  }
+}
+
+/* Re-records the clip through a canvas at a sane size and bitrate. It runs in
+   real time because that is the only way every phone browser can do it — hence
+   the progress bar. A phone's own camera roll clip can be 60MB; this lands
+   around 1.5MB for a working set, which is the difference between keeping
+   fifteen videos and keeping a training year of them. */
+async function shrinkVideo(blob, onProgress, shouldStop) {
+  if (!canCompress()) return null;
+  const mime = pickMime();
+  let handle;
+  try { handle = await loadVideo(blob); } catch (e) { return null; }
+  const { v, url } = handle;
+  const sw = v.videoWidth, sh = v.videoHeight;
+  if (!sw || !sh) { URL.revokeObjectURL(url); return null; }
+  const k = Math.min(1, CLIP_SIDE / Math.max(sw, sh));
+  const c = document.createElement("canvas");
+  c.width = Math.max(2, Math.round((sw * k) / 2) * 2);
+  c.height = Math.max(2, Math.round((sh * k) / 2) * 2);
+  const ctx = c.getContext("2d");
+  let stream, rec;
+  try {
+    stream = c.captureStream(30);
+    rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: CLIP_RATE });
+  } catch (e) { URL.revokeObjectURL(url); return null; }
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((res) => { rec.onstop = res; });
+  rec.start(500);
+  let raf = 0, cancelled = false;
+  const tick = () => {
+    try { ctx.drawImage(v, 0, 0, c.width, c.height); } catch (e) {}
+    if (onProgress && v.duration) onProgress(Math.min(1, v.currentTime / v.duration));
+    if (shouldStop && shouldStop()) { cancelled = true; try { v.pause(); } catch (e) {} return; }
+    raf = requestAnimationFrame(tick);
+  };
+  try { await v.play(); } catch (e) { URL.revokeObjectURL(url); return null; }
+  tick();
+  await new Promise((res) => {
+    v.onended = res;
+    const guard = setInterval(() => { if (cancelled || v.ended) { clearInterval(guard); res(); } }, 250);
+  });
+  if (raf) cancelAnimationFrame(raf);
+  try { rec.stop(); } catch (e) {}
+  await stopped;
+  try { stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  URL.revokeObjectURL(url);
+  if (cancelled || !chunks.length) return null;
+  return new Blob(chunks, { type: mime });
+}
+
+/* Oldest clips go first when the budget runs out, and the lifter is told which
+   ones went. Half the quota, capped — the log itself must never be squeezed
+   out by footage. */
+async function clipBudget() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return 400 * 1024 * 1024;
+    const e = await navigator.storage.estimate();
+    if (!e.quota) return 400 * 1024 * 1024;
+    return Math.max(60 * 1024 * 1024, Math.min(2 * 1024 * 1024 * 1024, Math.floor(e.quota * 0.5)));
+  } catch (e) { return 400 * 1024 * 1024; }
+}
+const clipBytes = (clips) => Object.values(clips || {}).reduce((a, c) => a + (c.bytes || 0), 0);
+async function pruneClips(clips, keepId) {
+  const budget = await clipBudget();
+  let total = clipBytes(clips);
+  if (total <= budget) return [];
+  const order = Object.entries(clips || {}).filter(([id]) => id !== keepId)
+    .sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0));
+  const gone = [];
+  for (const [id, c] of order) {
+    if (total <= budget) break;
+    try { await clipDrop(id); } catch (e) {}
+    total -= c.bytes || 0;
+    gone.push(id);
+  }
+  return gone;
+}
+
 function platesPerSide(total, bar, denoms) {
   let side = (total - bar) / 2;
   if (side < -0.01) return { below: true, items: [], leftover: 0 };
@@ -733,7 +948,7 @@ const label2 = { textTransform: "uppercase", letterSpacing: "0.1em", fontWeight:
 const label = { textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 700, fontSize: 10.5, color: C.muted, fontFamily: SANS };
 
 /* ----------------------------- UI primitives ----------------------------- */
-function Btn({ children, onClick, kind = "ghost", style, disabled }) {
+function Btn({ children, onClick, kind = "ghost", style, disabled, as }) {
   const [down, setDown] = useState(false);
   const base = { fontFamily: SANS, fontWeight: 700, fontSize: 15, borderRadius: R.pill, padding: "14px 20px",
     border: "1px solid transparent", cursor: disabled ? "default" : "pointer",
@@ -750,7 +965,12 @@ function Btn({ children, onClick, kind = "ghost", style, disabled }) {
   };
   const press = disabled ? {} : { onPointerDown: () => setDown(true), onPointerUp: () => setDown(false),
     onPointerLeave: () => setDown(false), onPointerCancel: () => setDown(false) };
-  return <button onClick={disabled ? undefined : onClick} {...press} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
+  /* A <label> or <a> wrapping a real <button> swallows the click, so file
+     pickers and downloads get the same control rendered as a span. */
+  const Tag = as === "span" ? "span" : "button";
+  const extra = as === "span" ? { role: "button" } : {};
+  return <Tag onClick={disabled ? undefined : onClick} {...press} {...extra}
+    style={{ ...base, ...kinds[kind], ...style }}>{children}</Tag>;
 }
 function Chip({ active, children, onClick, sm }) {
   return (
@@ -1220,6 +1440,7 @@ const DEFAULT = {
   bodyweight: [], // [{id, ts, kg}]
   meet: { date: null, name: "", attempts: {} }, // attempts: { liftName: { opener, second, third } in kg }
   checkins: {}, // "YYYY-MM-DD" -> { score 1-10, gear: [..], ts }
+  clips: {}, // setId -> { ex, ts, bytes, dur, w, h, type } — the video itself lives in IndexedDB
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", trainingMode: "rpe", maxMode: "dynamic", topPct: 85, backoff: { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75, steps: [] } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
@@ -1376,10 +1597,53 @@ function App() {
       return { ...s, exercises: { ...s.exercises, [name]: { ...ex, sets: [...ex.sets, { id: uid(), ts: Date.now(), ...set }] } } };
     });
   };
-  const deleteSet = (name, id) => setState((s) => {
-    const ex = s.exercises[name]; if (!ex) return s;
-    return { ...s, exercises: { ...s.exercises, [name]: { ...ex, sets: ex.sets.filter((x) => x.id !== id) } } };
-  });
+  const deleteSet = (name, id) => {
+    clipDrop(id).catch(() => {});
+    setState((s) => {
+      const ex = s.exercises[name]; if (!ex) return s;
+      const clips = { ...(s.clips || {}) }; delete clips[id];
+      return { ...s, clips, exercises: { ...s.exercises, [name]: { ...ex, sets: ex.sets.filter((x) => x.id !== id) } } };
+    });
+  };
+  // Video lives in IndexedDB; this map is only the index of what exists.
+  const saveClip = (setId, meta) => setState((s) => ({ ...s, clips: { ...(s.clips || {}), [setId]: meta } }));
+  const dropClip = (setId) => setState((s) => { const clips = { ...(s.clips || {}) }; delete clips[setId]; return { ...s, clips }; });
+
+  // Footage is the one thing here that can fill a phone, so it is capped: when
+  // the budget is passed the oldest clips go, and the index goes with them.
+  useEffect(() => {
+    const clips = state.clips || {};
+    if (!Object.keys(clips).length) return;
+    let dead = false;
+    pruneClips(clips).then((gone) => {
+      if (dead || !gone.length) return;
+      setState((s) => { const c = { ...(s.clips || {}) }; gone.forEach((id) => delete c[id]); return { ...s, clips: c }; });
+    }).catch(() => {});
+    return () => { dead = true; };
+  }, [state.clips]);
+
+  // One sweep a session: drop stored video whose set no longer exists, and
+  // forget index entries whose video is gone. Either can happen after a restore
+  // from backup, which carries the log but not the footage.
+  useEffect(() => {
+    let dead = false;
+    clipKeys().then((keys) => {
+      if (dead) return;
+      setState((s) => {
+        const live = new Set();
+        for (const ex of Object.values(s.exercises || {})) for (const x of ex.sets) live.add(x.id);
+        for (const t of s.trash || []) for (const x of (t.ex && t.ex.sets) || []) live.add(x.id);
+        const have = new Set(keys || []);
+        for (const k of have) if (!live.has(k)) clipDrop(k).catch(() => {});
+        const clips = {}; let changed = false;
+        for (const [id, c] of Object.entries(s.clips || {})) {
+          if (have.has(id) && live.has(id)) clips[id] = c; else changed = true;
+        }
+        return changed ? { ...s, clips } : s;
+      });
+    }).catch(() => {});
+    return () => { dead = true; };
+  }, []);
   const updateSet = (name, id, patch) => setState((s) => {
     const ex = s.exercises[name]; if (!ex) return s;
     return { ...s, exercises: { ...s.exercises, [name]: { ...ex, sets: ex.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) } } };
@@ -1404,7 +1668,14 @@ function App() {
     return { ...s, exercises: { ...s.exercises, [key]: { ...item.ex, name: key } },
       trash: (s.trash || []).filter((x) => x.name !== name) };
   });
-  const purgeExercise = (name) => setState((s) => ({ ...s, trash: (s.trash || []).filter((x) => x.name !== name) }));
+  const purgeExercise = (name) => setState((s) => {
+    const item = (s.trash || []).find((x) => x.name === name);
+    const clips = { ...(s.clips || {}) };
+    for (const x of (item && item.ex && item.ex.sets) || []) {
+      if (clips[x.id]) { delete clips[x.id]; clipDrop(x.id).catch(() => {}); }
+    }
+    return { ...s, clips, trash: (s.trash || []).filter((x) => x.name !== name) };
+  });
   const setSetting = (k, v) => setState((s) => ({ ...s, settings: { ...s.settings, [k]: v } }));
 
 
@@ -1463,7 +1734,7 @@ function App() {
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
-            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools }} />
+            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools, saveClip, dropClip }} />
           )}
           {tab === "plan" && (
             <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
@@ -1472,7 +1743,7 @@ function App() {
             <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
           )}
           {tab === "history" && (
-            <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }} />
+            <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip }} />
           )}
         </div>
       </div>
@@ -4342,7 +4613,7 @@ function TimedLogger({ state, sel, logSet, logDate, setLogDate, unit, slot }) {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab, openDayTools }) {
+function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab, openDayTools, saveClip, dropClip }) {
   const { unit, round, bar } = settings;
   // A programmed slot carries its own intensity language, so the tab's mode is an
   // override on top of the global setting rather than the setting itself: the top
@@ -4368,6 +4639,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [showPlates, setShowPlates] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
+  // The set that just went in, so filming it is one tap rather than a trip to History.
+  const [lastLog, setLastLog] = useState(null);
+  const [filming, setFilming] = useState(null);
   const [logDate, setLogDate] = useState(todayStr());
 
   const model = (sel && models[sel]) ? models[sel] : { e1rm: null, points: [], count: 0 };
@@ -4646,7 +4920,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     const w = parseFloat(log.weight);
     if (!sel || isNaN(w) || w <= 0) return;
     const actualRpe = inputMode === "rir" ? 10 - log.int : log.int;
+    const setId = uid();
     logSet(sel, {
+      id: setId,
       weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate),
       fromRec, tReps, tRpe, rec: recR, note: note.trim() || undefined,
       cond: condFactor < 1 ? condFactor : undefined,
@@ -4655,6 +4931,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       rest: restSecs != null && restSecs < 1800 ? Math.round(restSecs) : undefined,
     });
     setNote(""); setFromRec(false); setJustLogged(true);
+    setLastLog({ id: setId, ex: sel, weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate) });
     setTimeout(() => setJustLogged(false), 1400);
   };
 
@@ -5079,6 +5356,17 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         <Btn kind="primary" onClick={doLog} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(log.weight)}>
           {justLogged ? <><Check size={17} /> Logged</> : "Log set"}
         </Btn>
+        {lastLog ? (
+          <button onClick={() => setFilming(lastLog)} style={{ width: "100%", marginTop: 9, background: "none",
+            border: `1px dashed ${(state.clips || {})[lastLog.id] ? tint(selHue, 0.5) : C.line2}`, borderRadius: R.ctrl,
+            color: (state.clips || {})[lastLog.id] ? selHue : C.muted, cursor: "pointer", padding: "10px 12px",
+            fontFamily: SANS, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center",
+            justifyContent: "center", gap: 7, WebkitTapHighlightColor: "transparent" }}>
+            {(state.clips || {})[lastLog.id]
+              ? <><Play size={14} /> Watch {fmt(lastLog.weight)}{unit} × {lastLog.reps}</>
+              : <><Camera size={14} /> Film that set — {fmt(lastLog.weight)}{unit} × {lastLog.reps}</>}
+          </button>
+        ) : null}
         <div style={{ fontSize: 11, color: C.faint, marginTop: 8, textAlign: "center" }}>
           Every set you log retunes your 1RM — heavier feedback than expected lowers it, easier raises it.
         </div>
@@ -5232,6 +5520,12 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </div>
       )}
 
+      <ClipSheet open={!!filming} onClose={() => setFilming(null)}
+        setId={filming ? filming.id : null} ex={filming ? filming.ex : sel} set={filming} unit={unit} inputMode={inputMode}
+        clip={filming ? (state.clips || {})[filming.id] : null}
+        onSave={(meta) => saveClip(filming.id, meta)}
+        onDelete={() => { dropClip(filming.id); setFilming(null); }} />
+
       <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
         sel={sel} unit={unit} todaySlots={sessionSlots} onPick={setSel}
         onCreate={(name) => {
@@ -5311,7 +5605,59 @@ function PlateView({ total, bar, denoms, unit }) {
 }
 
 /* ============================== HISTORY TAB ============================== */
-function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode }) {
+/* The point of filming sets is seeing them next to each other: same lift, the
+   heaviest first, so a bar path from March sits a thumb-swipe from one in July. */
+function FilmStrip({ ex, sets, clips, unit, hue, onPick }) {
+  const filmed = sets.filter((s) => clips[s.id]).slice(0, 40);
+  const [thumbs, setThumbs] = useState({});
+  useEffect(() => {
+    let dead = false;
+    const want = filmed.map((s) => s.id).filter((id) => !(id in thumbs));
+    if (!want.length) return;
+    Promise.all(want.map((id) => clipThumb(id).then((t) => [id, t || null]).catch(() => [id, null])))
+      .then((pairs) => { if (!dead) setThumbs((t) => { const n = { ...t }; for (const [k, v] of pairs) n[k] = v; return n; }); });
+    return () => { dead = true; };
+  }, [filmed.map((s) => s.id).join(",")]);
+  if (!filmed.length) return null;
+  return (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "14px 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+          <span style={{ width: 3, height: 13, borderRadius: 2, background: hue, boxShadow: `0 0 10px ${tint(hue, 0.55)}` }} />
+          <span style={label}>Film</span>
+        </span>
+        <span style={{ fontSize: 11.5, color: C.faint }}>{filmed.length} clip{filmed.length === 1 ? "" : "s"}</span>
+      </div>
+      <div style={{ display: "flex", gap: 9, overflowX: "auto", padding: "0 16px 16px", WebkitOverflowScrolling: "touch" }}>
+        {filmed.map((s) => (
+          <button key={s.id} onClick={() => onPick(s)} style={{ flex: "0 0 auto", width: 98, padding: 0,
+            background: C.bg, border: `1px solid ${C.line2}`, borderRadius: R.ctrl, overflow: "hidden",
+            cursor: "pointer", color: C.text, textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+            <span style={{ display: "block", position: "relative", height: 124, background: "#000" }}>
+              {thumbs[s.id]
+                ? <img src={thumbs[s.id]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                : <span style={{ display: "grid", placeItems: "center", height: "100%", color: C.faint }}><Film size={20} /></span>}
+              <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>
+                <span style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(0,0,0,0.55)",
+                  display: "grid", placeItems: "center", color: "#fff", paddingLeft: 2 }}><Play size={12} /></span>
+              </span>
+              <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 6px 5px",
+                background: "linear-gradient(transparent, rgba(0,0,0,0.85))", fontFamily: MONO, fontSize: 10.5,
+                fontWeight: 700, textAlign: "center", display: "block" }}>
+                {s.secs != null ? fmtDur(s.secs) : `${fmt(s.weight)}×${s.reps}`}
+              </span>
+            </span>
+            <span style={{ display: "block", fontSize: 10, color: C.faint, padding: "6px 7px 7px", textAlign: "center" }}>
+              {dshort(s.ts)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip }) {
   const names = Object.keys(state.exercises);
   if (names.length === 0)
     return <Card style={{ textAlign: "center", color: C.muted, fontSize: 14, padding: "28px 16px" }}>
@@ -5322,7 +5668,9 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
   const [pickingLift, setPickingLift] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [editing, setEditing] = useState(null);
+  const [filming, setFilming] = useState(null);
   const iconBtn = { background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4 };
+  const clips = state.clips || {};
   const ex = state.exercises[cur];
   const model = models[cur];
   const sets = [...ex.sets].sort((a, b) => b.ts - a.ts);
@@ -5391,6 +5739,9 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
         <LineChart data={chartPoints} height={176} unit={unit} color={hueFor(cur, state)} />
       </Card>
 
+      <FilmStrip ex={cur} sets={sets} clips={clips} unit={unit} hue={hueFor(cur, state)}
+        onPick={(s) => setFilming(s)} />
+
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
@@ -5424,7 +5775,11 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
                 {s.note ? `  ·  ${s.note}` : ""}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+            <div style={{ display: "flex", gap: 2, flexShrink: 0, alignItems: "center" }}>
+              <button onClick={() => setFilming(s)} aria-label={clips[s.id] ? "Watch this set" : "Film this set"}
+                style={{ ...iconBtn, color: clips[s.id] ? hueFor(cur, state) : C.faint }}>
+                {clips[s.id] ? <Play size={14} /> : <Camera size={15} />}
+              </button>
               <button onClick={() => setEditing(s)} style={iconBtn}><Pencil size={15} /></button>
               <button onClick={() => deleteSet(cur, s.id)} style={iconBtn}><Trash2 size={16} /></button>
             </div>
@@ -5456,6 +5811,12 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           <Trash2 size={15} /> Delete this lift
         </Btn>
       )}
+
+      <ClipSheet open={!!filming} onClose={() => setFilming(null)}
+        setId={filming ? filming.id : null} ex={cur} set={filming} unit={unit} inputMode={inputMode}
+        clip={filming ? clips[filming.id] : null}
+        onSave={(meta) => { saveClip(filming.id, meta); }}
+        onDelete={() => { dropClip(filming.id); setFilming(null); }} />
 
       {editing && (
         <EditSetSheet
@@ -6397,6 +6758,286 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
 }
 
 /* ============================== SETTINGS ================================= */
+/* --------------------------- the video sheet ----------------------------
+   One clip per set. Record it here — which keeps the file small because we
+   choose the resolution and bitrate ourselves — or bring one in from the
+   camera roll, which gets shrunk on the way in if it is enormous.
+------------------------------------------------------------------------ */
+function ClipSheet({ open, onClose, setId, ex, set, unit, inputMode, clip, onSave, onDelete }) {
+  const [mode, setMode] = useState("idle");      // idle | camera | preview | busy
+  const [blob, setBlob] = useState(null);
+  const [url, setUrl] = useState(null);
+  const [playUrl, setPlayUrl] = useState(null);
+  const [err, setErr] = useState("");
+  const [prog, setProg] = useState(0);
+  const [stage, setStage] = useState("");
+  const [recSecs, setRecSecs] = useState(0);
+  const [facing, setFacing] = useState("environment");
+  const [armDel, setArmDel] = useState(false);
+  const camRef = useRef(null), streamRef = useRef(null), recRef = useRef(null), cancelRef = useRef(false);
+
+  const stopStream = () => {
+    try { if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    streamRef.current = null;
+  };
+  const reset = () => {
+    stopStream();
+    if (url) URL.revokeObjectURL(url);
+    setBlob(null); setUrl(null); setMode("idle"); setErr(""); setProg(0); setStage(""); setRecSecs(0);
+  };
+
+  // the stored clip, fetched only while the sheet is open
+  useEffect(() => {
+    let dead = false, made = null;
+    if (open && clip) {
+      clipBlob(setId).then((b) => {
+        if (dead) return;
+        if (!b) { setErr("That clip is no longer stored on this device."); return; }
+        made = URL.createObjectURL(b); setPlayUrl(made);
+      }).catch(() => {});
+    }
+    return () => { dead = true; if (made) URL.revokeObjectURL(made); setPlayUrl(null); };
+  }, [open, clip, setId]);
+
+  useEffect(() => { if (!open) { reset(); setArmDel(false); } }, [open]);
+  useEffect(() => () => { stopStream(); if (url) URL.revokeObjectURL(url); }, []);
+  useEffect(() => {
+    if (mode === "camera" && camRef.current && streamRef.current) {
+      camRef.current.srcObject = streamRef.current;
+      camRef.current.play().catch(() => {});
+    }
+  }, [mode]);
+
+  const openCamera = async () => {
+    setErr("");
+    if (!canRecord()) { setErr("This browser can't record video. Choose a file instead."); return; }
+    try {
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        audio: false,
+      });
+      setMode("camera");
+    } catch (e) {
+      setErr(/NotAllowed|Permission/i.test(String(e && e.name) + String(e && e.message))
+        ? "Camera access was declined. Allow it in your browser's site settings, or choose a file instead."
+        : "No camera available here — choose a file instead.");
+    }
+  };
+  const flip = async () => {
+    const next = facing === "environment" ? "user" : "environment";
+    setFacing(next); stopStream();
+    try {
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: next }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      if (camRef.current) { camRef.current.srcObject = streamRef.current; camRef.current.play().catch(() => {}); }
+    } catch (e) { setErr("Couldn't switch camera."); }
+  };
+
+  const startRec = () => {
+    if (!streamRef.current) return;
+    const mime = pickMime();
+    let rec;
+    try { rec = new MediaRecorder(streamRef.current, mime ? { mimeType: mime, videoBitsPerSecond: 2.2e6 } : undefined); }
+    catch (e) { setErr("This browser can't record here. Choose a file instead."); return; }
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      const b = new Blob(chunks, { type: mime || "video/webm" });
+      stopStream();
+      if (!b.size) { setErr("Nothing was recorded."); setMode("idle"); return; }
+      setBlob(b); setUrl(URL.createObjectURL(b)); setMode("preview");
+    };
+    recRef.current = rec;
+    rec.start(500);
+    setRecSecs(0);
+    setMode("rec");
+  };
+  const stopRec = () => { try { if (recRef.current && recRef.current.state !== "inactive") recRef.current.stop(); } catch (e) {} };
+  useEffect(() => {
+    if (mode !== "rec") return;
+    const t = setInterval(() => setRecSecs((s) => {
+      const n = s + 1;
+      if (n >= CLIP_MAX_SECS) stopRec();
+      return n;
+    }), 1000);
+    return () => clearInterval(t);
+  }, [mode]);
+
+  const pickFile = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!/^video\//.test(f.type || "")) { setErr("That's not a video file."); return; }
+    setErr("");
+    if (url) URL.revokeObjectURL(url);
+    setBlob(f); setUrl(URL.createObjectURL(f)); setMode("preview");
+  };
+
+  const save = async () => {
+    if (!blob) return;
+    cancelRef.current = false;
+    setMode("busy"); setErr(""); setProg(0);
+    let b = blob;
+    if (b.size > CLIP_BIG && canCompress()) {
+      setStage("Shrinking — this plays the clip through once");
+      try {
+        const small = await shrinkVideo(b, setProg, () => cancelRef.current);
+        if (small && small.size > 0 && small.size < b.size) b = small;
+      } catch (e) {}
+      if (cancelRef.current) { setMode("preview"); setStage(""); return; }
+    }
+    setStage("Saving");
+    const meta = await grabThumb(b);
+    try {
+      await clipSave(setId, b, meta.thumb);
+    } catch (e) {
+      setErr("Couldn't save the video — this device's storage is full. Free up space in Settings and try again.");
+      setMode("preview"); setStage(""); return;
+    }
+    onSave({ ex, ts: (set && set.ts) || Date.now(), bytes: b.size, dur: meta.dur, w: meta.w, h: meta.h, type: b.type });
+    reset();
+  };
+
+  const remove = async () => {
+    try { await clipDrop(setId); } catch (e) {}
+    onDelete();
+    setArmDel(false);
+  };
+
+  const setLine = set
+    ? (set.secs != null ? fmtDur(set.secs)
+      : `${fmt(set.weight)}${unit} × ${set.reps} @ ${inputMode === "rir" ? `${fmt(10 - set.rpe)} RIR` : `RPE ${fmt(set.rpe)}`}`)
+    : "";
+  const frame = { width: "100%", borderRadius: R.ctrl, background: "#000", display: "block",
+    maxHeight: "48vh", objectFit: "contain" };
+
+  return (
+    <Sheet open={open} onClose={onClose} title={clip && mode === "idle" ? "Set video" : "Film this set"}>
+      {set && (
+        <div style={{ marginBottom: 13 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>{ex}</div>
+          <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted, marginTop: 3 }}>
+            {setLine}{set.ts ? ` · ${dshort(set.ts)}` : ""}
+          </div>
+        </div>
+      )}
+
+      {err && <div style={{ fontSize: 12.5, color: C.red, marginBottom: 11, lineHeight: 1.5 }}>{err}</div>}
+
+      {/* already filmed */}
+      {clip && mode === "idle" && (
+        <div>
+          {playUrl
+            ? <video src={playUrl} controls playsInline style={frame} />
+            : <div style={{ ...frame, height: 180, display: "grid", placeItems: "center", color: C.faint, fontSize: 13 }}>Loading…</div>}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.faint,
+            fontFamily: MONO, margin: "9px 2px 14px" }}>
+            <span>{fmtSecs(clip.dur)} · {fmtBytes(clip.bytes)}</span>
+            <span>{clip.w && clip.h ? `${clip.w}×${clip.h}` : ""}</span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn kind="solid" onClick={() => { setErr(""); openCamera(); }} style={{ flex: 1 }}><Camera size={15} /> Refilm</Btn>
+            <label style={{ flex: 1 }}>
+              <Btn kind="ghost" as="span" style={{ width: "100%" }}><Upload size={15} /> Replace</Btn>
+              <input type="file" accept="video/*" onChange={pickFile} style={{ display: "none" }} />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {playUrl && (
+              <a href={playUrl} download={`${(ex || "set").replace(/\W+/g, "-").toLowerCase()}-${dshort(clip.ts).replace(/\W+/g, "")}.${/mp4/.test(clip.type || "") ? "mp4" : "webm"}`}
+                style={{ flex: 1, textDecoration: "none" }}>
+                <Btn kind="ghost" as="span" style={{ width: "100%", fontSize: 12.5, minHeight: 38 }}>Save to phone</Btn>
+              </a>
+            )}
+            <Btn kind="ghost" onClick={() => setArmDel(true)}
+              style={{ flex: 1, fontSize: 12.5, minHeight: 38, color: C.red }}><Trash2 size={14} /> Delete</Btn>
+          </div>
+          {armDel && (
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Btn kind="danger" onClick={remove} style={{ flex: 1 }}>Delete this video</Btn>
+              <Btn kind="ghost" onClick={() => setArmDel(false)} style={{ flex: 1 }}>Keep</Btn>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* nothing filmed yet */}
+      {!clip && mode === "idle" && (
+        <div>
+          <div style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.55, marginBottom: 14 }}>
+            Keep the camera still and get the whole bar in frame. Clips stay on this device —
+            nothing is uploaded anywhere — and are kept small enough to hold a training year of them.
+          </div>
+          <Btn kind="primary" onClick={openCamera} style={{ width: "100%" }}><Camera size={16} /> Record now</Btn>
+          <label style={{ display: "block", marginTop: 8 }}>
+            <Btn kind="solid" as="span" style={{ width: "100%" }}><Upload size={15} /> Choose a file</Btn>
+            <input type="file" accept="video/*" onChange={pickFile} style={{ display: "none" }} />
+          </label>
+        </div>
+      )}
+
+      {/* live camera */}
+      {(mode === "camera" || mode === "rec") && (
+        <div>
+          <video ref={camRef} muted playsInline style={{ ...frame, transform: facing === "user" ? "scaleX(-1)" : "none" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
+            <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, minWidth: 48,
+              color: mode === "rec" ? C.red : C.faint, fontVariantNumeric: "tabular-nums" }}>
+              {fmtSecs(recSecs)}
+            </span>
+            <div style={{ flex: 1 }}>
+              {mode === "rec"
+                ? <Btn kind="danger" onClick={stopRec} style={{ width: "100%" }}>Stop</Btn>
+                : <Btn kind="primary" onClick={startRec} style={{ width: "100%" }}>Start recording</Btn>}
+            </div>
+            {mode === "camera" && (
+              <Btn kind="ghost" onClick={flip} style={{ minHeight: 42, padding: "8px 12px", fontSize: 12.5 }}>Flip</Btn>
+            )}
+          </div>
+          {mode === "camera" && (
+            <Btn kind="ghost" onClick={reset} style={{ width: "100%", marginTop: 8, fontSize: 12.5, minHeight: 38 }}>Cancel</Btn>
+          )}
+          {mode === "rec" && (
+            <div style={{ fontSize: 11.5, color: C.faint, marginTop: 9, textAlign: "center" }}>
+              Stops on its own at {Math.round(CLIP_MAX_SECS / 60)} minutes.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* just filmed or just picked */}
+      {mode === "preview" && (
+        <div>
+          <video src={url} controls playsInline style={frame} />
+          <div style={{ fontSize: 11.5, color: C.faint, fontFamily: MONO, margin: "9px 2px 14px" }}>
+            {fmtBytes(blob ? blob.size : 0)}{blob && blob.size > CLIP_BIG && canCompress() ? " — will be shrunk on save" : ""}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn kind="primary" onClick={save} style={{ flex: 1 }}><Check size={16} /> Keep this</Btn>
+            <Btn kind="ghost" onClick={reset} style={{ flex: 1 }}>Discard</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* writing it down */}
+      {mode === "busy" && (
+        <div style={{ padding: "6px 0 2px" }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 9 }}>{stage}…</div>
+          <div style={{ height: 5, borderRadius: 3, background: C.line, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 3, background: C.red,
+              width: `${Math.max(3, Math.round(prog * 100))}%`, transition: "width .25s linear" }} />
+          </div>
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 9, lineHeight: 1.5 }}>
+            Leave this open until it finishes. A long clip takes as long as the clip itself.
+          </div>
+          <Btn kind="ghost" onClick={() => { cancelRef.current = true; }}
+            style={{ width: "100%", marginTop: 11, fontSize: 12.5, minHeight: 38 }}>Cancel</Btn>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 function DeviceRow({ on, title, note, action }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderTop: `1px solid ${C.line}` }}>
@@ -6419,7 +7060,14 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
     return { ...s, exercises: { ...s.exercises, [key]: { ...item.ex, name: key } },
       trash: (s.trash || []).filter((x) => x.name !== name) };
   });
-  const purgeExercise = (name) => setState((s) => ({ ...s, trash: (s.trash || []).filter((x) => x.name !== name) }));
+  const purgeExercise = (name) => setState((s) => {
+    const item = (s.trash || []).find((x) => x.name === name);
+    const clips = { ...(s.clips || {}) };
+    for (const x of (item && item.ex && item.ex.sets) || []) {
+      if (clips[x.id]) { delete clips[x.id]; clipDrop(x.id).catch(() => {}); }
+    }
+    return { ...s, clips, trash: (s.trash || []).filter((x) => x.name !== name) };
+  });
   const [backup, setBackup] = useState("");
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState("");
@@ -6448,6 +7096,12 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
     setCanInstall(false); refreshStore();
   };
   const doPersist = async () => { await askPersist(); refreshStore(); };
+  const [armClips, setArmClips] = useState(false);
+  const clearClips = async () => {
+    for (const id of Object.keys(state.clips || {})) { try { await clipDrop(id); } catch (e) {} }
+    setState((s) => ({ ...s, clips: {} }));
+    setArmClips(false); refreshStore();
+  };
   const testStorage = () => {
     try {
       const tk = "ironset-selftest", v = String(Date.now());
@@ -6580,6 +7234,24 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
             ? <Btn kind="primary" onClick={doPersist} style={{ minHeight: 38, padding: "8px 14px", fontSize: 13 }}>Protect</Btn>
             : null} />
 
+        {(() => {
+          const clips = state.clips || {};
+          const n = Object.keys(clips).length;
+          if (!n) return null;
+          return (
+            <DeviceRow on title={`${n} set video${n === 1 ? "" : "s"} · ${fmtBytes(clipBytes(clips))}`}
+              note="Kept on this device and nowhere else. The oldest go automatically when the space runs short; a backup file carries your log but not the footage."
+              action={<Btn kind="ghost" onClick={() => setArmClips(true)}
+                style={{ minHeight: 38, padding: "8px 12px", fontSize: 12.5, color: C.red }}>Delete all</Btn>} />
+          );
+        })()}
+        {armClips && (
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <Btn kind="danger" onClick={clearClips} style={{ flex: 1 }}>Delete every video</Btn>
+            <Btn kind="ghost" onClick={() => setArmClips(false)} style={{ flex: 1 }}>Keep them</Btn>
+          </div>
+        )}
+
         {store && store.quota > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.faint, marginBottom: 5 }}>
@@ -6648,7 +7320,10 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
       <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 16 }}>
         {armReset ? (
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn kind="danger" onClick={() => { setState(DEFAULT); setArmReset(false); onClose(); }} style={{ flex: 1 }}>Yes, erase everything</Btn>
+            <Btn kind="danger" onClick={async () => {
+              for (const id of Object.keys(state.clips || {})) { try { await clipDrop(id); } catch (e) {} }
+              setState(DEFAULT); setArmReset(false); onClose();
+            }} style={{ flex: 1 }}>Yes, erase everything</Btn>
             <Btn kind="ghost" onClick={() => setArmReset(false)} style={{ flex: 1 }}>Cancel</Btn>
           </div>
         ) : (
