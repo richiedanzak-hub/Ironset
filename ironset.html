@@ -599,8 +599,9 @@ const C = {
 // should know which lift a chart belongs to before you read the label.
 const LIFT_HUE = { "Squat": C.red, "Bench Press": C.violet, "Deadlift": C.amber, "Overhead Press": C.cyan };
 // Deliberately excludes the four main-lift hues: an accessory that comes out the same
-// amber as your deadlift makes the colour mean nothing.
-const HUE_CYCLE = [C.blue, C.good, "#E06AA8", "#9BD15B", C.slate, "#C98BE8"];
+// amber as your deadlift makes the colour mean nothing. It also leaves out the green
+// the calendar uses for a day you trained, so a dot never means two things at once.
+const HUE_CYCLE = [C.blue, "#E06AA8", "#9BD15B", C.slate, "#C98BE8", "#4FBFA8"];
 // A variation inherits its parent's colour, because that is the question it answers:
 // a Pause Squat line is only interesting next to the Squat line it feeds.
 function hueFor(name, state) {
@@ -2178,6 +2179,378 @@ function decorateSlots(slots) {
 }
 const slotRpe = (slot) => slot.mode === "rir" ? Math.max(5, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
 const slotLabel = (slot) => slot.mode === "pct" ? `${fmt(slot.val)}%` : slot.mode === "rir" ? `${fmt(slot.val)} RIR` : `RPE ${fmt(slot.val)}`;
+/* ------------------------------- programmes ------------------------------- */
+// A library of training structures rather than a library of training numbers.
+//
+// The distinction matters more than it sounds. A downloaded programme says "do 275
+// for 5"; IRONSET already knows what you can do for 5, trimmed for the fatigue you
+// are carrying and the rest you just took. So what a template contributes is the
+// SHAPE of a block — which lifts, on which days, at what effort, progressing how —
+// and the loads stay where they belong, with your own estimator.
+//
+// That is also why these are described by their pattern and credited to where the
+// pattern came from, rather than borrowing a name. The structures below are the
+// common property of the sport; the books that popularised them are not.
+//
+// Everything generates into ordinary dated days, so the moment a block lands you can
+// move it, swap it, combine it or clear it with the same tools as anything you built
+// by hand. A template is a starting point, never a mode you are locked into.
+
+// A main-lift slot: top set, optionally with back-offs.
+const mSet = (ex, sets, reps, mode, val, bo) => ({ ex, sets, reps, mode, val, bo: bo || null });
+// Top set plus a back-off block, the shape most of these use.
+const topSet = (ex, reps, rpe, boSets, boReps, boRpe, boLift) =>
+  mSet(ex, 1, reps, "rpe", rpe, boSets ? { sets: boSets, reps: boReps, mode: "rpe", val: boRpe,
+    lift: boLift || null } : null);
+// Straight sets across, for when every set is the same.
+const straight = (ex, sets, reps, rpe) => mSet(ex, sets, reps, "rpe", rpe);
+// An accessory, prescribed in reps-in-reserve because that is how they are run.
+const acc = (ex, sets, reps, rir) => ({ ex, sets, reps, mode: "rir", val: rir == null ? 2 : rir,
+  bo: null, acc: true });
+// Speed work is a percentage of the max, not an effort — the point is bar speed.
+const speed = (ex, sets, reps, pct) => mSet(ex, sets, reps, "pct", pct);
+
+// Which weekdays a given frequency lands on, counted from the day you start.
+const DAY_SPREAD = { 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5] };
+// Most blocks back off every fourth week; beginners progress too fast to need it and
+// masters need it sooner.
+const deloadWeek = (w, every) => every > 0 && (w + 1) % every === 0;
+// Effort climbs across a block and resets on a deload.
+const waveRpe = (base, w, every) => deloadWeek(w, every) ? Math.max(5.5, base - 2)
+  : Math.min(9.5, base + 0.5 * ((every > 0 ? w % every : w % 4)));
+
+const LEVELS = [
+  { v: 1, t: "Beginner", d: "Under a year of serious lifting, still adding weight week to week." },
+  { v: 2, t: "Intermediate", d: "Progress now comes in blocks rather than sessions." },
+  { v: 3, t: "Advanced", d: "Years of training, peaking around competitions." },
+];
+const GOALS = [
+  { v: "strength", t: "Strength" }, { v: "peak", t: "Peak for a meet" },
+  { v: "size", t: "Size" }, { v: "maintain", t: "Maintain" },
+];
+
+// build(days, level, week, weeks) returns one array of slots per training day.
+const PROGRAMS = [
+  {
+    id: "lin-fb", name: "Linear Full Body", origin: "the pattern Starting Strength and StrongLifts made standard",
+    level: [1, 1], days: [2, 3], weeks: [6, 16], goal: "strength", deload: 0,
+    blurb: "Every lift, every session, adding weight for as long as it keeps working.",
+    how: "Effort is held steady and the load follows your estimate up — which is what linear progression actually is once the app is doing the arithmetic.",
+    build: (d) => {
+      const a = [straight("Low-Bar Squat", 3, 5, 7), straight("Competition Bench", 3, 5, 7), acc("Barbell Row", 3, 8)];
+      const b = [straight("Low-Bar Squat", 3, 5, 7), straight("Overhead Press", 3, 5, 7), straight("Conventional Deadlift", 1, 5, 7.5)];
+      const c = [straight("Low-Bar Squat", 3, 5, 7), straight("Competition Bench", 3, 5, 7), acc("Lat Pulldown", 3, 10)];
+      return d === 2 ? [a, b] : [a, b, c];
+    },
+  },
+  {
+    id: "lin-ul", name: "Linear Upper / Lower", origin: "the standard four-day beginner split",
+    level: [1, 2], days: [4], weeks: [6, 16], goal: "strength", deload: 0,
+    blurb: "Four days, two upper and two lower, still adding weight session to session.",
+    how: "More room for accessories than full body, and each lift gets a proper warm-up instead of being third in the queue.",
+    build: () => [
+      [straight("Low-Bar Squat", 3, 5, 7), acc("Romanian Deadlift", 3, 8), acc("Leg Press", 3, 10), acc("Plank", 3, 45)],
+      [straight("Competition Bench", 3, 5, 7), acc("Barbell Row", 4, 8), acc("Overhead Press", 2, 8), acc("Lat Pulldown", 3, 10)],
+      [straight("Conventional Deadlift", 1, 5, 7.5), acc("Front Squat", 3, 6), acc("Lying Leg Curl", 3, 10), acc("Standing Calf Raise", 3, 12)],
+      [straight("Overhead Press", 3, 5, 7), acc("Pull-Up", 4, 6), acc("Incline Bench", 3, 8), acc("Barbell Curl", 3, 10)],
+    ],
+  },
+  {
+    id: "minimal", name: "Minimalist", origin: "the two-day template for weeks when life wins",
+    level: [1, 3], days: [2], weeks: [4, 16], goal: "maintain", deload: 0,
+    blurb: "Two sessions a week that keep all three lifts moving.",
+    how: "Built to be the thing you actually do when the alternative is nothing. Enough to hold strength, enough to add a little.",
+    build: () => [
+      [topSet("Low-Bar Squat", 5, 8, 2, 5, 7), straight("Competition Bench", 3, 5, 7.5), acc("Barbell Row", 3, 8)],
+      [topSet("Conventional Deadlift", 3, 8, 1, 5, 7), straight("Overhead Press", 3, 5, 7.5), acc("Lat Pulldown", 3, 10)],
+    ],
+  },
+  {
+    id: "hlv", name: "Heavy / Light / Volume", origin: "the Texas Method pattern",
+    level: [2, 2], days: [3], weeks: [6, 12], goal: "strength", deload: 4,
+    blurb: "A volume day, a recovery day and one genuinely heavy day each week.",
+    how: "Volume Monday builds the week, Wednesday keeps you moving without digging a hole, Friday is where you find out.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 4);
+      return [
+        [straight("Low-Bar Squat", 5, 5, dl ? 6 : 8), straight("Competition Bench", 5, 5, dl ? 6 : 8), acc("Barbell Row", 4, 8)],
+        [straight("Low-Bar Squat", 2, 5, 6), straight("Overhead Press", 3, 5, 7), acc("Lat Pulldown", 3, 10), acc("Back Extension", 3, 12)],
+        [topSet("Low-Bar Squat", 5, dl ? 7 : 9), topSet("Competition Bench", 5, dl ? 7 : 9), topSet("Conventional Deadlift", 5, dl ? 7 : 8.5)],
+      ];
+    },
+  },
+  {
+    id: "topset-ul", name: "Top Set and Back-offs", origin: "how most modern powerlifting is written",
+    level: [2, 3], days: [4], weeks: [4, 12], goal: "strength", deload: 4,
+    blurb: "One hard set to a target effort, then volume underneath it.",
+    how: "The top set tells the app where you are today; the back-offs read the fatigue it just created. This is the shape IRONSET was built around.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4), bo = deloadWeek(w, 4) ? 2 : 3;
+      return [
+        [topSet("Low-Bar Squat", 3, r, bo, 5, r - 1), acc("Romanian Deadlift", 3, 8), acc("Leg Press", 3, 10), acc("Hanging Leg Raise", 3, 10)],
+        [topSet("Competition Bench", 3, r, bo, 5, r - 1), acc("Barbell Row", 4, 8), acc("Incline Bench", 3, 10), acc("Face Pull", 3, 15)],
+        [topSet("Conventional Deadlift", 3, r, Math.max(1, bo - 1), 5, r - 1), acc("Front Squat", 3, 6), acc("Lying Leg Curl", 3, 12), acc("Back Extension", 3, 12)],
+        [topSet("Overhead Press", 5, r, bo, 8, r - 1), acc("Pull-Up", 4, 6), acc("Dumbbell Bench", 3, 10), acc("Triceps Pushdown", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "dup", name: "Daily Undulating", origin: "the DUP pattern from the strength literature",
+    level: [2, 3], days: [4], weeks: [4, 12], goal: "strength", deload: 4,
+    blurb: "Every lift twice a week, heavy one day and for reps the other.",
+    how: "Changing the rep range session to session rather than block to block. More frequency per lift than a classic split, without stacking two heavy days on the same pattern.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      return [
+        [topSet("Low-Bar Squat", 3, r, 2, 5, r - 1), acc("Competition Bench", 3, 8, 3), acc("Barbell Row", 3, 10)],
+        [topSet("Competition Bench", 3, r, 3, 5, r - 1), acc("Romanian Deadlift", 3, 8, 3), acc("Lat Pulldown", 3, 12)],
+        [straight("Low-Bar Squat", 4, 8, r - 1.5), topSet("Overhead Press", 5, r, 2, 8, r - 1), acc("Chest-Supported Row", 3, 10)],
+        [topSet("Conventional Deadlift", 3, r, 1, 5, r - 1), straight("Competition Bench", 4, 8, r - 1.5), acc("Leg Extension", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "wave", name: "Ascending Wave", origin: "the 5/3/1 pattern popularised by Jim Wendler",
+    level: [2, 3], days: [3, 4], weeks: [4, 12], goal: "strength", deload: 4,
+    blurb: "Three weeks of rising effort and falling reps, then a week back.",
+    how: "Fives, then triples, then a single — and a deload before it gets expensive. One main lift per day, accessories behind it.",
+    build: (d, lvl, w) => {
+      const p = w % 4;
+      const reps = [5, 3, 1, 5][p], rpe = [8, 8.5, 9, 6][p], boR = [8, 5, 5, 8][p];
+      const t = (ex) => topSet(ex, reps, rpe, p === 3 ? 1 : 3, boR, rpe - 1.5);
+      const days4 = [
+        [t("Low-Bar Squat"), acc("Leg Press", 3, 10), acc("Lying Leg Curl", 3, 12), acc("Ab Wheel", 3, 10)],
+        [t("Competition Bench"), acc("Barbell Row", 4, 8), acc("Dumbbell Bench", 3, 10), acc("Triceps Pushdown", 3, 12)],
+        [t("Conventional Deadlift"), acc("Front Squat", 3, 6), acc("Back Extension", 3, 12), acc("Farmer's Walk", 3, 40)],
+        [t("Overhead Press"), acc("Pull-Up", 4, 6), acc("Lateral Raise", 3, 15), acc("Barbell Curl", 3, 12)],
+      ];
+      return d === 4 ? days4 : [days4[0], days4[1], days4[2]];
+    },
+  },
+  {
+    id: "ramp5", name: "Ramping Fives", origin: "the Bill Starr and Madcow five-set pattern",
+    level: [2, 2], days: [3], weeks: [6, 12], goal: "strength", deload: 5,
+    blurb: "Five ascending sets to one hard top five, three days a week.",
+    how: "The ramp is the warm-up and the work at once. A middle road between linear progression and a real block.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 5), r = dl ? 6.5 : 8.5;
+      return [
+        [topSet("Low-Bar Squat", 5, r, 1, 8, r - 2), topSet("Competition Bench", 5, r, 1, 8, r - 2), acc("Barbell Row", 4, 8)],
+        [straight("Low-Bar Squat", 4, 5, r - 2), straight("Overhead Press", 4, 5, r - 1), acc("Chin-Up", 3, 8), acc("Back Extension", 3, 12)],
+        [topSet("Low-Bar Squat", 3, r + 0.5, 0), topSet("Conventional Deadlift", 5, r, 1, 5, r - 2), acc("Dip", 3, 8)],
+      ];
+    },
+  },
+  {
+    id: "rot-fb", name: "Rotating Full Body", origin: "the full-body template with one lift prioritised per session",
+    level: [2, 3], days: [3], weeks: [4, 12], goal: "strength", deload: 4,
+    blurb: "All three lifts most days, but only one of them is the priority.",
+    how: "High frequency without three hard days on the same lift. Whichever lift leads gets the top set; the others are kept warm.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      const lead = (ex, others) => [topSet(ex, 3, r, 3, 5, r - 1)].concat(others);
+      return [
+        lead("Low-Bar Squat", [straight("Competition Bench", 3, 6, r - 1.5), acc("Barbell Row", 3, 10)]),
+        lead("Competition Bench", [straight("Conventional Deadlift", 2, 4, r - 2), acc("Lat Pulldown", 3, 12), acc("Triceps Pushdown", 3, 12)]),
+        lead("Conventional Deadlift", [straight("Low-Bar Squat", 3, 5, r - 2), acc("Overhead Press", 3, 8, 3), acc("Hanging Leg Raise", 3, 10)]),
+      ];
+    },
+  },
+  {
+    id: "vi-wave", name: "Volume and Intensity Weeks", origin: "the alternating-emphasis block",
+    level: [2, 3], days: [4], weeks: [6, 12], goal: "strength", deload: 6,
+    blurb: "One week of volume, one week of intensity, repeating.",
+    how: "Separates the two jobs instead of asking every week to do both. Useful when hard weeks every week stopped working.",
+    build: (d, lvl, w) => {
+      const vol = w % 2 === 0, dl = deloadWeek(w, 6);
+      const r = dl ? 6 : vol ? 7.5 : 9;
+      const main = (ex) => vol ? straight(ex, 5, 5, r) : topSet(ex, 2, r, 2, 4, r - 1.5);
+      return [
+        [main("Low-Bar Squat"), acc("Romanian Deadlift", 3, 8), acc("Leg Press", 3, 12)],
+        [main("Competition Bench"), acc("Barbell Row", 4, 8), acc("Incline Bench", 3, 10), acc("Face Pull", 3, 15)],
+        [main("Conventional Deadlift"), acc("Front Squat", 3, 6), acc("Back Extension", 3, 12)],
+        [main("Overhead Press"), acc("Pull-Up", 4, 6), acc("Dumbbell Curl", 3, 12), acc("Lateral Raise", 3, 15)],
+      ];
+    },
+  },
+  {
+    id: "block", name: "Block Periodisation", origin: "the accumulation, transmutation and realisation sequence",
+    level: [3, 3], days: [4, 5], weeks: [9, 12], goal: "strength", deload: 0,
+    blurb: "Three phases: build the work capacity, convert it, then express it.",
+    how: "Volume first at moderate effort, then the same work heavier and shorter, then low reps near your limit. Each phase prepares the next rather than repeating it.",
+    build: (d, lvl, w, weeks) => {
+      const third = Math.max(3, Math.floor(weeks / 3));
+      const phase = w < third ? 0 : w < third * 2 ? 1 : 2;
+      const spec = [[6, 7.5, 3, 8], [4, 8.5, 3, 6], [2, 9, 2, 4]][phase];
+      const main = (ex) => topSet(ex, spec[0], spec[1], spec[2], spec[3], spec[1] - 1.5);
+      const base = [
+        [main("Low-Bar Squat"), acc("Leg Press", 3, 10), acc("Lying Leg Curl", 3, 12)],
+        [main("Competition Bench"), acc("Barbell Row", 4, 8), acc("Triceps Pushdown", 3, 12)],
+        [main("Conventional Deadlift"), acc("Back Extension", 3, 12), acc("Hanging Leg Raise", 3, 10)],
+        [main("Overhead Press"), acc("Pull-Up", 4, 6), acc("Lateral Raise", 3, 15)],
+      ];
+      if (d === 4) return base;
+      return base.concat([[straight("Pause Squat", 3, 3, spec[1] - 1), straight("Spoto Press", 3, 3, spec[1] - 1), acc("Chest-Supported Row", 3, 12)]]);
+    },
+  },
+  {
+    id: "conj", name: "Max Effort / Dynamic Effort", origin: "the conjugate pattern associated with Westside Barbell",
+    level: [3, 3], days: [4], weeks: [6, 12], goal: "strength", deload: 4,
+    blurb: "Two days finding a heavy single on a variation, two days moving light weight fast.",
+    how: "Max effort days rotate the variation so you are rarely stale and never grinding the same groove. Speed days are a percentage because the point is bar speed, not effort.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 4);
+      const meLower = ["Box Squat", "Safety Bar Squat", "Deficit Deadlift 2in", "Block Pull 2in"][w % 4];
+      const meUpper = ["2-Board Press", "Close-Grip Bench", "Pin Press", "Spoto Press"][w % 4];
+      return [
+        [topSet(meLower, 1, dl ? 7.5 : 9.5, 2, 5, 7), acc("Good Morning", 3, 8), acc("Glute Ham Raise", 3, 10), acc("Ab Wheel", 3, 12)],
+        [topSet(meUpper, 1, dl ? 7.5 : 9.5, 3, 6, 7), acc("Dumbbell Row", 4, 10), acc("Skullcrusher", 3, 10), acc("Rear Delt Fly", 3, 15)],
+        [speed("Speed Squat", 8, 2, dl ? 50 : 55 + (w % 3) * 5), speed("Speed Deadlift", 6, 1, dl ? 60 : 70), acc("Hip Thrust", 3, 10), acc("Barbell Shrug", 3, 12)],
+        [speed("Speed Bench", 8, 3, dl ? 45 : 50 + (w % 3) * 5), acc("Pull-Up", 5, 6), acc("Dip", 3, 10), acc("Hammer Curl", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "hifreq", name: "High Frequency Squat and Bench", origin: "the high-frequency approach seen in Bulgarian and Sheiko-influenced training",
+    level: [3, 3], days: [5, 6], weeks: [4, 10], goal: "strength", deload: 3,
+    blurb: "Squat and bench almost daily, mostly submaximal.",
+    how: "Frequency buys technical practice, so almost every session stops short of hard. It only works if you are honest about effort — which is the one thing this app is built to keep you honest about.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 3), base = dl ? 6.5 : 8;
+      const sq = (r, n) => straight("Low-Bar Squat", n, r, base);
+      const bp = (r, n) => straight("Competition Bench", n, r, base);
+      const core = [
+        [sq(3, 4), bp(4, 4), acc("Barbell Row", 3, 10)],
+        [bp(5, 4), acc("Pause Squat", 3, 3, 3), acc("Lat Pulldown", 3, 12)],
+        [sq(2, 5), bp(3, 5), acc("Back Extension", 3, 12)],
+        [topSet("Conventional Deadlift", 3, dl ? 7 : 8.5, 2, 5, 7), acc("Front Squat", 3, 5, 3)],
+        [sq(4, 4), bp(6, 3), acc("Triceps Pushdown", 3, 15)],
+      ];
+      return d === 5 ? core : core.concat([[acc("Overhead Press", 4, 8, 3), acc("Chin-Up", 4, 8), acc("Lateral Raise", 3, 15)]]);
+    },
+  },
+  {
+    id: "peak", name: "Meet Peak", origin: "the standard competition taper",
+    level: [2, 3], days: [3, 4], weeks: [6, 10], goal: "peak", deload: 0, meet: true,
+    blurb: "Counts backwards from your meet date to the platform.",
+    how: "Volume early, intensity in the middle, openers and singles at the end, and almost nothing in the last week. The last heavy session lands far enough out to recover from.",
+    build: (d, lvl, w, weeks) => {
+      // Counted in weeks out from the platform rather than as fractions of the block,
+      // because that is how a peak is actually written: the last heavy single lands
+      // three weeks out whether you started eight weeks ago or six.
+      const out = weeks - w;                       // weeks remaining, meet week is 1
+      const spec = out > 5 ? [5, 7.5, 3, 8]        // build the work
+        : out > 3 ? [3, 8.5, 2, 5]                 // convert it
+        : out > 2 ? [1, 9, 1, 3]                   // heaviest single of the block
+        : out > 1 ? [2, 8, 1, 3]                   // taper
+        : [1, 7, 0, 0];                            // meet week: openers only
+      const main = (ex) => topSet(ex, spec[0], spec[1], spec[2], spec[3], spec[1] - 2);
+      const light = out <= 1;
+      const base = [
+        [main("Low-Bar Squat")].concat(light ? [] : [acc("Leg Press", 3, 10), acc("Hanging Leg Raise", 3, 10)]),
+        [main("Competition Bench")].concat(light ? [] : [acc("Barbell Row", 4, 8), acc("Triceps Pushdown", 3, 12)]),
+        [main("Conventional Deadlift")].concat(light ? [] : [acc("Back Extension", 3, 12)]),
+      ];
+      if (d === 3) return base;
+      return base.concat([light ? [acc("Lat Pulldown", 2, 10)]
+        : [straight("Pause Squat", 3, 3, spec[1] - 1.5), straight("Spoto Press", 3, 3, spec[1] - 1.5), acc("Face Pull", 3, 15)]]);
+    },
+  },
+  {
+    id: "special", name: "Lift Specialisation", origin: "the bring-up-a-weak-lift block",
+    level: [2, 3], days: [4], weeks: [4, 10], goal: "strength", deload: 4,
+    blurb: "One lift three times a week while the other two hold.",
+    how: "Squat leads by default — swap the movement on any day if you want to specialise the bench or the pull instead. The other lifts get one session each, enough to keep them.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      return [
+        [topSet("Low-Bar Squat", 3, r, 3, 5, r - 1), acc("Leg Press", 3, 10), acc("Lying Leg Curl", 3, 12)],
+        [topSet("Competition Bench", 3, r, 2, 6, r - 1), acc("Barbell Row", 4, 8), acc("Triceps Pushdown", 3, 12)],
+        [topSet("Pause Squat", 3, r - 0.5, 2, 5, r - 1.5), acc("Front Squat", 3, 5, 3), acc("Back Extension", 3, 12)],
+        [topSet("Conventional Deadlift", 3, r - 0.5, 1, 5, r - 1.5), straight("Low-Bar Squat", 4, 4, r - 2), acc("Ab Wheel", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "masters", name: "Masters Strength", origin: "built for lifters who recover slower than they used to",
+    level: [1, 3], days: [3], weeks: [6, 16], goal: "strength", deload: 3,
+    blurb: "Three days, effort capped, and a back-off week every third.",
+    how: "Nothing above RPE 8 and more of the work in the back-offs, where the strength is built and the cost is lower. The deload comes before you need it rather than after.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 3), r = dl ? 6 : 8;
+      return [
+        [topSet("Low-Bar Squat", 5, r, 3, 6, r - 1.5), acc("Leg Press", 3, 12), acc("Back Extension", 3, 12)],
+        [topSet("Competition Bench", 5, r, 3, 8, r - 1.5), acc("Chest-Supported Row", 3, 10), acc("Face Pull", 3, 15)],
+        [topSet("Trap Bar Deadlift", 5, r - 0.5, 2, 6, r - 1.5), acc("Dumbbell Row", 3, 10), acc("Plank", 3, 45)],
+      ];
+    },
+  },
+  {
+    id: "size", name: "Size Block", origin: "a hypertrophy phase written for people who compete in strength",
+    level: [2, 3], days: [4, 5], weeks: [4, 10], goal: "size", deload: 4,
+    blurb: "Higher reps and more accessory volume, without losing the competition lifts.",
+    how: "Run between strength blocks. The main lifts stay in to keep the pattern, but the work that drives the block is everything after them.",
+    build: (d, lvl, w) => {
+      const dl = deloadWeek(w, 4), r = dl ? 6 : 7.5;
+      const base = [
+        [straight("Low-Bar Squat", 4, 8, r), acc("Leg Press", 4, 12), acc("Lying Leg Curl", 4, 12), acc("Standing Calf Raise", 4, 15)],
+        [straight("Competition Bench", 4, 8, r), acc("Incline Bench", 4, 10), acc("Dumbbell Bench", 3, 12), acc("Triceps Pushdown", 4, 15)],
+        [straight("Romanian Deadlift", 4, 8, r), acc("Front Squat", 3, 8), acc("Leg Extension", 4, 15), acc("Ab Wheel", 3, 12)],
+        [acc("Pull-Up", 4, 8), acc("Barbell Row", 4, 10), acc("Lat Pulldown", 4, 12), acc("Barbell Curl", 4, 12)],
+      ];
+      if (d === 4) return base;
+      return base.concat([[straight("Overhead Press", 4, 8, r), acc("Lateral Raise", 4, 15), acc("Rear Delt Fly", 4, 15), acc("Hammer Curl", 3, 12)]]);
+    },
+  },
+  {
+    id: "deload", name: "Deload Week", origin: "one week, dropped in wherever you need it",
+    level: [1, 3], days: [3], weeks: [1, 2], goal: "maintain", deload: 0,
+    blurb: "A single week at half the work, to let a hard block land.",
+    how: "Same movements, a long way from failure. Enough to keep the groove and not enough to add to the hole you are climbing out of.",
+    build: () => [
+      [straight("Low-Bar Squat", 3, 4, 6), straight("Competition Bench", 3, 5, 6), acc("Lat Pulldown", 2, 12, 4)],
+      [straight("Overhead Press", 3, 5, 6), acc("Barbell Row", 3, 10, 4), acc("Plank", 2, 40)],
+      [straight("Conventional Deadlift", 2, 3, 6), straight("Low-Bar Squat", 2, 5, 5.5), acc("Back Extension", 2, 12, 4)],
+    ],
+  },
+];
+
+// A deload week subtracts from an already low target, and a back-off subtracts again.
+// Rather than ask every template to remember the floors, they are enforced once here —
+// which also means a template added later cannot emit an impossible prescription.
+const clampVal = (mode, v) => mode === "pct" ? Math.max(30, Math.min(105, v))
+  : mode === "rir" ? Math.max(0, Math.min(6, v)) : Math.max(5, Math.min(10, v));
+// Lay a template onto real dates. Day one is the day you chose, so starting on a
+// Wednesday gives you a Wednesday block rather than silently dropping half of week one.
+function generateProgram(tpl, opts) {
+  const days = opts.days, weeks = opts.weeks, level = opts.level || 2;
+  const spread = DAY_SPREAD[days] || DAY_SPREAD[3];
+  const out = {};
+  for (let w = 0; w < weeks; w++) {
+    const pattern = tpl.build(days, level, w, weeks) || [];
+    pattern.slice(0, days).forEach((slots, i) => {
+      if (!slots || !slots.length) return;
+      const date = addDays(opts.startDate, w * 7 + spread[i]);
+      out[date] = slots.map((sp) => {
+        const timed = TIME_MOVES.has(sp.ex);
+        return { id: uid(), ex: sp.ex, metric: timed ? "time" : "reps",
+          role: sp.acc || timed ? "accessory" : "main",
+          sets: Math.max(1, Math.round(sp.sets)), reps: Math.max(1, Math.round(sp.reps)),
+          mode: sp.mode, val: clampVal(sp.mode, sp.val),
+          bo: sp.bo ? { ...sp.bo, sets: Math.max(1, Math.round(sp.bo.sets)),
+            reps: Math.max(1, Math.round(sp.bo.reps)), val: clampVal(sp.bo.mode, sp.bo.val) } : null,
+          note: "" };
+      });
+    });
+  }
+  return out;
+}
+// How many sessions and how far it runs, for the preview.
+function programSpan(tpl, opts) {
+  const days = Object.keys(generateProgram(tpl, opts)).sort();
+  return { count: days.length, first: days[0], last: days[days.length - 1] };
+}
+
 const slotSummary = (slot) => slotTimed(slot)
   ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
   : `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
@@ -3204,6 +3577,165 @@ function ConflictSheet({ open, onClose, conflict, days, onResolve }) {
   );
 }
 
+// Browse the structures, set them to your week, see what lands before it lands.
+function ProgramPicker({ open, onClose, state, days, onGenerate }) {
+  const [lvl, setLvl] = useState(null);
+  const [dayF, setDayF] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [opts, setOpts] = useState(null);
+  useEffect(() => { if (!open) { setPick(null); setOpts(null); } }, [open]);
+
+  const meetDate = (state.meet && state.meet.date) || null;
+  const matches = PROGRAMS.filter((t) =>
+    (lvl == null || (lvl >= t.level[0] && lvl <= t.level[1])) &&
+    (dayF == null || t.days.indexOf(dayF) >= 0));
+
+  const choose = (t) => {
+    const d = dayF && t.days.indexOf(dayF) >= 0 ? dayF : t.days[0];
+    const wks = Math.min(t.weeks[1], Math.max(t.weeks[0], t.meet ? 8 : 6));
+    setPick(t);
+    setOpts({ days: d, weeks: wks, level: lvl || 2, startDate: startFor(t, wks) });
+  };
+  // A peaking block is the one case where the end date is the fixed point, so it
+  // counts back from the platform rather than forward from today.
+  function startFor(t, wks) {
+    if (t.meet && meetDate) return addDays(meetDate, -(wks * 7 - 1));
+    return todayStr();
+  }
+  const setOpt = (patch) => setOpts((o) => {
+    const next = { ...o, ...patch };
+    if (pick && pick.meet && meetDate && patch.weeks != null) next.startDate = addDays(meetDate, -(patch.weeks * 7 - 1));
+    return next;
+  });
+
+  const preview = (pick && opts) ? generateProgram(pick, opts) : null;
+  const previewKeys = preview ? Object.keys(preview).sort() : [];
+  const clash = previewKeys.filter((k) => (days || {})[k] && days[k].length).length;
+  const lvlName = (t) => t.level[0] === t.level[1]
+    ? LEVELS[t.level[0] - 1].t : `${LEVELS[t.level[0] - 1].t}–${LEVELS[t.level[1] - 1].t}`;
+
+  const chip = (on, label, onClick) => (
+    <button key={label} onClick={onClick} style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11.5,
+      borderRadius: R.pill, padding: "6px 11px", minHeight: 28, cursor: "pointer", whiteSpace: "nowrap",
+      WebkitTapHighlightColor: "transparent", background: on ? G.red : "rgba(255,255,255,0.03)",
+      color: on ? "#fff" : C.muted, border: `1px solid ${on ? "transparent" : C.line}` }}>{label}</button>
+  );
+
+  if (!open) return null;
+  return (
+    <Sheet open={open} onClose={onClose} title={pick ? pick.name : "Choose a programme"}>
+      {!pick ? (
+        <>
+          <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.55, marginBottom: 13 }}>
+            These are training structures, not weights. Every load still comes from your own
+            estimate — and once a block lands you can move, swap or clear any day of it.
+          </div>
+          <div style={{ display: "flex", gap: 5, overflowX: "auto", margin: "0 -4px 7px", padding: "0 4px 5px" }}>
+            {chip(lvl == null, "Any level", () => setLvl(null))}
+            {LEVELS.map((L) => chip(lvl === L.v, L.t, () => setLvl(L.v)))}
+          </div>
+          <div style={{ display: "flex", gap: 5, overflowX: "auto", margin: "0 -4px 12px", padding: "0 4px 5px" }}>
+            {chip(dayF == null, "Any week", () => setDayF(null))}
+            {[2, 3, 4, 5, 6].map((n) => chip(dayF === n, `${n} days`, () => setDayF(n)))}
+          </div>
+          <div style={{ maxHeight: "56vh", overflowY: "auto", overscrollBehavior: "contain",
+            WebkitOverflowScrolling: "touch", margin: "0 -4px", padding: "0 4px" }}>
+            {matches.map((t) => (
+              <button key={t.id} onClick={() => choose(t)} style={{ width: "100%", textAlign: "left",
+                background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface,
+                padding: "13px 15px", marginBottom: 8, cursor: "pointer", color: C.text,
+                WebkitTapHighlightColor: "transparent" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 800, fontSize: 14.5 }}>{t.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 10, color: C.faint }}>
+                    {t.days.join("/")} days · {t.weeks[0]}–{t.weeks[1]} wks
+                  </span>
+                </div>
+                <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{t.blurb}</div>
+                <div style={{ ...label2, color: C.faint, marginTop: 7 }}>{lvlName(t)}</div>
+              </button>
+            ))}
+            {!matches.length && (
+              <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "26px 0", lineHeight: 1.6 }}>
+                Nothing at that level runs {dayF} days a week. Try a different frequency.
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 11.5, color: C.faint, fontStyle: "italic", lineHeight: 1.5 }}>
+            Based on {pick.origin}.
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: "10px 0 0" }}>{pick.how}</div>
+
+          {pick.meet && !meetDate && (
+            <div style={{ fontSize: 12, color: C.gold, lineHeight: 1.55, marginTop: 12, fontWeight: 600 }}>
+              Set a meet date in Settings and this will count back to it. For now it starts today.
+            </div>
+          )}
+
+          <div style={{ ...label, fontSize: 9, margin: "18px 0 7px" }}>Days a week</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {pick.days.map((n) => chip(opts.days === n, `${n}`, () => setOpt({ days: n })))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 18 }}>
+            <span style={{ ...label, fontSize: 9 }}>Weeks</span>
+            <Stepper compact value={opts.weeks} min={pick.weeks[0]} max={pick.weeks[1]}
+              onChange={(v) => setOpt({ weeks: v })} />
+          </div>
+
+          <div style={{ ...label, fontSize: 9, margin: "18px 0 7px" }}>
+            {pick.meet && meetDate ? "Starts (counting back to your meet)" : "Starts"}
+          </div>
+          <input type="date" value={opts.startDate} onChange={(e) => setOpt({ startDate: e.target.value || todayStr() })}
+            style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`, borderRadius: R.input,
+              padding: "0 13px", height: 44, color: C.text, fontFamily: MONO, fontSize: 14.5, fontWeight: 700,
+              outline: "none", colorScheme: "dark" }} />
+
+          <div style={{ ...label, fontSize: 9, margin: "20px 0 8px" }}>Week one</div>
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: R.ctrl, overflow: "hidden" }}>
+            {previewKeys.slice(0, opts.days).map((k, i) => (
+              <div key={k} style={{ padding: "10px 13px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
+                <div style={{ ...label2, color: C.faint, marginBottom: 6 }}>
+                  {dayStart(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                </div>
+                {preview[k].map((sl) => (
+                  <div key={sl.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
+                    <span style={{ width: 4, height: 4, borderRadius: 99, flexShrink: 0,
+                      background: hueFor(sl.ex, state) }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sl.ex}</span>
+                    <span style={{ flex: 1 }} />
+                    <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+                      {slotSummary(sl)}{sl.bo ? ` +${sl.bo.sets}×${sl.bo.reps}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 11, lineHeight: 1.5 }}>
+            {previewKeys.length} sessions, {dayStart(previewKeys[0]).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            {" – "}{dayStart(previewKeys[previewKeys.length - 1]).toLocaleDateString(undefined, { month: "short", day: "numeric" })}.
+            {clash > 0 && <span style={{ color: C.gold, fontWeight: 700 }}> {clash} of them land on days you have already planned.</span>}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <Btn kind="ghost" style={{ flex: "0 0 auto", minHeight: 46 }} onClick={() => setPick(null)}>Back</Btn>
+            <Btn kind="primary" style={{ flex: 1, minHeight: 46 }}
+              onClick={() => { onGenerate(pick, opts, preview, clash > 0); onClose(); }}>
+              {clash > 0 ? "Add, replacing those days" : "Add to my calendar"}
+            </Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) {
   const program = state.program || null;
   const [sel, setSelDate] = useState(todayStr());
@@ -3211,6 +3743,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
   const [picking, setPicking] = useState(null);
   const [cloning, setCloning] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [picking2, setPicking2] = useState(false);
   const [dayOpen, setDayOpen] = useState(false);
   // An armed move/copy/swap waiting for you to tap its destination on the calendar.
   const [pending, setPending] = useState(null);
@@ -3252,7 +3785,11 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
             Lay your sessions out on the calendar — main work, variations, accessories — and Train opens each day already loaded.
             Every load still comes from your own estimator; the program only decides what you&rsquo;re doing, never how heavy.
           </div>
-          <Btn kind="primary" style={{ width: "100%", marginTop: 20 }} onClick={() => setProgram(newProgram())}>Start building</Btn>
+          <Btn kind="primary" style={{ width: "100%", marginTop: 20 }}
+            onClick={() => { setProgram(newProgram()); setPicking2(true); }}>Choose a programme</Btn>
+          <Btn kind="ghost" style={{ width: "100%", marginTop: 9 }} onClick={() => setProgram(newProgram())}>
+            Build my own
+          </Btn>
         </Card>
         <div style={{ fontSize: 11.5, color: C.faint, textAlign: "center", lineHeight: 1.6 }}>
           Nothing here is required. Skip it and the app works exactly as it does now.
@@ -3408,8 +3945,12 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
           <span style={{ fontSize: 11.5, color: C.faint }}>
             {blockStats.span || "Nothing scheduled yet"}
           </span>
-          <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>Reset</button>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
+            <button onClick={() => setPicking2(true)} style={{ background: "none", border: "none", color: C.muted,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Programmes</button>
+            <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Reset</button>
+          </span>
         </div>
       </Card>
 
@@ -3496,6 +4037,19 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
         }} />
       <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={"week " + weekNo}
         onClone={(rule) => { cloneWeek(rule); setSelDate(addDays(sel, 7)); }} />
+      <ProgramPicker open={picking2} onClose={() => setPicking2(false)} state={state} days={days}
+        onGenerate={(tpl, opts, built) => {
+          // Generated days are ordinary days: they merge into what is already there,
+          // replacing only the dates the block actually lands on, and the whole thing
+          // is one undo away like every other change to the calendar.
+          applyDays({ ...days, ...built }, `Added ${tpl.name}`);
+          setProgram((pr) => ({ ...pr, name: pr.name === "My program" ? tpl.name : pr.name,
+            startDate: opts.startDate, active: true }));
+          setSelDate(opts.startDate);
+          const d = dayStart(opts.startDate);
+          setCur({ y: d.getFullYear(), m: d.getMonth() });
+        }} />
+
       <DaySheet open={dayOpen} onClose={() => setDayOpen(false)} dateStr={sel} days={days}
         onArm={arm} onShift={shiftBlock}
         onClear={() => applyDays(dropDay(days, sel), "Cleared " + niceDay(sel))} />
