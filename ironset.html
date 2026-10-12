@@ -845,6 +845,22 @@ async function shrinkVideo(blob, onProgress, shouldStop) {
   return new Blob(chunks, { type: mime });
 }
 
+/* ---------------------------- rep timing ---------------------------------
+   Marking where each concentric starts and ends turns a clip into numbers.
+   We have time, not distance — but one lifter's range of motion in one lift is
+   near enough constant, so mean velocity goes as 1/duration and the standard
+   velocity-loss figure, (v_best - v_last) / v_best, falls straight out of the
+   rep times. That is the number the RPE/velocity literature is written in.
+------------------------------------------------------------------------- */
+function repStats(reps) {
+  const d = (reps || []).map((r) => (r[1] - r[0])).filter((x) => x > 0.02);
+  if (!d.length) return null;
+  const fast = Math.min(...d), last = d[d.length - 1];
+  const mean = d.reduce((a, b) => a + b, 0) / d.length;
+  return { n: d.length, d, fast, last, mean, vloss: last > 0 ? Math.max(0, 1 - fast / last) : 0 };
+}
+const fmtRepSecs = (x) => `${(Math.round(x * 100) / 100).toFixed(2)}s`;
+
 /* Oldest clips go first when the budget runs out, and the lifter is told which
    ones went. Half the quota, capped — the log itself must never be squeezed
    out by footage. */
@@ -5524,6 +5540,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         setId={filming ? filming.id : null} ex={filming ? filming.ex : sel} set={filming} unit={unit} inputMode={inputMode}
         clip={filming ? (state.clips || {})[filming.id] : null}
         onSave={(meta) => saveClip(filming.id, meta)}
+        onTag={(reps) => saveClip(filming.id, { ...(state.clips || {})[filming.id], reps })}
         onDelete={() => { dropClip(filming.id); setFilming(null); }} />
 
       <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
@@ -5605,6 +5622,76 @@ function PlateView({ total, bar, denoms, unit }) {
 }
 
 /* ============================== HISTORY TAB ============================== */
+/* Every timed set is one point of a picture nobody can see from the log alone:
+   how far the bar slows down at the RPE this lifter calls. Once there are
+   enough of them the line through them is their own velocity profile. */
+function SpeedCard({ ex, sets, clips, hue, inputMode, onPick }) {
+  const pts = sets.map((s) => {
+    const c = clips[s.id];
+    const st = c && repStats(c.reps);
+    return st && st.n >= 2 && s.rpe != null ? { id: s.id, set: s, rpe: s.rpe, loss: st.vloss, n: st.n } : null;
+  }).filter(Boolean);
+  if (!pts.length) return null;
+
+  const W = 300, H = 150, L = 30, R0 = 8, T = 10, B = 24;
+  const maxLoss = Math.max(0.35, ...pts.map((p) => p.loss)) * 1.12;
+  const x = (rpe) => L + ((Math.max(5, Math.min(10, rpe)) - 5) / 5) * (W - L - R0);
+  const y = (v) => T + (1 - Math.max(0, Math.min(1, v / maxLoss))) * (H - T - B);
+
+  // least squares, but only once there is enough to be worth drawing
+  let fit = null;
+  if (pts.length >= 4) {
+    const n = pts.length;
+    const mx = pts.reduce((a, p) => a + p.rpe, 0) / n, my = pts.reduce((a, p) => a + p.loss, 0) / n;
+    let num = 0, den = 0;
+    for (const p of pts) { num += (p.rpe - mx) * (p.loss - my); den += (p.rpe - mx) ** 2; }
+    if (den > 0.01) {
+      const b = num / den, a = my - b * mx;
+      if (b > 0.005) fit = { a, b, at: (v) => (v - a) / b };
+    }
+  }
+  const grid = [0, 0.1, 0.2, 0.3, 0.4].filter((g) => g <= maxLoss);
+
+  return (
+    <Card>
+      <SectionHead accent={hue} sub={fit
+        ? `Across ${pts.length} timed sets, a fifth of the bar speed gone lines up with ${inputMode === "rir" ? `${fmt(Math.round((10 - fit.at(0.2)) * 2) / 2)} RIR` : `RPE ${fmt(Math.round(fit.at(0.2) * 2) / 2)}`} for you.`
+        : `${pts.length} timed set${pts.length === 1 ? "" : "s"}. A few more and the line through them becomes your own velocity profile.`}>
+        Bar speed vs RPE
+      </SectionHead>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 150, display: "block", marginTop: 10, overflow: "visible" }}>
+        {grid.map((g) => (
+          <g key={g}>
+            <line x1={L} x2={W - R0} y1={y(g)} y2={y(g)} stroke={C.line} strokeWidth="1" />
+            <text x={L - 6} y={y(g) + 3.5} textAnchor="end" fill={C.faint} fontSize="8" fontFamily={MONO}>{Math.round(g * 100)}%</text>
+          </g>
+        ))}
+        {[5, 6, 7, 8, 9, 10].map((r) => (
+          <text key={r} x={x(r)} y={H - B + 14} textAnchor="middle" fill={C.faint} fontSize="8" fontFamily={MONO}>
+            {inputMode === "rir" ? fmt(10 - r) : r}
+          </text>
+        ))}
+        {fit && (() => {
+          /* Drawn only across the RPEs actually trained — a line through empty
+             ground is a guess dressed up as a reading. */
+          const lo = Math.min(...pts.map((q) => q.rpe)), hi = Math.max(...pts.map((q) => q.rpe));
+          return <line x1={x(lo)} y1={y(fit.a + fit.b * lo)} x2={x(hi)} y2={y(fit.a + fit.b * hi)}
+            stroke={hue} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.7" />;
+        })()}
+        {pts.map((p) => (
+          <circle key={p.id} cx={x(p.rpe)} cy={y(p.loss)} r="4.5" fill={tint(hue, 0.85)} stroke={C.bg2} strokeWidth="1.5"
+            style={{ cursor: "pointer" }} onClick={() => onPick(p.set)} />
+        ))}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.faint,
+        fontFamily: SANS, marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: 700 }}>
+        <span>Velocity loss</span>
+        <span>{inputMode === "rir" ? "Reps in reserve" : "RPE called"}</span>
+      </div>
+    </Card>
+  );
+}
+
 /* The point of filming sets is seeing them next to each other: same lift, the
    heaviest first, so a bar path from March sits a thumb-swipe from one in July. */
 function FilmStrip({ ex, sets, clips, unit, hue, onPick }) {
@@ -5641,6 +5728,18 @@ function FilmStrip({ ex, sets, clips, unit, hue, onPick }) {
                 <span style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(0,0,0,0.55)",
                   display: "grid", placeItems: "center", color: "#fff", paddingLeft: 2 }}><Play size={12} /></span>
               </span>
+              {(() => {
+                const st = repStats((clips[s.id] || {}).reps);
+                if (!st || st.n < 2) return null;
+                return (
+                  <span style={{ position: "absolute", top: 5, right: 5, background: "rgba(0,0,0,0.7)",
+                    border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 5px", fontFamily: MONO,
+                    fontSize: 9.5, fontWeight: 700,
+                    color: st.vloss >= 0.3 ? C.red : st.vloss >= 0.2 ? C.gold : C.good }}>
+                    −{Math.round(st.vloss * 100)}%
+                  </span>
+                );
+              })()}
               <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 6px 5px",
                 background: "linear-gradient(transparent, rgba(0,0,0,0.85))", fontFamily: MONO, fontSize: 10.5,
                 fontWeight: 700, textAlign: "center", display: "block" }}>
@@ -5739,6 +5838,9 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
         <LineChart data={chartPoints} height={176} unit={unit} color={hueFor(cur, state)} />
       </Card>
 
+      <SpeedCard ex={cur} sets={sets} clips={clips} hue={hueFor(cur, state)} inputMode={inputMode}
+        onPick={(s) => setFilming(s)} />
+
       <FilmStrip ex={cur} sets={sets} clips={clips} unit={unit} hue={hueFor(cur, state)}
         onPick={(s) => setFilming(s)} />
 
@@ -5816,6 +5918,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
         setId={filming ? filming.id : null} ex={cur} set={filming} unit={unit} inputMode={inputMode}
         clip={filming ? clips[filming.id] : null}
         onSave={(meta) => { saveClip(filming.id, meta); }}
+        onTag={(reps) => saveClip(filming.id, { ...clips[filming.id], reps })}
         onDelete={() => { dropClip(filming.id); setFilming(null); }} />
 
       {editing && (
@@ -6758,12 +6861,57 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
 }
 
 /* ============================== SETTINGS ================================= */
+/* What the rep times say, in the terms a lifter already argues in: how much
+   the bar slowed down, next to the RPE they called it at. */
+function RepReadout({ stats, set, inputMode, onTag }) {
+  if (!stats) return (
+    <Btn kind="solid" onClick={onTag} style={{ width: "100%", marginBottom: 12 }}>
+      <Activity size={15} /> Time the reps
+    </Btn>
+  );
+  const pct = Math.round(stats.vloss * 100);
+  const worst = Math.max(...stats.d);
+  const cells = [
+    ["Reps", String(stats.n), C.text],
+    ["Velocity loss", `${pct}%`, pct >= 30 ? C.red : pct >= 20 ? C.gold : C.good],
+    [inputMode === "rir" ? "Called it" : "Called it", set ? (inputMode === "rir" ? `${fmt(10 - set.rpe)} RIR` : `RPE ${fmt(set.rpe)}`) : "—", C.muted],
+  ];
+  return (
+    <div style={{ border: `1px solid ${C.line2}`, borderRadius: R.ctrl, padding: 13, marginBottom: 12 }}>
+      <div style={{ display: "flex", marginBottom: 12 }}>
+        {cells.map(([l, v, col], i) => (
+          <div key={l} style={{ flex: 1, minWidth: 0, paddingLeft: i ? 11 : 0, marginLeft: i ? 11 : 0,
+            borderLeft: i ? `1px solid ${C.line}` : "none" }}>
+            <div style={{ ...label2, color: C.faint }}>{l}</div>
+            <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 700, marginTop: 5, color: col,
+              letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 38 }}>
+        {stats.d.map((t, i) => (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <div style={{ width: "100%", height: Math.max(3, Math.round((t / worst) * 28)), borderRadius: 3,
+              background: t === Math.min(...stats.d) ? C.good : t === worst ? C.red : C.slate }} />
+            <div style={{ fontSize: 8.5, color: C.faint, fontFamily: MONO }}>{i + 1}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 10, lineHeight: 1.5 }}>
+        Fastest {fmtRepSecs(stats.fast)}, last {fmtRepSecs(stats.last)}. Timed off the clip, so it reads
+        how much the bar slowed — not metres per second.
+      </div>
+      <Btn kind="ghost" onClick={onTag} style={{ width: "100%", marginTop: 10, fontSize: 12.5, minHeight: 38 }}>Retime the reps</Btn>
+    </div>
+  );
+}
+
 /* --------------------------- the video sheet ----------------------------
    One clip per set. Record it here — which keeps the file small because we
    choose the resolution and bitrate ourselves — or bring one in from the
    camera roll, which gets shrunk on the way in if it is enormous.
 ------------------------------------------------------------------------ */
-function ClipSheet({ open, onClose, setId, ex, set, unit, inputMode, clip, onSave, onDelete }) {
+function ClipSheet({ open, onClose, setId, ex, set, unit, inputMode, clip, onSave, onDelete, onTag }) {
   const [mode, setMode] = useState("idle");      // idle | camera | preview | busy
   const [blob, setBlob] = useState(null);
   const [url, setUrl] = useState(null);
@@ -6775,6 +6923,30 @@ function ClipSheet({ open, onClose, setId, ex, set, unit, inputMode, clip, onSav
   const [facing, setFacing] = useState("environment");
   const [armDel, setArmDel] = useState(false);
   const camRef = useRef(null), streamRef = useRef(null), recRef = useRef(null), cancelRef = useRef(false);
+  const playRef = useRef(null);
+  const [tagging, setTagging] = useState(false);
+  const [marks, setMarks] = useState([]);
+  const [holdFrom, setHoldFrom] = useState(null);
+  const [rate, setRate] = useState(1);
+  useEffect(() => { setMarks((clip && clip.reps) || []); setTagging(false); setRate(1); }, [clip, setId]);
+  useEffect(() => { if (playRef.current) playRef.current.playbackRate = rate; }, [rate, tagging, playUrl]);
+  const stats = repStats(marks);
+  const barHue = (m) => {
+    const d = marks.map((x) => x[1] - x[0]);
+    if (d.length < 2) return C.muted;
+    const t = m[1] - m[0];
+    if (t === Math.min(...d)) return C.good;
+    if (t === Math.max(...d)) return C.red;
+    return C.muted;
+  };
+  const markDown = () => { const v = playRef.current; if (v) setHoldFrom(v.currentTime); };
+  const markUp = () => {
+    const v = playRef.current;
+    if (!v || holdFrom == null) { setHoldFrom(null); return; }
+    const e = v.currentTime;
+    if (e - holdFrom > 0.05) setMarks((m) => [...m, [Math.round(holdFrom * 1000) / 1000, Math.round(e * 1000) / 1000]].sort((a, b) => a[0] - b[0]));
+    setHoldFrom(null);
+  };
 
   const stopStream = () => {
     try { if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop()); } catch (e) {}
@@ -6928,13 +7100,71 @@ function ClipSheet({ open, onClose, setId, ex, set, unit, inputMode, clip, onSav
       {clip && mode === "idle" && (
         <div>
           {playUrl
-            ? <video src={playUrl} controls playsInline style={frame} />
+            ? <video ref={playRef} src={playUrl} controls playsInline style={frame} />
             : <div style={{ ...frame, height: 180, display: "grid", placeItems: "center", color: C.faint, fontSize: 13 }}>Loading…</div>}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.faint,
             fontFamily: MONO, margin: "9px 2px 14px" }}>
             <span>{fmtSecs(clip.dur)} · {fmtBytes(clip.bytes)}</span>
             <span>{clip.w && clip.h ? `${clip.w}×${clip.h}` : ""}</span>
           </div>
+
+          {/* Timing the reps turns the clip into a number you can train off. */}
+          {tagging ? (
+            <div style={{ border: `1px solid ${C.line2}`, borderRadius: R.ctrl, padding: 13, marginBottom: 12 }}>
+              <div style={{ ...label, fontSize: 9.5, marginBottom: 7 }}>Mark the way up</div>
+              <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 11 }}>
+                Play the clip and hold the button through each rep's lift — press as the bar starts up,
+                let go as it locks out. Slow it down for a tighter read.
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 11 }}>
+                {[1, 0.5, 0.25].map((r) => (
+                  <Chip key={r} sm active={rate === r} onClick={() => setRate(r)}>{r}×</Chip>
+                ))}
+                <span style={{ flex: 1 }} />
+                <Chip sm onClick={() => { const v = playRef.current; if (v) { v.currentTime = 0; v.play().catch(() => {}); } }}>Restart</Chip>
+              </div>
+              <button onPointerDown={markDown} onPointerUp={markUp} onPointerLeave={() => setHoldFrom(null)}
+                onPointerCancel={() => setHoldFrom(null)}
+                style={{ width: "100%", minHeight: 62, borderRadius: R.ctrl, cursor: "pointer",
+                  fontFamily: SANS, fontWeight: 800, fontSize: 15, letterSpacing: "-0.01em",
+                  background: holdFrom != null ? G.red : C.surface2, color: holdFrom != null ? "#fff" : C.text,
+                  border: `1px solid ${holdFrom != null ? "transparent" : C.line2}`, WebkitTapHighlightColor: "transparent",
+                  touchAction: "none", WebkitUserSelect: "none", userSelect: "none" }}>
+                {holdFrom != null ? "Lifting — let go at lockout" : "Hold through a rep"}
+              </button>
+
+              {marks.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  {marks.map((m, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0",
+                      borderTop: `1px solid ${C.line}` }}>
+                      <span style={{ ...label2, color: C.faint, width: 34 }}>Rep {i + 1}</span>
+                      <span style={{ flex: 1, height: 5, borderRadius: 3, background: C.line, overflow: "hidden" }}>
+                        <span style={{ display: "block", height: "100%", borderRadius: 3, background: barHue(m),
+                          width: `${Math.max(6, Math.round(((m[1] - m[0]) / Math.max(...marks.map((x) => x[1] - x[0]))) * 100))}%` }} />
+                      </span>
+                      <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, minWidth: 46, textAlign: "right" }}>
+                        {fmtRepSecs(m[1] - m[0])}
+                      </span>
+                      <button onClick={() => setMarks((x) => x.filter((_, j) => j !== i))} aria-label={`Remove rep ${i + 1}`}
+                        style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 3 }}><X size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <Btn kind="primary" onClick={() => { onTag(marks); setTagging(false); }} style={{ flex: 1 }}>
+                  <Check size={15} /> Save {marks.length || "no"} rep{marks.length === 1 ? "" : "s"}
+                </Btn>
+                <Btn kind="ghost" onClick={() => { setMarks((clip && clip.reps) || []); setTagging(false); }} style={{ flex: 1 }}>Cancel</Btn>
+              </div>
+            </div>
+          ) : (
+            <RepReadout stats={stats} set={set} inputMode={inputMode}
+              onTag={() => { setTagging(true); const v = playRef.current; if (v) { v.currentTime = 0; } }} />
+          )}
+
           <div style={{ display: "flex", gap: 8 }}>
             <Btn kind="solid" onClick={() => { setErr(""); openCamera(); }} style={{ flex: 1 }}><Camera size={15} /> Refilm</Btn>
             <label style={{ flex: 1 }}>
