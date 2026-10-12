@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="IRONSET"/>
 <meta name="theme-color" content="#06070B"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
 <title>IRONSET</title>
 <style>
   html, body { margin: 0; background: #06070B; -webkit-text-size-adjust: 100%; }
@@ -24,6 +27,60 @@
 </head>
 <body>
 <div id="root"><div class="boot">Loading IRONSET…</div></div>
+<script>
+/* Installed-app plumbing. Plain JS on purpose: it has to run even if the JSX
+   compiler below never arrives. */
+(function () {
+  var W = window;
+  W.IRONSET_PWA = { reg: null, update: false, prompt: null };
+  var tell = function (name) { try { W.dispatchEvent(new Event(name)); } catch (e) {} };
+
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    W.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").then(function (reg) {
+        W.IRONSET_PWA.reg = reg;
+        tell("ironset-sw");
+        reg.addEventListener("updatefound", function () {
+          var w = reg.installing;
+          if (!w) return;
+          w.addEventListener("statechange", function () {
+            if (w.state === "installed" && navigator.serviceWorker.controller) {
+              W.IRONSET_PWA.update = true;
+              tell("ironset-update");
+            }
+          });
+        });
+      }).catch(function () {});
+    });
+  }
+
+  W.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    W.IRONSET_PWA.prompt = e;
+    tell("ironset-installable");
+  });
+  W.addEventListener("appinstalled", function () {
+    W.IRONSET_PWA.prompt = null;
+    tell("ironset-installed");
+  });
+
+  /* Ask for durable storage only where the browser has already said yes, or
+     where the app is installed and the answer is automatic. Anywhere else it
+     would throw a permission prompt at someone who has not asked for one —
+     that lives on a button in Settings instead. */
+  try {
+    var installed = (W.matchMedia && W.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+    if (navigator.storage && navigator.storage.persist) {
+      if (installed) { navigator.storage.persist().catch(function () {}); }
+      else if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "persistent-storage" }).then(function (st) {
+          if (st && st.state === "granted") navigator.storage.persist().catch(function () {});
+        }).catch(function () {});
+      }
+    }
+  } catch (e) {}
+})();
+</script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 const mkIcon = (paths) => ({ size = 16, style }) =>
@@ -564,6 +621,43 @@ const tsFromDateStr = (str) => {
   const [y, m, d] = str.split("-").map(Number);
   return new Date(y, m - 1, d, 12, 0, 0).getTime();
 };
+/* ------------------------- installed-app helpers ------------------------- */
+const pwa = () => (typeof window !== "undefined" && window.IRONSET_PWA) || {};
+const isStandalone = () => {
+  try { return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; }
+  catch (e) { return false; }
+};
+const isApple = () => {
+  const ua = navigator.userAgent || "";
+  return /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+};
+const fmtBytes = (b) => {
+  if (b == null || isNaN(b)) return "—";
+  if (b < 1024) return `${Math.round(b)} B`;
+  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${fmt(b / 1024 / 1024)} MB`;
+  return `${fmt(b / 1024 / 1024 / 1024)} GB`;
+};
+async function storageReport() {
+  const out = { supported: false, persisted: false, askable: false, usage: null, quota: null,
+    offline: !!(navigator.serviceWorker && navigator.serviceWorker.controller), installed: isStandalone() };
+  try {
+    if (!navigator.storage) return out;
+    out.supported = !!navigator.storage.persist;
+    if (navigator.storage.persisted) out.persisted = await navigator.storage.persisted();
+    out.askable = out.supported && !out.persisted;
+    if (navigator.storage.estimate) {
+      const e = await navigator.storage.estimate();
+      out.usage = e.usage; out.quota = e.quota;
+    }
+  } catch (e) {}
+  return out;
+}
+async function askPersist() {
+  try { return !!(navigator.storage && navigator.storage.persist && (await navigator.storage.persist())); }
+  catch (e) { return false; }
+}
+
 function platesPerSide(total, bar, denoms) {
   let side = (total - bar) / 2;
   if (side < -0.01) return { below: true, items: [], leftover: 0 };
@@ -1152,6 +1246,20 @@ function App() {
   const [sel, setSel] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  // A new build has been cached underneath us. Never swap it in mid-set — offer it.
+  const [newBuild, setNewBuild] = useState(() => !!pwa().update);
+  useEffect(() => {
+    const on = () => setNewBuild(true);
+    window.addEventListener("ironset-update", on);
+    return () => window.removeEventListener("ironset-update", on);
+  }, []);
+  const takeUpdate = () => {
+    try {
+      const reg = pwa().reg;
+      if (reg && reg.waiting) reg.waiting.postMessage("skip-waiting");
+    } catch (e) {}
+    setTimeout(() => window.location.reload(), 120);
+  };
 
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }, [state]);
   useEffect(() => { if (!sel) { const k = Object.keys(state.exercises); if (k.length) setSel(k[0]); } }, [state.exercises, sel]);
@@ -1335,6 +1443,20 @@ function App() {
             </div>
           </div>
         </div>
+
+        {newBuild && (
+          <div style={{ margin: "10px 18px 0", padding: "11px 13px", borderRadius: R.ctrl,
+            background: C.surface, border: `1px solid ${C.line2}`, display: "flex",
+            alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>New version ready</div>
+              <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2 }}>Reload when you're between sets — nothing logged is lost.</div>
+            </div>
+            <Btn kind="primary" onClick={takeUpdate} style={{ minHeight: 36, padding: "7px 13px", fontSize: 12.5 }}>Reload</Btn>
+            <button onClick={() => setNewBuild(false)} aria-label="Later"
+              style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 4 }}><X size={15} /></button>
+          </div>
+        )}
 
         <div style={{ padding: 16 }}>
           {tab === "dash" && (
@@ -6275,6 +6397,20 @@ function EditSetSheet({ set, unit, inputMode, onClose, onSave, onDelete }) {
 }
 
 /* ============================== SETTINGS ================================= */
+function DeviceRow({ on, title, note, action }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderTop: `1px solid ${C.line}` }}>
+      <div style={{ width: 7, height: 7, borderRadius: 4, marginTop: 5, flexShrink: 0,
+        background: on ? C.good : C.faint, boxShadow: on ? `0 0 7px ${C.good}` : "none" }} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2, lineHeight: 1.45 }}>{note}</div>
+      </div>
+      {action ? <div style={{ flexShrink: 0 }}>{action}</div> : null}
+    </div>
+  );
+}
+
 function SettingsSheet({ open, onClose, settings, setSetting, state, setState }) {
   const restoreExercise = (name) => setState((s) => {
     const item = (s.trash || []).find((x) => x.name === name);
@@ -6289,6 +6425,29 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
   const [err, setErr] = useState("");
   const [armReset, setArmReset] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [store, setStore] = useState(null);
+  const [canInstall, setCanInstall] = useState(() => !!pwa().prompt);
+  const refreshStore = () => storageReport().then(setStore);
+  useEffect(() => { if (open) refreshStore(); }, [open]);
+  useEffect(() => {
+    const on = () => { setCanInstall(!!pwa().prompt); refreshStore(); };
+    window.addEventListener("ironset-installable", on);
+    window.addEventListener("ironset-installed", on);
+    window.addEventListener("ironset-sw", on);
+    return () => {
+      window.removeEventListener("ironset-installable", on);
+      window.removeEventListener("ironset-installed", on);
+      window.removeEventListener("ironset-sw", on);
+    };
+  }, []);
+  const doInstall = async () => {
+    const ev = pwa().prompt;
+    if (!ev) return;
+    try { ev.prompt(); await ev.userChoice; } catch (e) {}
+    if (window.IRONSET_PWA) window.IRONSET_PWA.prompt = null;
+    setCanInstall(false); refreshStore();
+  };
+  const doPersist = async () => { await askPersist(); refreshStore(); };
   const testStorage = () => {
     try {
       const tk = "ironset-selftest", v = String(Date.now());
@@ -6392,12 +6551,50 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
       </div>
 
       <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 4 }}>
-        <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Saving</div>
-        <Btn kind="solid" onClick={testStorage} style={{ width: "100%" }}>Test saving on this device</Btn>
+        <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>This device</div>
+
+        <DeviceRow
+          on={!!(store && store.installed)}
+          title={store && store.installed ? "Installed" : "Not installed"}
+          note={store && store.installed
+            ? "Opens like any other app, full screen, with no browser chrome."
+            : isApple()
+              ? "Tap Share, then Add to Home Screen — it then opens full screen and keeps your training safely."
+              : "Add it to your home screen and it opens full screen, offline, with your training kept safe."}
+          action={canInstall ? <Btn kind="primary" onClick={doInstall} style={{ minHeight: 38, padding: "8px 14px", fontSize: 13 }}>Install</Btn> : null} />
+
+        <DeviceRow
+          on={!!(store && store.offline)}
+          title={store && store.offline ? "Works offline" : "Going offline-ready"}
+          note={store && store.offline
+            ? "The whole app is cached here. Train in a basement gym with no signal."
+            : "Caching the app now — it will open with no connection once this finishes."} />
+
+        <DeviceRow
+          on={!!(store && store.persisted)}
+          title={store && store.persisted ? "Storage protected" : "Storage not protected"}
+          note={store && store.persisted
+            ? "Your browser has promised not to clear this app's data to reclaim space."
+            : "Browsers quietly evict site data when a device runs low. Lock it down so your log can't go with it."}
+          action={store && store.askable
+            ? <Btn kind="primary" onClick={doPersist} style={{ minHeight: 38, padding: "8px 14px", fontSize: 13 }}>Protect</Btn>
+            : null} />
+
+        {store && store.quota > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.faint, marginBottom: 5 }}>
+              <span>Space used</span>
+              <span style={{ fontFamily: MONO, color: C.muted }}>{fmtBytes(store.usage)} of {fmtBytes(store.quota)}</span>
+            </div>
+            <div style={{ height: 5, borderRadius: 3, background: C.line, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.max(1, Math.min(100, (store.usage / store.quota) * 100))}%`,
+                background: C.red, borderRadius: 3 }} />
+            </div>
+          </div>
+        )}
+
+        <Btn kind="ghost" onClick={testStorage} style={{ width: "100%", marginTop: 12, fontSize: 12.5, minHeight: 38 }}>Test saving on this device</Btn>
         {saveStatus && <div style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: saveStatus.ok ? C.good : C.red }}>{saveStatus.msg}</div>}
-        <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6 }}>
-          If saving isn't available here, your logs won't survive a close — use the hosted web version, which saves on your phone.
-        </div>
       </div>
 
       <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 16 }}>
