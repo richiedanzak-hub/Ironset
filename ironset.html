@@ -178,6 +178,23 @@ function fatigueDrop(reps, rpe, k) {
   const neural = 0.15 * effort / (1 + 0.35 * (Math.max(1, reps) - 1));
   return Math.max(0, Math.min(0.34, volume + neural));
 }
+/* Within a session fatigue accumulates, but it does not compound. The first hard set
+   costs the most capacity and every set after it costs less, because the capacity
+   that fades quickly has already gone. Subtracting a full fresh-set cost from an
+   already-tired capacity each time is a geometric series, and geometric series run
+   away: five sets across at one effort came out 37% below the first, which is not a
+   thing anyone does. So the per-set figure above is a *stimulus*, it adds up across
+   the session, and what it costs you saturates. */
+const SESSION_FADE = 0.32;
+const fadeFrom = (stim) => SESSION_FADE * (1 - Math.exp(-Math.max(0, stim) / SESSION_FADE));
+// What one more set of this stimulus costs, given everything already done — the thing
+// the next load is actually built on.
+const marginalFade = (before, stim) => {
+  const c0 = 1 - fadeFrom(before);
+  if (!(c0 > 0.2)) return 0;
+  return (fadeFrom(before + stim) - fadeFrom(before)) / c0;
+};
+
 // Learn how fast THIS lifter's capacity falls across a session, from descending
 // (back-off) steps: each step's implied-1RM drop ÷ the prior set's fatigue stimulus.
 // Median is robust to noise; the result is shrunk toward the default so sparse data
@@ -193,24 +210,37 @@ function learnDropScale(sets, k, forTop) {
   const scales = [];
   for (const d in byDay) {
     const day = byDay[d].slice().sort((a, b) => a.ts - b.ts);
+    // Cumulative stimulus going into each set, so a deep set is measured against what
+    // one more set actually costs rather than against a fresh-set figure it could
+    // never match — otherwise every long session would teach a smaller scale than
+    // the lifter really has.
+    let before = 0;
     for (let i = 0; i < day.length - 1; i++) {
       const a = day[i], b = day[i + 1];
+      const stimA = fatigueDrop(a.reps, a.rpe, k);
+      const predHere = marginalFade(before, stimA);
+      before += stimA;
       if (!b.backoff) continue;                 // only transitions INTO a back-off
       if (!a.backoff !== forTop) continue;      // split: top→BO1 vs BO→BO
       const ea = e1rmFromSet(a.weight, a.reps, a.rpe), eb = e1rmFromSet(b.weight, b.reps, b.rpe);
       if (!(ea > 0) || !(eb > 0)) continue;
       const obs = 1 - eb / ea;
       if (obs > 0.35) continue;
-      const pred = fatigueDrop(a.reps, a.rpe, k);
+      const pred = predHere;
       if (pred < 0.015) continue;
       const sc = obs <= 0.001 ? 0.2 : obs / pred; // held/gained → strongest low-drop evidence
       if (sc < 2.6) scales.push(Math.max(0.2, sc));
     }
   }
-  if (!scales.length) return forTop ? 1.15 : 1.05; // no history: stay a touch cautious
+  // No history: stay a touch cautious off a top set, where one transition carries the
+  // whole drop. Set to set is gentler — those defaults were read off top-set data back
+  // when a chain was one or two back-offs, and they over-predict repeated moderate
+  // sets. Both are only a starting point; a couple of sessions moves them.
+  const cold = forTop ? 1.15 : 0.7;
+  if (!scales.length) return cold;
   scales.sort((x, y) => x - y);
   const med = scales[Math.floor(scales.length / 2)], n = scales.length, W0 = 3;
-  const blended = (n * med + W0 * 1.0) / (n + W0);
+  const blended = (n * med + W0 * cold) / (n + W0);
   return Math.max(0.2, Math.min(1.9, blended));
 }
 // Inverse of pctForN: max reps achievable at a given %1RM (lets % training show a
@@ -2960,6 +2990,9 @@ function programSpan(tpl, opts) {
   return { count: days.length, first: days[0], last: days[days.length - 1] };
 }
 
+// Total working sets a slot asks for. A top set carries its back-offs; everything
+// else is simply sets across.
+const slotSetCount = (slot) => slot.bo ? 1 + Math.max(0, slot.bo.sets) : Math.max(1, slot.sets || 1);
 const slotSummary = (slot) => slotTimed(slot)
   ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
   : `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.reps} @ ${slotLabel(slot)}`;
@@ -4655,6 +4688,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [showPlates, setShowPlates] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
+  const [logTouched, setLogTouched] = useState(false);
   // The set that just went in, so filming it is one tap rather than a trip to History.
   const [lastLog, setLastLog] = useState(null);
   const [filming, setFilming] = useState(null);
@@ -4687,16 +4721,34 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         if (dateStrFromTs(st.ts) === logDate && (!best || st.ts > best.ts)) best = st;
     return best;
   }, [state.exercises, logDate]);
-  const restSecs = (lastSetToday && logDate === todayStr())
-    ? Math.max(0, (tick - lastSetToday.ts) / 1000) : null;
+  // The clock starts when a set is logged, which is not always when the set ended:
+  // plenty of people rack the bar, catch their breath, and log a minute later. So the
+  // start is a value you can move. Stop freezes it where it stands — tap it when you
+  // walk back to the bar, and the rest the calculator uses is the rest you took,
+  // not the rest plus however long the next set lasted.
+  const [restFrom, setRestFrom] = useState(null);   // overrides when rest began
+  const [restHold, setRestHold] = useState(null);   // frozen seconds, once stopped
+  const [restOpen, setRestOpen] = useState(false);
+  const lastTs = lastSetToday ? lastSetToday.ts : null;
+  useEffect(() => { setRestFrom(null); setRestHold(null); setRestOpen(false); }, [lastTs]);
+  const restBase = restFrom != null ? restFrom : lastTs;
+  const restSecs = restHold != null ? restHold
+    : (restBase != null && logDate === todayStr()) ? Math.max(0, (tick - restBase) / 1000) : null;
   // Stop ticking long after the last set: nothing on screen changes any more, and a
   // phone in a gym bag should not be running a timer for an hour.
-  const resting = restSecs != null && restSecs < 20 * 60;
+  const resting = restSecs != null && restHold == null && restSecs < 20 * 60;
   useEffect(() => {
     if (!resting) return;
     const t = setInterval(() => setTick(Date.now()), 1000);
     return () => clearInterval(t);
   }, [resting]);
+  const restStopped = restHold != null;
+  const stopRest = () => { setRestHold(restSecs != null ? Math.round(restSecs) : 0); setRestOpen(false); };
+  const restartRest = () => { setRestFrom(Date.now()); setRestHold(null); };
+  const shiftRest = (secs) => {
+    if (restHold != null) { setRestHold((h) => Math.max(0, h + secs)); return; }
+    setRestFrom((f) => Math.max(0, (f != null ? f : (lastTs || Date.now())) - secs * 1000));
+  };
   const restTarget = restRefFor(sel, state);
   const [showWarm, setShowWarm] = useState(false);
   const [warmOpen, setWarmOpen] = useState(null);
@@ -4710,16 +4762,37 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const timedSel = !!sel && isTimed(sel, state);
   const timedSlot = sessionSlots.find((x) => x.ex === sel && slotTimed(x)) || null;
   const progWeek = state.program ? "Week " + weekNoFor(state.program, logDate) : null;
+  // How many sets a slot actually asks for: a top set plus its back-offs, or just the
+  // straight sets across. Progress is counted against that total rather than against
+  // "has anything been logged", so a 5×5 reads 2/5 after two sets instead of done.
   const doneSlots = useMemo(() => {
     const dk = new Date(tsFromDateStr(logDate)).toDateString();
-    const done = {};
+    const out = {};
     for (const sl of sessionSlots) {
-      const ex = state.exercises[sl.ex];
-      done[sl.id] = !!(ex && ex.sets.some((x) => !x.backoff && new Date(x.ts).toDateString() === dk));
+      const names = [sl.ex].concat(sl.bo && sl.bo.lift && sl.bo.lift !== sl.ex ? [sl.bo.lift] : []);
+      let n = 0;
+      for (const nm of names) {
+        const ex = state.exercises[nm];
+        if (ex) n += ex.sets.filter((x) => new Date(x.ts).toDateString() === dk).length;
+      }
+      const total = slotSetCount(sl);
+      out[sl.id] = { n: Math.min(n, total), total, done: n >= total, started: n > 0 };
     }
-    return done;
+    return out;
   }, [sessionSlots, state.exercises, logDate]);
+  // Which slot the screen is currently working through, so the cards below know
+  // whether they are a top set with back-offs or plain sets across.
+  const [activeSlotId, setActiveSlotId] = useState(null);
+  const activeSlot = sessionSlots.find((x) => x.id === activeSlotId && x.ex === sel)
+    || sessionSlots.find((x) => x.ex === sel) || null;
+  // A slot with no top set is several sets at one prescription. That is the same
+  // machinery with the first set as the driver: hold the reps and the effort, and
+  // each set's load reads the fatigue the one before it spent.
+  const straightCount = (activeSlot && !activeSlot.bo && !slotTimed(activeSlot) && activeSlot.sets > 1)
+    ? activeSlot.sets : 0;
+
   const loadSlot = (sl) => {
+    setActiveSlotId(sl.id);
     // A movement programmed but never trained yet gets created on first tap, wired
     // to its main lift so a paused squat still feeds the squat model.
     if (!state.exercises[sl.ex]) {
@@ -4753,8 +4826,26 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       setSetting("backoff", { ...(settings.backoff || {}), sets: b.sets, reps: b.reps,
         rpe: b.mode === "rir" ? Math.max(5, 10 - b.val) : b.mode === "rpe" ? b.val : 7,
         pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct, steps });
+    } else if (!slotTimed(sl) && sl.sets > 1 && setSetting) {
+      // Sets across: the remaining sets carry the same prescription as the first.
+      setSetting("backoff", { ...(settings.backoff || {}), sets: sl.sets - 1, reps: sl.reps,
+        rpe: sl.mode === "rir" ? Math.max(5, 10 - sl.val) : sl.mode === "rpe" ? sl.val : 7,
+        pct: sl.mode === "pct" ? sl.val : (settings.backoff || {}).pct, steps: [] });
     }
   };
+  // Train opens on the session, not on whatever lift happened to be open last: the
+  // first movement with work left, its prescription already loaded.
+  const autoKey = logDate + "|" + sessionSlots.map((x) => x.id).join(",");
+  const autoRef = useRef(null);
+  useEffect(() => {
+    if (autoRef.current === autoKey) return;
+    autoRef.current = autoKey;
+    if (!sessionSlots.length) return;
+    const mine = sel ? sessionSlots.find((x) => x.ex === sel && !(doneSlots[x.id] || {}).done) : null;
+    const target = mine || sessionSlots.find((x) => !(doneSlots[x.id] || {}).done) || sessionSlots[0];
+    if (target) loadSlot(target);
+  }, [autoKey]);
+
   const loadPlanned = (it) => {
     if (state.exercises[it.name]) setSel(it.name);
     setTReps(it.reps);
@@ -4871,23 +4962,43 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // a remembered variation only applies while it is still part of this lift's family
   const boTarget = (boStep.lift && state.exercises[boStep.lift] && boFamily.indexOf(boStep.lift) >= 0) ? boStep.lift : sel;
   // the driving set, always normalised into MAIN-lift terms so the chain stays comparable
+  const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
+  // Where this movement stands against what was asked for.
+  const setsAsked = straightCount || (1 + Math.max(0, bo.sets || 0));
+  const setsIn = (topToday ? 1 : 0) + doneCount;
   const prevForBo = (() => {
     if (lastBo) return { implied: e1rmFromSet(lastBo.weight, lastBo.reps, lastBo.rpe) / (ratioOf(lastBo.lift) || 1), reps: lastBo.reps, rpe: lastBo.rpe, ts: lastBo.ts };
-    const topToday = (selEx ? selEx.sets : []).filter((x) => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
     if (topToday) return { implied: e1rmFromSet(topToday.weight, topToday.reps, topToday.rpe), reps: topToday.reps, rpe: topToday.rpe, ts: topToday.ts };
     if (effE1rm != null) return { implied: effE1rm, reps: tReps, rpe: tRpe };
     return null;
   })();
-  // How long you have actually rested off the set that drives this one.
-  const boRestSecs = (prevForBo && prevForBo.ts && logDate === todayStr())
-    ? Math.max(0, (tick - prevForBo.ts) / 1000) : null;
+  // How long you have actually rested off the set that drives this one. When that set
+  // is the last thing logged, the clock on screen is the authority — including any
+  // correction made to it, because the lifter knows when they racked the bar.
+  const boRestSecs = (() => {
+    if (!(prevForBo && prevForBo.ts && logDate === todayStr())) return null;
+    if (lastTs != null && prevForBo.ts === lastTs && restSecs != null) return restSecs;
+    return Math.max(0, (tick - prevForBo.ts) / 1000);
+  })();
   const boRestF = restFactor(boRestSecs, restTarget);
+  // Everything this lift has already cost today, so the next set is priced against
+  // one more set's worth of fatigue rather than a fresh set's worth. The anchor is
+  // still the set you actually lifted — the observation stays in charge of the level,
+  // the model only says how much further it falls.
+  const chainToday = boFamily
+    .reduce((acc, n) => acc.concat((state.exercises[n] ? state.exercises[n].sets : [])
+      .filter((x) => new Date(x.ts).toDateString() === boDayStr)), [])
+    .sort((a, b) => a.ts - b.ts);
+  const stimBefore = chainToday.slice(0, -1).reduce((a, x, i) => a
+    + fatigueDrop(x.reps, x.rpe, DEFAULT_FATIGUE_K) * (i === 0 && !x.backoff ? scaleTop : scaleChain)
+      * restFactor(x.rest != null ? x.rest : null, restRefFor(sel, state)), 0);
   const boSug = (() => {
     const r = ratioOf(boTarget) || 1;
     if (percentMode) return ref != null ? roundTo(ref * (boStepPct / 100) * r, round) : null;
     if (!prevForBo) return null;
-    const effCap = prevForBo.implied * (1 - fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K)
-      * (lastBo ? scaleChain : scaleTop) * boRestF);
+    const stim = fatigueDrop(prevForBo.reps, prevForBo.rpe, DEFAULT_FATIGUE_K)
+      * (lastBo ? scaleChain : scaleTop) * boRestF;
+    const effCap = prevForBo.implied * (1 - marginalFade(stimBefore, stim));
     return roundTo(weightForTarget(effCap * r, boReps, boRpe), round);
   })();
   // What the prescription says this set should feel like: the target RPE directly, or in
@@ -4918,19 +5029,28 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     setBoDraft(null);
   };
 
+  const recInt = () => {
+    if (!percentMode) return inputMode === "rir" ? 10 - tRpe : tRpe;
+    const pr = predRpe != null ? predRpe : 8;
+    return inputMode === "rir" ? Math.max(0, Math.round((10 - pr) * 2) / 2) : Math.round(pr * 2) / 2;
+  };
   const useRec = () => {
     if (recR == null) return;
-    let intVal;
-    if (percentMode) {
-      const pr = predRpe != null ? predRpe : 8;
-      intVal = inputMode === "rir" ? Math.max(0, Math.round((10 - pr) * 2) / 2) : Math.round(pr * 2) / 2;
-    } else {
-      intVal = inputMode === "rir" ? 10 - tRpe : tRpe;
-    }
-    setLog({ weight: String(recR), reps: tReps, int: intVal });
-    setFromRec(true);
+    setLog({ weight: String(recR), reps: tReps, int: recInt() });
+    setFromRec(true); setLogTouched(false);
   };
-  const nudge = (d) => setLog((l) => ({ ...l, int: inputMode === "rir" ? Math.max(0, l.int - d) : Math.min(10, Math.max(5, l.int + d)) }));
+  // The prescription is the starting point, so it arrives already filled in: the reps
+  // and effort asked for, and the load that hits them. Change any of it and the screen
+  // stops rewriting what you typed until the next set is in.
+  useEffect(() => {
+    if (logTouched || recR == null) return;
+    const intVal = recInt();
+    setLog((l) => (l.weight === String(recR) && l.reps === tReps && l.int === intVal
+      ? l : { weight: String(recR), reps: tReps, int: intVal }));
+    setFromRec(true);
+  }, [recR, tReps, tRpe, topPct, inputMode, percentMode, predRpe, logTouched, sel]);
+  const nudge = (d) => { setLogTouched(true);
+    setLog((l) => ({ ...l, int: inputMode === "rir" ? Math.max(0, l.int - d) : Math.min(10, Math.max(5, l.int + d)) })); };
 
   const doLog = () => {
     const w = parseFloat(log.weight);
@@ -4946,7 +5066,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       // Recorded rather than only used, so the history knows how this session was run.
       rest: restSecs != null && restSecs < 1800 ? Math.round(restSecs) : undefined,
     });
-    setNote(""); setFromRec(false); setJustLogged(true);
+    setNote(""); setFromRec(false); setJustLogged(true); setLogTouched(false);
     setLastLog({ id: setId, ex: sel, weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate) });
     setTimeout(() => setJustLogged(false), 1400);
   };
@@ -5123,7 +5243,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           {decorateSlots(sessionSlots).map((d) => {
             const sl = d.sl;
             const on = sl.ex === sel;
-            const done = doneSlots[sl.id];
+            const prog = doneSlots[sl.id] || { n: 0, total: 1, done: false };
+            const done = prog.done;
             return (
               <React.Fragment key={sl.id}>
               {d.grouped && d.first && (
@@ -5146,6 +5267,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                     {d.grouped ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.blue, marginRight: 6 }}>{d.tag}</span> : null}{sl.ex}</span>
                   <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>
                     {slotSummary(sl)}{sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : ""}
+                    {prog.n > 0 && !done ? <span style={{ color: C.gold }}>{`  ·  ${prog.n}/${prog.total} in`}</span> : null}
                   </span>
                 </span>
                 {sl.role === "accessory" && <span style={{ fontSize: 9.5, color: C.faint, fontFamily: MONO, letterSpacing: "0.08em" }}>ACC</span>}
@@ -5327,7 +5449,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
             <span style={{ width: 3, height: 14, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
-            <span style={label}>Log your top set</span>
+            <span style={label}>{straightCount ? `Log set 1 of ${straightCount}` : "Log your top set"}</span>
           </span>
           {recR != null && <button onClick={useRec} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line2}`,
             color: C.muted, borderRadius: R.pill, padding: "7px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Use recommendation</button>}
@@ -5354,15 +5476,15 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 110px" }}>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight</div>
-            <NumField value={log.weight} onChange={(v) => setLog((l) => ({ ...l, weight: v }))} suffix={unit} />
+            <NumField value={log.weight} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, weight: v })); }} suffix={unit} />
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-            <Stepper value={log.reps} onChange={(v) => setLog((l) => ({ ...l, reps: v }))} min={1} max={30} />
+            <Stepper value={log.reps} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, reps: v })); }} min={1} max={30} />
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
-            <Stepper value={log.int} onChange={(v) => setLog((l) => ({ ...l, int: v }))} step={0.5}
+            <Stepper value={log.int} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, int: v })); }} step={0.5}
               min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 6 : 10} />
           </div>
         </div>
@@ -5383,9 +5505,18 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               : <><Camera size={14} /> Film that set — {fmt(lastLog.weight)}{unit} × {lastLog.reps}</>}
           </button>
         ) : null}
-        <div style={{ fontSize: 11, color: C.faint, marginTop: 8, textAlign: "center" }}>
-          Every set you log retunes your 1RM — heavier feedback than expected lowers it, easier raises it.
-        </div>
+        {activeSlot && setsIn > 0 ? (
+          <div style={{ fontSize: 11.5, color: setsIn >= setsAsked ? C.good : C.gold, marginTop: 9,
+            textAlign: "center", fontWeight: 700 }}>
+            {setsIn >= setsAsked
+              ? `All ${setsAsked} set${setsAsked > 1 ? "s" : ""} of ${sel} in. Pick the next movement above.`
+              : `${setsIn} of ${setsAsked} in — set ${setsIn + 1} is set up below.`}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 8, textAlign: "center" }}>
+            Every set you log retunes your 1RM — heavier feedback than expected lowers it, easier raises it.
+          </div>
+        )}
       </Card>
 
       {/* back-off sets */}
@@ -5394,17 +5525,21 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           <SectionHead accent={C.good} right={
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>Sets</span>
-              <Stepper compact value={bo.sets} onChange={(v) => setBo({ sets: Math.max(1, Math.min(6, v)) })} min={1} max={6} />
+              <Stepper compact value={bo.sets} onChange={(v) => setBo({ sets: Math.max(1, Math.min(9, v)) })} min={1} max={9} />
             </span>
-          }>Back-off sets</SectionHead>
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode ? "Set each back-off's own reps and % — the next one follows the set before it." : "Set each back-off's own reps and RPE; the load reads the fatigue from the set before it, so a grind drops the next one more."}</div>
+          }>{straightCount ? `Sets 2–${straightCount}` : "Back-off sets"}</SectionHead>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode
+            ? "Set each one's own reps and % — the next follows the set before it."
+            : straightCount
+              ? "Same reps and effort across. The load reads the fatigue the set before it spent, so holding the prescription means the weight comes down as you go."
+              : "Set each back-off's own reps and RPE; the load reads the fatigue from the set before it, so a grind drops the next one more."}</div>
 
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
             {todayBos.map((s, i) => (
               <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                 background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px" }}>
                 <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
-                  Back-off {i + 1}{s.lift !== sel ? <span style={{ color: C.blue }}> · {s.lift}</span> : null} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
+                  {straightCount ? `Set ${i + 2}` : `Back-off ${i + 1}`}{s.lift !== sel ? <span style={{ color: C.blue }}> · {s.lift}</span> : null} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
                 </div>
                 <Check size={15} style={{ color: C.good }} />
               </div>
@@ -5413,7 +5548,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             {doneCount < bo.sets && (
               <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
                 <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
-                  Back-off {doneCount + 1} of {bo.sets}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
+                  {straightCount ? `Set ${doneCount + 2} of ${straightCount}` : `Back-off ${doneCount + 1} of ${bo.sets}`}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
                 </div>
                 {boFamily.length > 1 && (
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
@@ -5466,7 +5601,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                   )}
                 </div>
                 {(parseFloat(curBo.weight) || boSug) ? <PlateView total={parseFloat(curBo.weight) || boSug} bar={bar} denoms={denoms} unit={unit} /> : null}
-                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log {boTarget !== sel ? boTarget : `back-off ${doneCount + 1}`}</Btn>
+                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log {boTarget !== sel ? boTarget : straightCount ? `set ${doneCount + 2}` : `back-off ${doneCount + 1}`}</Btn>
               </div>
             )}
 
@@ -5508,30 +5643,62 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       {/* Counts up rather than down, because recovery has no finish line — the bar just
           says when you have had a normal rest for this kind of work. Standing there
           longer keeps helping, and the next suggested load keeps saying so. */}
-      {resting && restSecs >= 3 && (
+      {restSecs != null && restSecs >= 3 && (resting || restStopped) && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(82px + env(safe-area-inset-bottom, 0px))",
           zIndex: 31, display: "flex", justifyContent: "center", padding: "0 12px", pointerEvents: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 13, width: "100%", maxWidth: 456,
+          <div style={{ width: "100%", maxWidth: 456, pointerEvents: "auto",
             background: "rgba(14,17,25,0.95)", backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
-            border: `1px solid ${restSecs >= restTarget ? tint(C.good, 0.45) : C.line2}`,
-            borderRadius: R.ctrl, padding: "10px 14px", pointerEvents: "auto",
+            border: `1px solid ${restStopped ? C.line2 : restSecs >= restTarget ? tint(C.good, 0.45) : C.line2}`,
+            borderRadius: R.ctrl, padding: "10px 14px",
             boxShadow: "0 18px 40px -14px rgba(0,0,0,0.9)" }}>
-            <span style={{ fontFamily: MONO, fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em",
-              color: restSecs >= restTarget ? C.good : C.text, fontVariantNumeric: "tabular-nums",
-              minWidth: 52 }}>{fmtRest(restSecs)}</span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", height: 4, borderRadius: 2, background: "rgba(255,255,255,0.07)",
-                overflow: "hidden" }}>
-                <span style={{ display: "block", height: "100%", borderRadius: 2,
-                  width: `${Math.min(100, (restSecs / restTarget) * 100)}%`,
-                  background: restSecs >= restTarget ? C.good : selHue, transition: "width 1s linear" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+              <span style={{ fontFamily: MONO, fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em",
+                color: restStopped ? C.muted : restSecs >= restTarget ? C.good : C.text,
+                fontVariantNumeric: "tabular-nums", minWidth: 52 }}>{fmtRest(restSecs)}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", height: 4, borderRadius: 2, background: "rgba(255,255,255,0.07)",
+                  overflow: "hidden" }}>
+                  <span style={{ display: "block", height: "100%", borderRadius: 2,
+                    width: `${Math.min(100, (restSecs / restTarget) * 100)}%`,
+                    background: restStopped ? C.slate : restSecs >= restTarget ? C.good : selHue,
+                    transition: "width 1s linear" }} />
+                </span>
+                <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 5 }}>
+                  {restStopped
+                    ? `stopped · ${fmtRest(restSecs)} counts as this set's rest`
+                    : restSecs >= restTarget
+                      ? `rested · ${fmtRest(restTarget)} is normal here`
+                      : `${fmtRest(restTarget - restSecs)} to a normal rest`}
+                </span>
               </span>
-              <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: MONO, marginTop: 5 }}>
-                {restSecs >= restTarget
-                  ? `rested · ${fmtRest(restTarget)} is normal here`
-                  : `${fmtRest(restTarget - restSecs)} to a normal rest`}
-              </span>
-            </span>
+              {restStopped ? (
+                <button onClick={restartRest} aria-label="Start resting again"
+                  style={{ background: "none", border: `1px solid ${C.line2}`, borderRadius: R.pill, color: C.muted,
+                    fontFamily: SANS, fontWeight: 800, fontSize: 11.5, padding: "7px 12px", cursor: "pointer",
+                    flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>Resume</button>
+              ) : (
+                <button onClick={stopRest} aria-label="Stop the rest timer"
+                  style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${C.line2}`, borderRadius: R.pill,
+                    color: C.text, fontFamily: SANS, fontWeight: 800, fontSize: 11.5, padding: "7px 13px",
+                    cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>Stop</button>
+              )}
+              <button onClick={() => setRestOpen((v) => !v)} aria-label="Adjust the rest timer"
+                style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 2,
+                  flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
+                <ChevronDown size={16} style={{ transform: restOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
+              </button>
+            </div>
+            {restOpen && (
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, paddingTop: 10,
+                borderTop: `1px solid ${C.line}`, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>Logged late?</span>
+                <Chip sm onClick={() => shiftRest(30)}>+30s</Chip>
+                <Chip sm onClick={() => shiftRest(60)}>+1:00</Chip>
+                <Chip sm onClick={() => shiftRest(-30)}>−30s</Chip>
+                <span style={{ flex: 1 }} />
+                <Chip sm onClick={restartRest}>Restart</Chip>
+              </div>
+            )}
           </div>
         </div>
       )}
