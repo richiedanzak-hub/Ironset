@@ -4689,8 +4689,6 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
   const [logTouched, setLogTouched] = useState(false);
-  // The set that just went in, so filming it is one tap rather than a trip to History.
-  const [lastLog, setLastLog] = useState(null);
   const [filming, setFilming] = useState(null);
   const [logDate, setLogDate] = useState(todayStr());
 
@@ -4987,8 +4985,21 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // the model only says how much further it falls.
   const chainToday = boFamily
     .reduce((acc, n) => acc.concat((state.exercises[n] ? state.exercises[n].sets : [])
-      .filter((x) => new Date(x.ts).toDateString() === boDayStr)), [])
+      .filter((x) => new Date(x.ts).toDateString() === boDayStr)
+      .map((x) => ({ ...x, lift: n, ex: n }))), [])
     .sort((a, b) => a.ts - b.ts);
+  // What you have already put in today, for this lift and its variations. Read off the
+  // log rather than off what happened in this page's lifetime, so it is still here
+  // after the screen locks and you come back to it between sets.
+  const lastToday = chainToday.length ? chainToday[chainToday.length - 1] : null;
+  // The whole session, not just the lift on screen. Train is where the day happens,
+  // so what you did an hour ago under a different movement still belongs here — and
+  // it is the one place a set is always one tap from its camera.
+  const sessionToday = useMemo(() => Object.entries(state.exercises || {})
+    .reduce((acc, [n, ex]) => acc.concat((ex.sets || [])
+      .filter((x) => new Date(x.ts).toDateString() === boDayStr)
+      .map((x) => ({ ...x, lift: n, ex: n }))), [])
+    .sort((a, b) => a.ts - b.ts), [state.exercises, boDayStr]);
   const stimBefore = chainToday.slice(0, -1).reduce((a, x, i) => a
     + fatigueDrop(x.reps, x.rpe, DEFAULT_FATIGUE_K) * (i === 0 && !x.backoff ? scaleTop : scaleChain)
       * restFactor(x.rest != null ? x.rest : null, restRefFor(sel, state)), 0);
@@ -5067,7 +5078,6 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       rest: restSecs != null && restSecs < 1800 ? Math.round(restSecs) : undefined,
     });
     setNote(""); setFromRec(false); setJustLogged(true); setLogTouched(false);
-    setLastLog({ id: setId, ex: sel, weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate) });
     setTimeout(() => setJustLogged(false), 1400);
   };
 
@@ -5494,15 +5504,15 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         <Btn kind="primary" onClick={doLog} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(log.weight)}>
           {justLogged ? <><Check size={17} /> Logged</> : "Log set"}
         </Btn>
-        {lastLog ? (
-          <button onClick={() => setFilming(lastLog)} style={{ width: "100%", marginTop: 9, background: "none",
-            border: `1px dashed ${(state.clips || {})[lastLog.id] ? tint(selHue, 0.5) : C.line2}`, borderRadius: R.ctrl,
-            color: (state.clips || {})[lastLog.id] ? selHue : C.muted, cursor: "pointer", padding: "10px 12px",
+        {lastToday ? (
+          <button onClick={() => setFilming(lastToday)} style={{ width: "100%", marginTop: 9, background: "none",
+            border: `1px dashed ${(state.clips || {})[lastToday.id] ? tint(selHue, 0.5) : C.line2}`, borderRadius: R.ctrl,
+            color: (state.clips || {})[lastToday.id] ? selHue : C.muted, cursor: "pointer", padding: "10px 12px",
             fontFamily: SANS, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center",
             justifyContent: "center", gap: 7, WebkitTapHighlightColor: "transparent" }}>
-            {(state.clips || {})[lastLog.id]
-              ? <><Play size={14} /> Watch {fmt(lastLog.weight)}{unit} × {lastLog.reps}</>
-              : <><Camera size={14} /> Film that set — {fmt(lastLog.weight)}{unit} × {lastLog.reps}</>}
+            {(state.clips || {})[lastToday.id]
+              ? <><Play size={14} /> Watch {fmt(lastToday.weight)}{unit} × {lastToday.reps}</>
+              : <><Camera size={14} /> Film that set — {fmt(lastToday.weight)}{unit} × {lastToday.reps}</>}
           </button>
         ) : null}
         {activeSlot && setsIn > 0 ? (
@@ -5616,6 +5626,51 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       )}
 
       </>)}
+
+      {/* What you have done today, on the screen you did it from. Train had no set
+          list at all, which left filming a set discoverable only in History. */}
+      {sessionToday.length > 0 && (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+              <span style={{ width: 3, height: 13, borderRadius: 2, background: selHue,
+                boxShadow: `0 0 10px ${tint(selHue, 0.55)}` }} />
+              <span style={{ ...label, fontSize: 9.5 }}>Logged today</span>
+            </span>
+            <span style={{ fontSize: 11.5, color: C.faint }}>
+              {sessionToday.length} set{sessionToday.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          {sessionToday.map((x) => {
+            const clip = (state.clips || {})[x.id];
+            return (
+              <div key={x.id} style={{ padding: "10px 16px", borderTop: `1px solid ${C.line}`, display: "flex",
+                alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600 }}>
+                    {x.secs != null
+                      ? fmtDur(x.secs)
+                      : <>{fmt(x.weight)}{unit} × {x.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`}</span></>}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>
+                    {x.lift !== sel ? <span style={{ color: C.blue }}>{x.lift} · </span> : null}
+                    {x.backoff ? "back-off" : "top set"}
+                    {x.rest != null ? ` · ${fmtRest(x.rest)} rest` : ""}
+                  </div>
+                </div>
+                <button onClick={() => setFilming(x)} aria-label={clip ? "Watch this set" : "Film this set"}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, cursor: "pointer",
+                    background: clip ? tint(selHue, 0.14) : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${clip ? tint(selHue, 0.45) : C.line2}`, borderRadius: R.pill,
+                    color: clip ? selHue : C.muted, fontFamily: SANS, fontWeight: 700, fontSize: 11.5,
+                    padding: "7px 12px", WebkitTapHighlightColor: "transparent" }}>
+                  {clip ? <><Play size={12} /> Watch</> : <><Camera size={13} /> Film</>}
+                </button>
+              </div>
+            );
+          })}
+        </Card>
+      )}
 
       <button onClick={() => setShowHow((v) => !v)} style={{ background: "none", border: "none", color: C.faint,
         fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, alignSelf: "center" }}>
