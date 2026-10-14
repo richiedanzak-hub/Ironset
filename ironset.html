@@ -4677,13 +4677,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const tRpe = inputMode === "rir" ? 10 - tInt : tInt;
 
   // log panel
-  const [log, setLog] = useState({ weight: "", reps: 3, int: inputMode === "rir" ? 1 : 8 });
-  const [fromRec, setFromRec] = useState(false);
   const [note, setNote] = useState("");
   const [showPlates, setShowPlates] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
-  const [logTouched, setLogTouched] = useState(false);
   const [filming, setFilming] = useState(null);
   const [logDate, setLogDate] = useState(todayStr());
 
@@ -4963,64 +4960,70 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     if (effE1rm != null && boSug != null) return Math.max(1, Math.min(10, 10 - (repsAtPct((boSug / effE1rm) * 100) - boReps)));
     return 9;
   })();
-  // The weight is a free-text draft; `feel` is a signed RPE nudge for a set that landed
-  // harder or easier than asked. Keeping them apart means correcting how a set actually
-  // felt never quietly moves the load you just lifted.
-  const boFeel = (boDraft && boDraft.feel) || 0;
-  const boRpeActual = Math.max(5, Math.min(10, Math.round((boBaseRpe + boFeel) * 2) / 2));
-  const curBo = { weight: (boDraft && boDraft.weight != null) ? boDraft.weight : (boSug != null ? String(boSug) : ""), rpe: boRpeActual };
-  const boDirty = !!(boDraft && boDraft.weight != null);
-  const setBoW = (v) => setBoDraft({ ...(boDraft || {}), weight: v });
-  const nudgeBo = (d) => setBoDraft({ ...(boDraft || {}), feel: Math.max(-3, Math.min(3, boFeel + d)) });
-  const logCurBackoff = () => {
-    if (!boTarget) return;
-    const w = parseFloat(curBo.weight);
+  /* The weight is a free-text draft; `feel` is a signed effort nudge for a set that
+     landed harder or easier than asked. Keeping them apart means correcting how a set
+     felt never quietly moves the load you actually lifted. Both live on one draft,
+     because there is only ever one set being logged. */
+  /* ------------------------------ the next set -----------------------------
+     A top set into back-offs and five sets across are the same thing in different
+     numbers: a list of sets, each with its own reps and effort. So there is one
+     card, and it walks that list. "Top set" survives as what the first set asks
+     for when the plan asks something different of it — not as a second screen. */
+  // Does the plan ask something different of the first set? That is the whole of
+  // what "top set" means now, and it is the only reason to label a set at all.
+  const stepsDiffer = !!(activeSlot && activeSlot.bo) ||
+    (!activeSlot && setsAsked > 1 && (tReps !== boReps || Math.abs(tRpe - boRpe) > 0.01));
+  const onFirst = setsIn === 0;
+  const stepTarget = onFirst ? sel : boTarget;
+  const curReps = onFirst ? tReps : boReps;
+  // The effort this set asks for, in whatever language the screen is speaking.
+  const curIntVal = percentMode ? (onFirst ? topPct : boStepPct)
+    : (onFirst ? tInt : (inputMode === "rir" ? 10 - boRpe : boRpe));
+  const setCurReps = (v) => {
+    const n = Math.max(1, Math.min(30, v));
+    if (onFirst) { setTReps(n); } else setStep(doneCount, { reps: n });
+  };
+  const setCurInt = (v) => {
+    if (percentMode) {
+      const n = Math.max(30, Math.min(105, v));
+      if (onFirst) setTopPct(n); else setStep(doneCount, { pct: n });
+      return;
+    }
+    const n = inputMode === "rir" ? Math.max(0, Math.min(5, v)) : Math.max(5, Math.min(10, v));
+    if (onFirst) setTInt(n); else setStep(doneCount, { rpe: inputMode === "rir" ? 10 - n : n });
+  };
+  const suggested = onFirst ? recR : boSug;
+  // What the prescription says this set should feel like. In percentage mode that is
+  // whatever the load works out to against the current estimate.
+  const curBaseRpe = onFirst ? (percentMode ? (predRpe != null ? predRpe : 8) : tRpe) : boBaseRpe;
+  const curFeel = (boDraft && boDraft.feel) || 0;
+  const curRpe = Math.max(5, Math.min(10, Math.round((curBaseRpe + curFeel) * 2) / 2));
+  const curWeight = (boDraft && boDraft.weight != null) ? boDraft.weight
+    : (suggested != null ? String(suggested) : "");
+  const weightDirty = !!(boDraft && boDraft.weight != null);
+  const setCurWeight = (v) => setBoDraft({ ...(boDraft || {}), weight: v });
+  const nudgeFeel = (d) => setBoDraft({ ...(boDraft || {}), feel: Math.max(-3, Math.min(3, curFeel + d)) });
+
+  const logCurrent = () => {
+    if (!stepTarget) return;
+    const w = parseFloat(curWeight);
     if (!isFinite(w) || w <= 0) return;
-    logSet(boTarget, { weight: roundTo(w, round), reps: boReps, rpe: curBo.rpe, ts: tsFromDateStr(logDate),
-      backoff: true, fromRec: false, tReps: boReps, tRpe: percentMode ? Math.round(boBaseRpe * 2) / 2 : boRpe,
-      cond: conditionFactor(dayCheckin, liftClass(boTarget)) < 1 ? conditionFactor(dayCheckin, liftClass(boTarget)) : undefined,
-      rec: boSug != null ? boSug : roundTo(w, round) });
-    setBoDraft(null);
-  };
-
-  const recInt = () => {
-    if (!percentMode) return inputMode === "rir" ? 10 - tRpe : tRpe;
-    const pr = predRpe != null ? predRpe : 8;
-    return inputMode === "rir" ? Math.max(0, Math.round((10 - pr) * 2) / 2) : Math.round(pr * 2) / 2;
-  };
-  const useRec = () => {
-    if (recR == null) return;
-    setLog({ weight: String(recR), reps: tReps, int: recInt() });
-    setFromRec(true); setLogTouched(false);
-  };
-  // The prescription is the starting point, so it arrives already filled in: the reps
-  // and effort asked for, and the load that hits them. Change any of it and the screen
-  // stops rewriting what you typed until the next set is in.
-  useEffect(() => {
-    if (logTouched || recR == null) return;
-    const intVal = recInt();
-    setLog((l) => (l.weight === String(recR) && l.reps === tReps && l.int === intVal
-      ? l : { weight: String(recR), reps: tReps, int: intVal }));
-    setFromRec(true);
-  }, [recR, tReps, tRpe, topPct, inputMode, percentMode, predRpe, logTouched, sel]);
-  const nudge = (d) => { setLogTouched(true);
-    setLog((l) => ({ ...l, int: inputMode === "rir" ? Math.max(0, l.int - d) : Math.min(10, Math.max(5, l.int + d)) })); };
-
-  const doLog = () => {
-    const w = parseFloat(log.weight);
-    if (!sel || isNaN(w) || w <= 0) return;
-    const actualRpe = inputMode === "rir" ? 10 - log.int : log.int;
-    const setId = uid();
-    logSet(sel, {
-      id: setId,
-      weight: w, reps: log.reps, rpe: actualRpe, ts: tsFromDateStr(logDate),
-      fromRec, tReps, tRpe, rec: recR, note: note.trim() || undefined,
-      cond: condFactor < 1 ? condFactor : undefined,
+    const cf = conditionFactor(dayCheckin, liftClass(stepTarget));
+    logSet(stepTarget, {
+      id: uid(), weight: roundTo(w, round), reps: curReps, rpe: curRpe, ts: tsFromDateStr(logDate),
+      backoff: !onFirst,
+      fromRec: !weightDirty, tReps: curReps, tRpe: Math.round(curBaseRpe * 2) / 2,
+      rec: suggested != null ? suggested : roundTo(w, round),
+      note: note.trim() || undefined,
+      cond: cf < 1 ? cf : undefined,
+      // Work earlier in the day handicaps every set of this lift, not just the first.
       carry: recovery.carryDrop > 0.004 ? 1 - recovery.carryDrop : undefined,
     });
-    setNote(""); setFromRec(false); setJustLogged(true); setLogTouched(false);
+    setBoDraft(null); setNote(""); setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
   };
+
+
 
   // A programmed session IS a list of lifts to start from, so someone who built a
   // block before ever logging a set should land on their session rather than on a
@@ -5262,19 +5265,58 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           rather than shown with meaningless numbers in it. The session list and
           the day's check-in stay put — both are about the day, not the lift. */}
       {timedSel ? <TimedLogger {...{ state, sel, logSet, logDate, setLogDate, unit, slot: timedSlot }} /> : (<>
-      {/* TOP SET widget — prescribe, see the load, log it, all in one */}
+      {/* ONE SET AT A TIME — what this set asks for, what to load, and logging it,
+          in a single card. A top set into back-offs and five sets across are the
+          same list of sets with different numbers in it, so they get the same card
+          and the difference shows up where it belongs: in what each set asks for. */}
       <Card accent={C.red} glow="none">
-        <SectionHead accent={C.red} sub="Set your target, see the load, then log what you actually hit.">Top set</SectionHead>
+        <SectionHead accent={C.red} right={setsAsked > 1 ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>Sets</span>
+            <Stepper compact value={setsAsked} min={1} max={12}
+              onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
+          </span>
+        ) : null} sub={onFirst
+          ? "The load comes off your estimate, trimmed for how today is going."
+          : "Each set reads the fatigue the one before it spent, so holding the effort brings the weight down."}>
+          {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
+        </SectionHead>
+
+        {/* The plan asks something different of the first set, so say which this is. */}
+        {stepsDiffer && (
+          <div style={{ marginTop: 9 }}>
+            <span style={{ ...label2, color: onFirst ? C.red : C.good, border: `1px solid ${onFirst ? C.redLine : tint(C.good, 0.4)}`,
+              borderRadius: 6, padding: "3px 7px" }}>{onFirst ? "Top set" : `Back-off ${doneCount + 1}`}</span>
+          </div>
+        )}
+
+        {/* a back-off can run on a variation of the same lift */}
+        {!onFirst && boFamily.length > 1 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 11 }}>
+            {boFamily.map((n) => (
+              <Chip key={n} sm active={n === stepTarget} onClick={() => setStep(doneCount, { lift: n === sel ? null : n })}>
+                {n === sel ? n : `${n} · ${Math.round(ratioOf(n) * 100)}%`}
+              </Chip>
+            ))}
+          </div>
+        )}
+        {!onFirst && stepTarget !== sel && (
+          <div style={{ fontSize: 11, color: C.blue, fontWeight: 700, marginTop: 9 }}>
+            Scaled to {Math.round(ratioOf(stepTarget) * 100)}% of {sel} · fatigue still chains off your last set
+          </div>
+        )}
+
+        {/* what this set asks for */}
         <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-            <Stepper value={tReps} onChange={setTReps} min={1} max={20} />
+            <Stepper value={curReps} onChange={setCurReps} min={1} max={30} />
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
             {percentMode
-              ? <Stepper value={topPct} onChange={setTopPct} step={2.5} min={30} max={105} suffix="%" />
-              : <Stepper value={tInt} onChange={setTInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
+              ? <Stepper value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
+              : <Stepper value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
           </div>
         </div>
         {/* One even row rather than three-and-a-stray: these are a scale, and a scale
@@ -5282,9 +5324,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${percentMode ? 5 : 4}, 1fr)`,
           gap: 6, marginTop: 12 }}>
           {(percentMode ? [70, 75, 80, 85, 90] : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10])).map((v) => {
-            const on = percentMode ? topPct === v : tInt === v;
+            const on = curIntVal === v;
             return (
-              <button key={v} onClick={() => (percentMode ? setTopPct(v) : setTInt(v))}
+              <button key={v} onClick={() => setCurInt(v)}
                 style={{ fontFamily: SANS, fontWeight: 700, fontSize: percentMode ? 12.5 : 13, borderRadius: R.pill,
                   padding: "10px 0", minHeight: 40, cursor: "pointer", whiteSpace: "nowrap",
                   WebkitTapHighlightColor: "transparent", transition: "background .15s ease, color .15s ease",
@@ -5295,156 +5337,162 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             );
           })}
         </div>
-      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
-      {/* recommendation */}
-      <div style={{ textAlign: "center", margin: "0 -17px", padding: "20px 17px 6px",
-        background: `linear-gradient(180deg, ${tint(selHue, 0.11)}, ${tint(selHue, 0.025)} 55%, transparent)` }}>
-        <div style={{ ...label, fontSize: 9.5 }}>Recommended load</div>
-        {recR != null ? (
-          <>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 10,
-              whiteSpace: "nowrap" }}>
-              <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
-                letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
-                textShadow: `0 0 50px ${tint(selHue, 0.45)}`, transition: "color .2s" }}>{fmt(recR)}</span>
-              <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
-            </div>
-            <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
-              background: `linear-gradient(90deg, transparent, ${selHue}, transparent)`, opacity: 0.8 }} />
-            <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
-              {percentMode
-                ? `${tReps} rep${tReps > 1 ? "s" : ""} @ ${fmt(topPct)}%`
-                : `${tReps} rep${tReps > 1 ? "s" : ""} @ ${inputMode === "rir" ? `${10 - tRpe} RIR` : `RPE ${fmt(tRpe)}`}`}
-            </div>
-            {percentMode
-              ? (predRpe != null && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>≈ RPE {fmt(Math.round(predRpe * 2) / 2)} · {fmt(Math.max(0, Math.round((10 - predRpe) * 2) / 2))} RIR</div>)
-              : ((strongDay || toughDay) && (
+        <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
+
+        {/* what to put on the bar */}
+        <div style={{ textAlign: "center", margin: "0 -17px", padding: "18px 17px 6px",
+          background: `linear-gradient(180deg, ${tint(selHue, 0.11)}, ${tint(selHue, 0.025)} 55%, transparent)` }}>
+          <div style={{ ...label, fontSize: 9.5 }}>{onFirst ? "Recommended load" : "Suggested next"}</div>
+          {suggested != null ? (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 10,
+                whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
+                  letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
+                  textShadow: `0 0 50px ${tint(selHue, 0.45)}`, transition: "color .2s" }}>{fmt(suggested)}</span>
+                <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
+              </div>
+              <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
+                background: `linear-gradient(90deg, transparent, ${selHue}, transparent)`, opacity: 0.8 }} />
+              <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
+                {percentMode
+                  ? `${curReps} rep${curReps > 1 ? "s" : ""} @ ${fmt(curIntVal)}%`
+                  : `${curReps} rep${curReps > 1 ? "s" : ""} @ ${inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}`}
+              </div>
+              {percentMode && predRpe != null && onFirst && (
+                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>≈ RPE {fmt(Math.round(predRpe * 2) / 2)} · {fmt(Math.max(0, Math.round((10 - predRpe) * 2) / 2))} RIR</div>
+              )}
+              {!percentMode && onFirst && (strongDay || toughDay) && (
                 <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>
                   {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
                 </div>
-              ))}
-            {recovery.carry && recovery.carryDrop >= 0.01 && (
-              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round(recovery.carryDrop * 1000) / 10)}% — {recovery.carry.sets} {recovery.carry.from} set{recovery.carry.sets === 1 ? "" : "s"} earlier today
-              </div>
-            )}
-            {recovery.priorDrop >= 0.01 && (
-              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round(recovery.priorDrop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
-              </div>
-            )}
-            {condFactor < 0.999 && (
-              <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                Trimmed {fmt(Math.round((1 - condFactor) * 1000) / 10)}% — {condWhy}
-              </div>
-            )}
-            {/* plates and the ramp up to them */}
-            <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => setShowPlates((v) => !v)} style={{ background: "none", border: "none",
-                color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
-              </button>
-              {warmup.length > 1 && (
-                <button onClick={() => setShowWarm((v) => !v)} style={{ background: "none", border: "none",
-                  color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  Warm-up <ChevronDown size={14} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
-                </button>
               )}
-            </div>
-            {showPlates && <PlateView total={recR} bar={bar} denoms={denoms} unit={unit} />}
-            {showWarm && warmup.length > 1 && (
-              <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
-                overflow: "hidden" }}>
-                {warmup.map((w, i) => (
-                  <button key={i} onClick={() => setWarmOpen(warmOpen === i ? null : i)}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 13px",
-                      background: warmOpen === i ? "rgba(255,255,255,0.04)" : "none", border: "none",
-                      borderTop: i ? `1px solid ${C.line}` : "none", color: C.text, cursor: "pointer",
-                      textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
-                    <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0 }}>
-                      {w.bar ? "BAR" : `${Math.round(w.pct * 100)}%`}
-                    </span>
-                    <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
-                      fontVariantNumeric: "tabular-nums" }}>
-                      {fmt(w.weight)}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{unit}</span>
-                    </span>
-                    <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>× {w.reps}</span>
-                    <span style={{ flex: 1 }} />
-                    <ChevronDown size={13} style={{ color: C.faint, flexShrink: 0,
-                      transform: warmOpen === i ? "rotate(180deg)" : "none", transition: ".2s" }} />
-                  </button>
-                ))}
-                {warmOpen != null && warmup[warmOpen] && !warmup[warmOpen].bar && (
-                  <div style={{ padding: "0 13px 11px" }}>
-                    <PlateView total={warmup[warmOpen].weight} bar={bar} denoms={denoms} unit={unit} />
-                  </div>
-                )}
-                <div style={{ fontSize: 10.5, color: C.faint, padding: "9px 13px 11px", lineHeight: 1.5,
-                  borderTop: `1px solid ${C.line}` }}>
-                  Percentages of today's working set, so a trimmed day brings the ramp down with it.
+              {!onFirst && prevForBo && !percentMode && (
+                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>
+                  off your {inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set
                 </div>
+              )}
+              {recovery.carry && recovery.carryDrop >= 0.01 && (
+                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                  Trimmed {fmt(Math.round(recovery.carryDrop * 1000) / 10)}% — {recovery.carry.sets} {recovery.carry.from} set{recovery.carry.sets === 1 ? "" : "s"} earlier today
+                </div>
+              )}
+              {recovery.priorDrop >= 0.01 && (
+                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                  Trimmed {fmt(Math.round(recovery.priorDrop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
+                </div>
+              )}
+              {condFactor < 0.999 && (
+                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
+                  Trimmed {fmt(Math.round((1 - condFactor) * 1000) / 10)}% — {condWhy}
+                </div>
+              )}
+              {/* plates, and the ramp up to the first set */}
+              <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+                <button onClick={() => setShowPlates((v) => !v)} style={{ background: "none", border: "none",
+                  color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                </button>
+                {onFirst && warmup.length > 1 && (
+                  <button onClick={() => setShowWarm((v) => !v)} style={{ background: "none", border: "none",
+                    color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    Warm-up <ChevronDown size={14} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                  </button>
+                )}
               </div>
-            )}
-          </>
-        ) : (
-          <div style={{ color: C.muted, fontSize: 13.5, padding: "18px 8px", lineHeight: 1.5 }}>
-            Log a set below to calibrate <b style={{ color: C.text }}>{sel}</b>. Enter a known 1RM (1 rep @ RPE 10) or any working set.
-          </div>
-        )}
-      </div>
-
-      <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
-
-      {/* log what you did */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
-            <span style={label}>{straightCount ? `Log set 1 of ${straightCount}` : "Log your top set"}</span>
-          </span>
-          {recR != null && <button onClick={useRec} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line2}`,
-            color: C.muted, borderRadius: R.pill, padding: "7px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Use recommendation</button>}
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>
-            Date{logDate !== todayStr() ? <span style={{ color: C.red }}> · backdated</span> : ""}
-          </div>
-          <DateField value={logDate} onChange={setLogDate} />
-        </div>
-
-        {fromRec && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 7, fontWeight: 700 }}>How did it actually feel?</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <Chip onClick={() => nudge(-0.5)}>Easier</Chip>
-              <Chip onClick={() => {}}>As expected</Chip>
-              <Chip onClick={() => nudge(0.5)}>Harder</Chip>
+              {showPlates && <PlateView total={parseFloat(curWeight) || suggested} bar={bar} denoms={denoms} unit={unit} />}
+              {onFirst && showWarm && warmup.length > 1 && (
+                <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
+                  overflow: "hidden" }}>
+                  {warmup.map((w, i) => (
+                    <button key={i} onClick={() => setWarmOpen(warmOpen === i ? null : i)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 13px",
+                        background: warmOpen === i ? "rgba(255,255,255,0.04)" : "none", border: "none",
+                        borderTop: i ? `1px solid ${C.line}` : "none", color: C.text, cursor: "pointer",
+                        textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+                      <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0 }}>
+                        {w.bar ? "BAR" : `${Math.round(w.pct * 100)}%`}
+                      </span>
+                      <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
+                        fontVariantNumeric: "tabular-nums" }}>
+                        {fmt(w.weight)}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{unit}</span>
+                      </span>
+                      <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>× {w.reps}</span>
+                      <span style={{ flex: 1 }} />
+                      <ChevronDown size={13} style={{ color: C.faint, flexShrink: 0,
+                        transform: warmOpen === i ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                    </button>
+                  ))}
+                  {warmOpen != null && warmup[warmOpen] && !warmup[warmOpen].bar && (
+                    <div style={{ padding: "0 13px 11px" }}>
+                      <PlateView total={warmup[warmOpen].weight} bar={bar} denoms={denoms} unit={unit} />
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10.5, color: C.faint, padding: "9px 13px 11px", lineHeight: 1.5,
+                    borderTop: `1px solid ${C.line}` }}>
+                    Percentages of today's working set, so a trimmed day brings the ramp down with it.
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ color: C.muted, fontSize: 13.5, padding: "18px 8px", lineHeight: 1.5 }}>
+              Log a set to calibrate <b style={{ color: C.text }}>{sel}</b>. A known 1RM (1 rep @ RPE 10) or any working set will do.
             </div>
+          )}
+        </div>
+
+        <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
+
+        {/* log it */}
+        {logDate !== todayStr() && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: C.red, marginBottom: 6, fontWeight: 700 }}>Date · backdated</div>
+            <DateField value={logDate} onChange={setLogDate} />
           </div>
         )}
-
-        <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 110px" }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight</div>
-            <NumField value={log.weight} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, weight: v })); }} suffix={unit} />
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 130px" }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>
+              Weight{weightDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · suggested</span>}
+            </div>
+            <NumField value={curWeight} onChange={setCurWeight} suffix={unit} />
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-            <Stepper value={log.reps} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, reps: v })); }} min={1} max={30} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
-            <Stepper value={log.int} onChange={(v) => { setLogTouched(true); setLog((l) => ({ ...l, int: v })); }} step={0.5}
-              min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 6 : 10} />
-          </div>
+          {logDate === todayStr() && (
+            <button onClick={() => setLogDate(logDate)} style={{ display: "none" }} />
+          )}
         </div>
+        {weightDirty && suggested != null && (
+          <button onClick={() => setBoDraft({ ...(boDraft || {}), weight: null })} style={{ background: "none", border: "none", color: C.faint,
+            fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginTop: 8, padding: 0 }}>
+            ↺ suggested {fmt(suggested)}{unit} × {curReps}
+          </button>
+        )}
+
+        {/* how it actually landed — nudges only the logged effort, never the load */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>Felt</span>
+          <Chip sm active={curFeel < 0} onClick={() => nudgeFeel(-0.5)}>Easier</Chip>
+          <Chip sm active={curFeel === 0} onClick={() => setBoDraft({ ...(boDraft || {}), feel: 0 })}>As asked</Chip>
+          <Chip sm active={curFeel > 0} onClick={() => nudgeFeel(0.5)}>Harder</Chip>
+          {curFeel !== 0 && (
+            <span style={{ fontFamily: MONO, fontSize: 11, color: C.gold, fontWeight: 700 }}>
+              logging {inputMode === "rir" ? `${fmt(10 - curRpe)} RIR` : `RPE ${fmt(curRpe)}`}
+            </span>
+          )}
+        </div>
+
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
           style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
             padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
-        <Btn kind="primary" onClick={doLog} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(log.weight)}>
-          {justLogged ? <><Check size={17} /> Logged</> : "Log set"}
+
+        <Btn kind="primary" onClick={logCurrent} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(curWeight)}>
+          {justLogged ? <><Check size={17} /> Logged</>
+            : stepTarget !== sel ? `Log ${stepTarget}`
+            : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"}
         </Btn>
+
         {lastToday ? (
           <button onClick={() => setFilming(lastToday)} style={{ width: "100%", marginTop: 9, background: "none",
             border: `1px dashed ${(state.clips || {})[lastToday.id] ? tint(selHue, 0.5) : C.line2}`, borderRadius: R.ctrl,
@@ -5456,115 +5504,16 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               : <><Camera size={14} /> Film that set — {fmt(lastToday.weight)}{unit} × {lastToday.reps}</>}
           </button>
         ) : null}
-        {activeSlot && setsIn > 0 ? (
-          <div style={{ fontSize: 11.5, color: setsIn >= setsAsked ? C.good : C.gold, marginTop: 9,
-            textAlign: "center", fontWeight: 700 }}>
-            {setsIn >= setsAsked
-              ? `All ${setsAsked} set${setsAsked > 1 ? "s" : ""} of ${sel} in. Pick the next movement above.`
-              : `${setsIn} of ${setsAsked} in — set ${setsIn + 1} is set up below.`}
-          </div>
-        ) : (
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 8, textAlign: "center" }}>
-            Every set you log retunes your 1RM — heavier feedback than expected lowers it, easier raises it.
-          </div>
-        )}
+
+        <div style={{ fontSize: 11.5, marginTop: 9, textAlign: "center", fontWeight: 700,
+          color: setsIn >= setsAsked && setsAsked > 1 ? C.good : setsIn > 0 ? C.gold : C.faint }}>
+          {setsIn >= setsAsked && setsAsked > 1
+            ? `All ${setsAsked} sets of ${sel} in — log another, or pick the next movement above.`
+            : setsIn > 0
+              ? `${setsIn} of ${setsAsked} in.`
+              : "Every set you log retunes your estimate — the day's best set is the one that counts."}
+        </div>
       </Card>
-
-      {/* back-off sets */}
-      {recR != null && (
-        <Card accent={C.good}>
-          <SectionHead accent={C.good} right={
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>Sets</span>
-              <Stepper compact value={bo.sets} onChange={(v) => setBo({ sets: Math.max(1, Math.min(9, v)) })} min={1} max={9} />
-            </span>
-          }>{straightCount ? `Sets 2–${straightCount}` : "Back-off sets"}</SectionHead>
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>{percentMode
-            ? "Set each one's own reps and % — the next follows the set before it."
-            : straightCount
-              ? "Same reps and effort across. The load reads the fatigue the set before it spent, so holding the prescription means the weight comes down as you go."
-              : "Set each back-off's own reps and RPE; the load reads the fatigue from the set before it, so a grind drops the next one more."}</div>
-
-          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            {todayBos.map((s, i) => (
-              <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px" }}>
-                <div style={{ fontSize: 12, color: C.muted, fontWeight: 700 }}>
-                  {straightCount ? `Set ${i + 2}` : `Back-off ${i + 1}`}{s.lift !== sel ? <span style={{ color: C.blue }}> · {s.lift}</span> : null} · <span style={{ fontFamily: MONO, color: C.text }}>{fmt(s.weight)}{unit}</span> × {s.reps} <span style={{ color: C.faint }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span>
-                </div>
-                <Check size={15} style={{ color: C.good }} />
-              </div>
-            ))}
-
-            {doneCount < bo.sets && (
-              <div style={{ background: C.bg2, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "12px 14px" }}>
-                <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 10 }}>
-                  {straightCount ? `Set ${doneCount + 2} of ${straightCount}` : `Back-off ${doneCount + 1} of ${bo.sets}`}{!percentMode && prevForBo ? ` · off your ${inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set` : ""}
-                </div>
-                {boFamily.length > 1 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                    {boFamily.map((n) => (
-                      <Chip key={n} active={n === boTarget} onClick={() => setStep(doneCount, { lift: n === sel ? null : n })}>
-                        {n === sel ? n : `${n} · ${Math.round(ratioOf(n) * 100)}%`}
-                      </Chip>
-                    ))}
-                  </div>
-                )}
-                {boTarget !== sel && (
-                  <div style={{ fontSize: 11, color: C.blue, fontWeight: 700, marginBottom: 10 }}>
-                    Scaled to {Math.round(ratioOf(boTarget) * 100)}% of {sel} · fatigue still chains off your last set
-                  </div>
-                )}
-                {/* this back-off's own target — drives the suggested weight below */}
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-                    <Stepper value={boReps} onChange={(v) => setStep(doneCount, { reps: Math.max(1, Math.min(20, v)) })} min={1} max={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
-                    {percentMode
-                      ? <Stepper value={boStepPct} onChange={(v) => setStep(doneCount, { pct: Math.max(30, Math.min(100, v)) })} step={2.5} min={30} max={100} suffix="%" />
-                      : <Stepper value={inputMode === "rir" ? 10 - boRpe : boRpe} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10}
-                          onChange={(v) => setStep(doneCount, { rpe: inputMode === "rir" ? 10 - v : v })} />}
-                  </div>
-                  <div style={{ flex: "1 1 110px" }}>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Weight{boDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · suggested</span>}</div>
-                    <NumField value={curBo.weight} onChange={setBoW} suffix={unit} />
-                  </div>
-                </div>
-                {boDirty && boSug != null && (
-                  <button onClick={() => setBoDraft({ ...(boDraft || {}), weight: null })} style={{ background: "none", border: "none", color: C.faint,
-                    fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginTop: 8, padding: 0 }}>
-                    ↺ suggested {fmt(boSug)}{unit} × {boReps}
-                  </button>
-                )}
-                {/* how it actually landed — nudges only the logged RPE, never the load */}
-                <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>Felt</span>
-                  <Chip sm active={boFeel < 0} onClick={() => nudgeBo(-0.5)}>Easier</Chip>
-                  <Chip sm active={boFeel === 0} onClick={() => setBoDraft({ ...(boDraft || {}), feel: 0 })}>As asked</Chip>
-                  <Chip sm active={boFeel > 0} onClick={() => nudgeBo(0.5)}>Harder</Chip>
-                  {boFeel !== 0 && (
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: C.gold, fontWeight: 700 }}>
-                      logging {inputMode === "rir" ? `${fmt(10 - curBo.rpe)} RIR` : `RPE ${fmt(curBo.rpe)}`}
-                    </span>
-                  )}
-                </div>
-                {(parseFloat(curBo.weight) || boSug) ? <PlateView total={parseFloat(curBo.weight) || boSug} bar={bar} denoms={denoms} unit={unit} /> : null}
-                <Btn kind="primary" onClick={logCurBackoff} style={{ width: "100%", marginTop: 10 }}>Log {boTarget !== sel ? boTarget : straightCount ? `set ${doneCount + 2}` : `back-off ${doneCount + 1}`}</Btn>
-              </div>
-            )}
-
-            {doneCount >= bo.sets && (
-              <div style={{ fontSize: 12, color: C.muted, textAlign: "center", padding: "8px 0 2px" }}>
-                All {bo.sets} back-off{bo.sets > 1 ? "s" : ""} logged.{" "}
-                <button onClick={() => setBo({ sets: bo.sets + 1 })} style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12, cursor: "pointer", padding: 0 }}>add another</button>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
 
       </>)}
 
