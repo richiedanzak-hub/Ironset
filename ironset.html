@@ -256,15 +256,48 @@ function repsAtPct(pct) {
   return 24;
 }
 // Fold the whole (time-ordered) history into a learned 1RM + a trajectory.
+/* One day, one reading.
+
+   A session is a descending series by design — the last set is meant to be lighter
+   than the first — so feeding every set into the estimate in turn would let the tail
+   of a session argue your max downward. The old answer was to throw away anything
+   flagged as a back-off. That turned out worse: label a warm-up as the top set and
+   the only evidence that counts is the easiest thing you did, while two sets at
+   RPE 9 sitting right under it get discarded.
+
+   So take each day at its best instead, whatever the sets were called. And ignore
+   sets below RPE 6 outright: five or more reps in reserve is a guess, not a
+   measurement, and extrapolating one fourteen reps out to a single is not evidence
+   of anything. */
+const CALIBRATION_FLOOR_RPE = 6;
+function bestPerDay(entries) {
+  const pick = (list) => {
+    const byDay = new Map();
+    for (const x of list) {
+      const k = new Date(x.ts).toDateString();
+      const prev = byDay.get(k);
+      if (!prev || x.obs > prev.obs) byDay.set(k, x);
+    }
+    return [...byDay.values()].sort((a, b) => a.ts - b.ts);
+  };
+  const working = entries.filter((x) => x.rpe == null || x.rpe >= CALIBRATION_FLOOR_RPE);
+  // Somebody who has only ever logged easy sets still deserves an estimate.
+  return pick(working.length ? working : entries);
+}
+
 function buildModel(sets, allSets) {
-  const sorted = [...sets].sort((a, b) => a.ts - b.ts);
   const ctx = allSets || sets;
   const rsc = learnRecoveryScale(ctx);
+  const scored = [...sets].sort((a, b) => a.ts - b.ts).map((s) => {
+    const raw = e1rmFromSet(s.weight, s.reps, s.rpe);
+    return { s, raw, obs: freshCorrect(raw, s, ctx, rsc) };
+  });
+  const sorted = bestPerDay(scored.map((x) => ({ ...x, ts: x.s.ts, rpe: x.s.rpe })));
   let e = null;
   const points = [];
-  for (const s of sorted) {
-    const raw = e1rmFromSet(s.weight, s.reps, s.rpe);
-    let obs = freshCorrect(raw, s, ctx, rsc);
+  for (const entry of sorted) {
+    const s = entry.s, raw = entry.raw;
+    let obs = entry.obs;
     // The one guarantee that keeps check-ins honest, and it is worth stating in a
     // single line: a check-in can HOLD your estimate up, but it can never PUSH it up.
     // The correction is allowed to undo the drop a handicapped day would have caused
@@ -1543,7 +1576,9 @@ function App() {
   const models = useMemo(() => {
     const ex = state.exercises;
     const own = {};
-    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => !s.backoff && s.secs == null), e.sets.filter((s) => s.secs == null));
+    // Every set is evidence now; buildModel takes each day at its best, so a back-off
+    // that outlifts the set labelled "top" is no longer thrown away.
+    for (const [k, e] of Object.entries(ex)) own[k] = buildModel(e.sets.filter((s) => s.secs == null), e.sets.filter((s) => s.secs == null));
     // ratio of a variation's strength to its parent: learned from own numbers, else default
     const ratioOf = (name) => {
       const x = ex[name];
@@ -1563,7 +1598,7 @@ function App() {
         const r = m === root ? 1 : ratioOf(m);
         const rscM = learnRecoveryScale(ex[m].sets);
         for (const s of ex[m].sets) {
-          if (s.backoff) continue;
+          if (s.secs != null) continue;
           const rawS = e1rmFromSet(s.weight, s.reps, s.rpe);
           const ob = freshCorrect(rawS, s, ex[m].sets, rscM);
           all.push({ ts: s.ts, obs: ob / r, reps: s.reps, rpe: s.rpe,
@@ -1572,14 +1607,16 @@ function App() {
       }
       all.sort((a, b) => a.ts - b.ts);
       let e = null; const points = [];
-      for (const x of all) {
+      // One reading per training day, taken at that day's best, across the whole
+      // family — the variation that went best still speaks for the main lift.
+      for (const x of bestPerDay(all)) {
         // Undoing the day's handicap may hold the estimate where it was; it may never
         // lift it past what the bar actually weighed.
         const ob = x.held ? Math.min(x.obs, Math.max(e != null ? e : x.raw, x.raw)) : x.obs;
         e = e == null ? ob : e + 0.35 * reliability(x.reps, x.rpe) * (ob - e);
         points.push({ ts: x.ts, value: e });
       }
-      const out = { e1rm: e, points, count: all.length };
+      const out = { e1rm: e, points, count: points.length };
       famCache[root] = out; return out;
     };
     const view = {};
@@ -5122,7 +5159,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               </div>
               <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5, flexShrink: 0 }}>
                 {model.count > 0
-                  ? <>from {model.count} set{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
+                  ? <>from {model.count} session{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
                   : "not calibrated"}
               </div>
             </div>
@@ -5838,9 +5875,18 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
                   border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 6px", marginLeft: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>Back-off</span>}
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
-                {dshort(s.ts)}{s.backoff || s.secs != null ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
+                {dshort(s.ts)}{s.secs != null ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`}
                 {s.cond != null && s.cond < 1
                   ? <span style={{ color: C.gold }}> · −{fmt(Math.round((1 - s.cond) * 1000) / 10)}% conditions</span>
+                  : null}
+                {/* The handicap from earlier lifts the same day was applied and divided
+                    back out silently. Saying so is the difference between a number you
+                    can argue with and one you have to take on faith. */}
+                {s.carry != null && s.carry < 1
+                  ? <span style={{ color: C.blue }}> · −{fmt(Math.round((1 - s.carry) * 1000) / 10)}% earlier work</span>
+                  : null}
+                {s.rpe != null && s.rpe < CALIBRATION_FLOOR_RPE
+                  ? <span style={{ color: C.faint }}> · warm-up, not counted</span>
                   : null}
                 {s.fromRec && s.tRpe != null && (
                   <span style={{ color: Math.abs(s.rpe - s.tRpe) < 0.25 ? C.good : C.red }}>
