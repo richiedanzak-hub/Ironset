@@ -1878,7 +1878,13 @@ function residualFatigue(sets, refTs, includeToday) {
   let total = 0, top = { c: 0, days: 0, peak: 0 };
   for (const d in byDay) {
     let S = 0, peak = 0, lastTs = 0;
-    for (const s of byDay[d]) { S += Math.max(1, s.reps) * strainExcess(s.rpe) * (s.backoff ? 0.4 : 1); if (!s.backoff) peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
+    /* Hard reps, not raw reps. Counting reps straight made a set of fifteen leg
+       extensions eight times the strain of a heavy deadlift triple, which is how a
+       barbell row ended up taking ten percent off a deadlift two days later. More
+       reps at the same effort is genuinely more to recover from, but the fifteenth
+       rep of a long set adds far less than the third rep of a heavy one — so volume
+       counts on a square root, the usual shape for this. */
+    for (const s of byDay[d]) { S += Math.sqrt(Math.max(1, s.reps)) * strainExcess(s.rpe) * (s.backoff ? 0.4 : 1); if (!s.backoff) peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
     const days = Math.max(0.17, (refTs - lastTs) / 86400000);
     if (days > 12 || S <= 0) continue;
     const c = 0.25 * S * Math.exp(-days / 4);
@@ -2070,7 +2076,19 @@ function carryover(fromName, toName, state) {
   const a = demandOf(fromName, state), b = demandOf(toName, state);
   let num = 0, den = 0;
   for (const k of SYSTEMS) { const bk = b[k] || 0; den += bk; num += bk * (a[k] || 0); }
-  return den > 0 ? Math.max(0, Math.min(1, num / den)) : 0;
+  const overlap = den > 0 ? Math.max(0, Math.min(1, num / den)) : 0;
+  /* Overlap says how much of the target's demands the source movement touches. It
+     does not say how big the source movement is, and that was the hole: a barbell
+     row shares 23% of a deadlift's demands, so a hard set of rows was landing as
+     nearly a hard set of deadlifts. It isn't. A row asks a fraction of the body a
+     deadlift asks for, and a set of rows costs you accordingly.
+
+     So discount by how much systemic work the source is capable of generating next
+     to the target. One-sided on purpose: a bigger lift reaching a smaller one is
+     already handled by the overlap, and capping at 1 keeps a deadlift's effect on a
+     curl from being inflated just because a deadlift is the larger movement. */
+  const mag = (n) => { const d = demandOf(n, state); return Math.max(0.05, d.sys || 0.05); };
+  return overlap * Math.min(1, mag(fromName) / mag(toName));
 }
 
 // Freshness correction for the ESTIMATOR: a set performed under predicted residual
@@ -6205,7 +6223,10 @@ function freshColor(pct, dim) {
 
 function FreshnessCard({ state }) {
   const [share, setShare] = useState(null);
-  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length);
+  // Main lifts only, same as the readiness card. An accessory's own recovery is not
+  // a thing anybody plans around, and listing a barbell row beside a deadlift
+  // invites exactly the comparison the two are not on the same scale for.
+  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && !isAccessory(n, state));
   if (!mains.length) return null;
   const now = Date.now(), DAY = 86400000;
   const rows = mains.map(([name, ex]) => {
