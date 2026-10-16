@@ -4892,6 +4892,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // much capacity the *actual* prior set spent. The first comes off your top set, each
   // next off the back-off before it, so a grindy set pulls the next one down harder.
   const [boDraft, setBoDraft] = useState(null);
+  // The plan usually has the target right, so it stays folded away until it doesn't.
+  const [targetOpen, setTargetOpen] = useState(false);
   const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
   const scaleChain = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, false), [selEx]);
   const boDayStr = new Date(tsFromDateStr(logDate)).toDateString();
@@ -4899,7 +4901,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // spent capacity; the load is then scaled by how that variation measures up to the main.
   const boFamily = sel ? [sel].concat(Object.keys(state.exercises).filter((n) => state.exercises[n].parent === sel)) : [];
   const ratioOf = (n) => (n === sel ? 1 : ((models[n] && models[n].ratio) || (state.exercises[n] && state.exercises[n].ratio) || 1));
-  useEffect(() => { setBoDraft(null); }, [sel]);
+  useEffect(() => { setBoDraft(null); setTargetOpen(false); }, [sel]);
   // Every back-off carries its OWN prescription — reps, intensity, and which lift in the
   // family it runs on — so a session can descend (5 @ 8, then 4 @ 6, then a single on a
   // paused variation) without rewriting one shared target between sets. A slot you have
@@ -4991,6 +4993,30 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // what "top set" means now, and it is the only reason to label a set at all.
   const stepsDiffer = !!(activeSlot && activeSlot.bo) ||
     (!activeSlot && setsAsked > 1 && (tReps !== boReps || Math.abs(tRpe - boRpe) > 0.01));
+  /* Opening a lift with no idea what you did last time is how people repeat a bad
+     session. The best set of the last day you trained it — best meaning the one that
+     implied the most, same rule the estimate uses — plus how many sets it took. */
+  const lastTime = useMemo(() => {
+    const fam = boFamily.length ? boFamily : (sel ? [sel] : []);
+    const byDay = new Map();
+    for (const n of fam) {
+      for (const x of ((state.exercises[n] || {}).sets || [])) {
+        if (x.secs != null) continue;
+        const k = new Date(x.ts).toDateString();
+        if (k === boDayStr) continue;                       // today is not last time
+        if (x.ts >= tsFromDateStr(logDate)) continue;       // nor anything after it
+        const row = byDay.get(k) || { ts: 0, n: 0, best: null, bestE: -1 };
+        row.n += 1;
+        row.ts = Math.max(row.ts, x.ts);
+        const e = e1rmFromSet(x.weight, x.reps, x.rpe);
+        if (e > row.bestE) { row.bestE = e; row.best = { ...x, lift: n }; }
+        byDay.set(k, row);
+      }
+    }
+    const days = [...byDay.values()].sort((a, b) => b.ts - a.ts);
+    return days.length ? days[0] : null;
+  }, [state.exercises, boFamily.join("|"), boDayStr, logDate, sel]);
+
   const onFirst = setsIn === 0;
   const stepTarget = onFirst ? sel : boTarget;
   const curReps = onFirst ? tReps : boReps;
@@ -5014,13 +5040,30 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // What the prescription says this set should feel like. In percentage mode that is
   // whatever the load works out to against the current estimate.
   const curBaseRpe = onFirst ? (percentMode ? (predRpe != null ? predRpe : 8) : tRpe) : boBaseRpe;
-  const curFeel = (boDraft && boDraft.feel) || 0;
-  const curRpe = Math.max(5, Math.min(10, Math.round((curBaseRpe + curFeel) * 2) / 2));
+  /* What the set ASKED for and what you DID are two different things, and they were
+     sharing one pair of steppers. Getting eight when the plan said five is not a
+     change of plan — but it moved the suggested load, because the same numbers were
+     driving both. So the target stays where the plan put it and keeps owning the
+     suggestion, and the actuals below are free to say whatever happened. */
+  const actReps = (boDraft && boDraft.reps != null) ? boDraft.reps : curReps;
+  // Effort is always rated in RPE/RIR, even when the target was written as a
+  // percentage — you cannot come back from a set having "done 85%".
+  const prescribedInt = percentMode
+    ? (inputMode === "rir" ? Math.max(0, Math.round((10 - curBaseRpe) * 2) / 2) : Math.round(curBaseRpe * 2) / 2)
+    : curIntVal;
+  const actIntVal = (boDraft && boDraft.int != null) ? boDraft.int : prescribedInt;
+  const curRpe = Math.max(5, Math.min(10, inputMode === "rir" ? 10 - actIntVal : actIntVal));
   const curWeight = (boDraft && boDraft.weight != null) ? boDraft.weight
     : (suggested != null ? String(suggested) : "");
   const weightDirty = !!(boDraft && boDraft.weight != null);
+  const actDirty = !!(boDraft && (boDraft.weight != null || boDraft.reps != null || boDraft.int != null));
+  const offTarget = actReps !== curReps || Math.abs(actIntVal - prescribedInt) > 0.01
+    || (weightDirty && suggested != null && Math.abs(parseFloat(curWeight) - suggested) > 0.01);
   const setCurWeight = (v) => setBoDraft({ ...(boDraft || {}), weight: v });
-  const nudgeFeel = (d) => setBoDraft({ ...(boDraft || {}), feel: Math.max(-3, Math.min(3, curFeel + d)) });
+  const setActReps = (v) => setBoDraft({ ...(boDraft || {}), reps: Math.max(1, Math.min(50, v)) });
+  const setActInt = (v) => setBoDraft({ ...(boDraft || {}),
+    int: inputMode === "rir" ? Math.max(0, Math.min(5, v)) : Math.max(5, Math.min(10, v)) });
+  const backToTarget = () => setBoDraft(null);
 
   const logCurrent = () => {
     if (!stepTarget) return;
@@ -5028,9 +5071,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     if (!isFinite(w) || w <= 0) return;
     const cf = conditionFactor(dayCheckin, liftClass(stepTarget));
     logSet(stepTarget, {
-      id: uid(), weight: roundTo(w, round), reps: curReps, rpe: curRpe, ts: tsFromDateStr(logDate),
+      id: uid(), weight: roundTo(w, round), reps: actReps, rpe: curRpe, ts: tsFromDateStr(logDate),
       backoff: !onFirst,
-      fromRec: !weightDirty, tReps: curReps, tRpe: Math.round(curBaseRpe * 2) / 2,
+      // The target is kept beside what happened, which is what the calibration reads.
+      fromRec: !actDirty, tReps: curReps, tRpe: Math.round(curBaseRpe * 2) / 2,
       rec: suggested != null ? suggested : roundTo(w, round),
       note: note.trim() || undefined,
       cond: cf < 1 ? cf : undefined,
@@ -5324,37 +5368,72 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         )}
 
-        {/* what this set asks for */}
-        <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-            <Stepper value={curReps} onChange={setCurReps} min={1} max={30} />
+        {/* What you did here last time, so the first set is not a guess from memory. */}
+        {onFirst && lastTime && lastTime.best && (
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 11, padding: "9px 11px",
+            background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`, borderRadius: R.ctrl }}>
+            <span style={{ ...label2, color: C.faint, flexShrink: 0 }}>Last time</span>
+            <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, color: C.text }}>
+              {fmt(lastTime.best.weight)}{unit} × {lastTime.best.reps}
+              <span style={{ color: C.muted, fontWeight: 600 }}> @ {inputMode === "rir"
+                ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`}</span>
+            </span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 10.5, color: C.faint, textAlign: "right", flexShrink: 0 }}>
+              {dshort(lastTime.ts)}<br />{lastTime.n} set{lastTime.n === 1 ? "" : "s"}
+            </span>
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
-            {percentMode
-              ? <Stepper value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
-              : <Stepper value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
-          </div>
+        )}
+
+        {/* The target owns the suggested load, and nothing else does. It sits on one
+            line because the plan usually has it right; open it when it doesn't. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 11 }}>
+          <span style={{ ...label2, color: C.faint }}>Target</span>
+          <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700 }}>
+            {curReps} × {percentMode ? `${fmt(curIntVal)}%`
+              : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setTargetOpen((v) => !v)} style={{ background: "none", border: "none",
+            color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex",
+            alignItems: "center", gap: 4, padding: 0, WebkitTapHighlightColor: "transparent" }}>
+            Change <ChevronDown size={14} style={{ transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
+          </button>
         </div>
-        {/* One even row rather than three-and-a-stray: these are a scale, and a scale
-            that wraps stops reading as one. */}
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${percentMode ? 5 : 4}, 1fr)`,
-          gap: 6, marginTop: 12 }}>
-          {(percentMode ? [70, 75, 80, 85, 90] : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10])).map((v) => {
-            const on = curIntVal === v;
-            return (
-              <button key={v} onClick={() => setCurInt(v)}
-                style={{ fontFamily: SANS, fontWeight: 700, fontSize: percentMode ? 12.5 : 13, borderRadius: R.pill,
-                  padding: "10px 0", minHeight: 40, cursor: "pointer", whiteSpace: "nowrap",
-                  WebkitTapHighlightColor: "transparent", transition: "background .15s ease, color .15s ease",
-                  background: on ? G.red : "rgba(255,255,255,0.03)", color: on ? "#fff" : C.muted,
-                  border: `1px solid ${on ? "transparent" : C.line}` }}>
-                {percentMode ? `${v}%` : inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}
-              </button>
-            );
-          })}
-        </div>
+        {targetOpen && (
+          <>
+            <div style={{ display: "flex", gap: 14, marginTop: 11, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+                <Stepper value={curReps} onChange={setCurReps} min={1} max={30} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
+                {percentMode
+                  ? <Stepper value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
+                  : <Stepper value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
+              </div>
+            </div>
+            {/* One even row rather than three-and-a-stray: these are a scale, and a scale
+                that wraps stops reading as one. */}
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${percentMode ? 5 : 4}, 1fr)`,
+              gap: 6, marginTop: 12 }}>
+              {(percentMode ? [70, 75, 80, 85, 90] : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10])).map((v) => {
+                const on = curIntVal === v;
+                return (
+                  <button key={v} onClick={() => setCurInt(v)}
+                    style={{ fontFamily: SANS, fontWeight: 700, fontSize: percentMode ? 12.5 : 13, borderRadius: R.pill,
+                      padding: "10px 0", minHeight: 40, cursor: "pointer", whiteSpace: "nowrap",
+                      WebkitTapHighlightColor: "transparent", transition: "background .15s ease, color .15s ease",
+                      background: on ? G.red : "rgba(255,255,255,0.03)", color: on ? "#fff" : C.muted,
+                      border: `1px solid ${on ? "transparent" : C.line}` }}>
+                    {percentMode ? `${v}%` : inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
 
@@ -5470,36 +5549,36 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             <DateField value={logDate} onChange={setLogDate} />
           </div>
         )}
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 130px" }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>
-              Weight{weightDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · suggested</span>}
+        <div style={{ ...label, fontSize: 9.5, marginBottom: 9 }}>What you did</div>
+        {/* Three things on one line, because they are one answer: the set you did. */}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(78px, 1fr) auto auto",
+          gap: 9, alignItems: "end" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700, whiteSpace: "nowrap" }}>
+              Weight{weightDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · sugg.</span>}
             </div>
             <NumField value={curWeight} onChange={setCurWeight} suffix={unit} />
           </div>
-          {logDate === todayStr() && (
-            <button onClick={() => setLogDate(logDate)} style={{ display: "none" }} />
-          )}
+          <div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+            <Stepper compact value={actReps} onChange={setActReps} min={1} max={50} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
+            <Stepper compact value={actIntVal} onChange={setActInt} step={0.5}
+              min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />
+          </div>
         </div>
-        {weightDirty && suggested != null && (
-          <button onClick={() => setBoDraft({ ...(boDraft || {}), weight: null })} style={{ background: "none", border: "none", color: C.faint,
-            fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginTop: 8, padding: 0 }}>
-            ↺ suggested {fmt(suggested)}{unit} × {curReps}
-          </button>
-        )}
-
-        {/* how it actually landed — nudges only the logged effort, never the load */}
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>Felt</span>
-          <Chip sm active={curFeel < 0} onClick={() => nudgeFeel(-0.5)}>Easier</Chip>
-          <Chip sm active={curFeel === 0} onClick={() => setBoDraft({ ...(boDraft || {}), feel: 0 })}>As asked</Chip>
-          <Chip sm active={curFeel > 0} onClick={() => nudgeFeel(0.5)}>Harder</Chip>
-          {curFeel !== 0 && (
-            <span style={{ fontFamily: MONO, fontSize: 11, color: C.gold, fontWeight: 700 }}>
-              logging {inputMode === "rir" ? `${fmt(10 - curRpe)} RIR` : `RPE ${fmt(curRpe)}`}
+        {offTarget && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: MONO, fontSize: 11.5, color: C.gold, fontWeight: 700 }}>
+              off target — asked {curReps} × {percentMode ? `${fmt(curIntVal)}%`
+                : inputMode === "rir" ? `${fmt(prescribedInt)} RIR` : `RPE ${fmt(prescribedInt)}`}
             </span>
-          )}
-        </div>
+            <button onClick={backToTarget} style={{ background: "none", border: "none", color: C.faint,
+              fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>↺ back to it</button>
+          </div>
+        )}
 
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
           style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
