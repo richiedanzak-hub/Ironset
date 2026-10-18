@@ -1131,6 +1131,114 @@ function SectionHead({ children, accent, right, sub }) {
     </div>
   );
 }
+/* --------------------------- the quiet primitives -------------------------
+   Three shapes carry most of the app now. A line the app wants to say gets a
+   dot and a colour rather than another stretch of coloured text. A number you
+   can change gets a chip with its name above it. And the day's movements get
+   one strip instead of a card the size of a hand.
+------------------------------------------------------------------------- */
+
+// One sentence the app wants you to read, with a dot that says how to take it.
+function Callout({ tone = "muted", children, style }) {
+  const col = tone === "warn" ? C.gold : tone === "good" ? C.good
+    : tone === "bad" ? C.red : tone === "info" ? C.blue : C.muted;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "10px 12px",
+      borderRadius: R.ctrl, background: tint(col, 0.07), border: `1px solid ${tint(col, 0.22)}`,
+      ...style }}>
+      <span style={{ width: 6, height: 6, borderRadius: 4, background: col, flexShrink: 0,
+        marginTop: 5, boxShadow: `0 0 8px ${col}` }} />
+      <span style={{ fontSize: 12, color: C.text, lineHeight: 1.45, fontWeight: 600, minWidth: 0 }}>{children}</span>
+    </div>
+  );
+}
+
+/* A number with its name above it. Flat, legible at arm's length, and — where
+   it is something you set rather than something you are told — a minus and a
+   plus sitting right under the thumb. */
+function StatChip({ label: lbl, value, suffix, onStep, step = 1, min = -Infinity, max = Infinity,
+  tone, input, onInput, wide }) {
+  const col = tone || C.text;
+  const bump = (d) => {
+    if (!onStep) return;
+    const base = typeof value === "number" ? value : (parseFloat(value) || 0);
+    onStep(Math.min(max, Math.max(min, Math.round((base + d * step) / step) * step)));
+  };
+  return (
+    <div style={{ flex: wide ? "1.3 1 0" : "1 1 0", minWidth: 0, background: "rgba(255,255,255,0.035)",
+      border: `1px solid ${C.line}`, borderRadius: R.ctrl, padding: "9px 8px 8px", textAlign: "center" }}>
+      <div style={{ ...label2, color: C.faint, fontSize: 8.5, marginBottom: 5 }}>{lbl}</div>
+      {input ? (
+        <input value={value} onChange={(e) => onInput(e.target.value)} inputMode="decimal"
+          style={{ width: "100%", background: "none", border: "none", outline: "none", textAlign: "center",
+            fontFamily: MONO, fontSize: 21, fontWeight: 700, color: col, letterSpacing: "-0.03em",
+            padding: 0, fontVariantNumeric: "tabular-nums" }} />
+      ) : (
+        <div style={{ fontFamily: MONO, fontSize: 21, fontWeight: 700, color: col, lineHeight: 1,
+          letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>
+          {value}{suffix ? <span style={{ fontSize: 11, color: C.faint, marginLeft: 2 }}>{suffix}</span> : null}
+        </div>
+      )}
+      {onStep && (
+        <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
+          {[-1, 1].map((d) => (
+            <button key={d} onClick={() => bump(d)} style={{ flex: 1, height: 28, borderRadius: 8,
+              border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)", color: C.muted,
+              fontSize: 15, fontWeight: 500, cursor: "pointer", lineHeight: 1,
+              WebkitTapHighlightColor: "transparent" }}>{d < 0 ? "−" : "+"}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Chip-sized names. "Conventional Deadlift" does not fit on a thumb, and the
+   words that get dropped are the ones every lifter drops in speech anyway. */
+const SHORT_LIFT = [[/^competition /i, ""], [/^conventional /i, ""], [/^low-?bar /i, ""],
+  [/^high-?bar /i, ""], [/^barbell /i, ""], [/^dumbbell /i, "DB "], [/^romanian deadlift/i, "RDL"],
+  [/^overhead press/i, "OHP"], [/^bench press/i, "Bench"], [/^close.?grip bench.*/i, "CG Bench"],
+  [/^front squat/i, "Front Sq"], [/^pause squat/i, "Pause Sq"], [/ press$/i, " Press"]];
+function shortLift(name) {
+  let n = String(name || "");
+  for (const [re, to] of SHORT_LIFT) if (re.test(n)) { n = n.replace(re, to); break; }
+  n = n.trim();
+  return n.length > 15 ? n.slice(0, 14).trimEnd() + "…" : n;
+}
+
+// The day, as one line you can thumb along. Dots say how far into each movement
+// you are, so the session is legible without reading a word.
+function MoveStrip({ moves, current, onPick }) {
+  if (!moves.length) return null;
+  return (
+    <div style={{ display: "flex", gap: 7, overflowX: "auto", padding: "2px 16px 10px",
+      margin: "0 -16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+      {moves.map((m) => {
+        const on = m.ex === current;
+        return (
+          <button key={m.id} onClick={() => onPick(m)} style={{ flex: "0 0 auto", cursor: "pointer",
+            background: on ? tint(m.hue, 0.16) : "rgba(255,255,255,0.03)",
+            border: `1px solid ${on ? tint(m.hue, 0.5) : C.line}`, borderRadius: R.pill,
+            padding: "8px 13px 7px", color: on ? C.text : C.muted, textAlign: "left",
+            WebkitTapHighlightColor: "transparent", opacity: m.done && !on ? 0.55 : 1 }}>
+            <span style={{ display: "block", fontFamily: SANS, fontWeight: 700, fontSize: 12.5,
+              whiteSpace: "nowrap", letterSpacing: "-0.01em" }}>
+              {m.done ? <Check size={11} style={{ color: C.good, marginRight: 4, verticalAlign: "-1px" }} /> : null}
+              {m.short}
+            </span>
+            <span style={{ display: "flex", gap: 3, marginTop: 5 }}>
+              {Array.from({ length: Math.min(8, m.total) }).map((_, i) => (
+                <span key={i} style={{ width: 5, height: 3, borderRadius: 2,
+                  background: i < m.n ? (on ? m.hue : C.good) : "rgba(255,255,255,0.14)" }} />
+              ))}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Grid2({ children, style }) {
   return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11, ...style }}>{children}</div>;
 }
@@ -1750,7 +1858,6 @@ function App() {
     { id: "dash", label: "Dashboard", icon: Gauge },
     { id: "train", label: "Train", icon: Activity },
     { id: "plan", label: "Plan", icon: Calendar },
-    { id: "insights", label: "Insights", icon: Zap },
     { id: "history", label: "History", icon: TrendingUp },
   ];
 
@@ -1806,11 +1913,8 @@ function App() {
           {tab === "plan" && (
             <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
           )}
-          {tab === "insights" && (
-            <InsightsTab analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
-          )}
           {tab === "history" && (
-            <HistoryTab {...{ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip }} />
+            <HistoryTab {...{ state, setState, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip, analysis }} />
           )}
         </div>
       </div>
@@ -3409,6 +3513,9 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
         )}
       </Card>
 
+      {/* One daily question, asked on the screen about the day — not in front of
+          you again at the bar between sets. */}
+      <CheckinCard state={state} setState={setState} sel={null} dateStr={todayStr()} />
       <Grid2>
         <StatTile label="Projected total" color={C.blue}
           value={analysis.total != null ? fmt(Math.round(analysis.total)) : "—"} unit={analysis.total != null ? unit : ""}
@@ -3468,6 +3575,7 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
         </div>
       )}
 
+      <Analysis view="today" analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
       <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
       <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
 
@@ -4894,6 +5002,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [boDraft, setBoDraft] = useState(null);
   // The plan usually has the target right, so it stays folded away until it doesn't.
   const [targetOpen, setTargetOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [showDone, setShowDone] = useState(true);
   const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
   const scaleChain = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, false), [selEx]);
   const boDayStr = new Date(tsFromDateStr(logDate)).toDateString();
@@ -5017,6 +5127,33 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     return days.length ? days[0] : null;
   }, [state.exercises, boFamily.join("|"), boDayStr, logDate, sel]);
 
+  // The day as a row of chips: every programmed movement, plus whatever you are
+  // actually on if you have wandered off the plan.
+  const stripMoves = useMemo(() => {
+    const out = sessionSlots.filter((sl) => !sl.link || true).map((sl) => {
+      const pr = doneSlots[sl.id] || { n: 0, total: 1, done: false };
+      return { id: sl.id, ex: sl.ex, short: shortLift(sl.ex), hue: hueFor(sl.ex, state),
+        n: pr.n, total: pr.total, done: pr.done, slot: sl };
+    });
+    if (sel && !out.some((m) => m.ex === sel)) {
+      const n = sessionToday.filter((x) => x.lift === sel).length;
+      out.unshift({ id: "free-" + sel, ex: sel, short: shortLift(sel), hue: hueFor(sel, state),
+        n, total: Math.max(n + 1, 1), done: false, slot: null });
+    }
+    return out;
+  }, [sessionSlots, doneSlots, sel, sessionToday, state.exercises]);
+
+  // Two handicaps multiply into one figure on the bar, so that is the figure shown.
+  const trimTotal = 1 - (1 - recovery.drop) * condFactor;
+  const trimWhy = [
+    recovery.carry && recovery.carryDrop >= 0.005
+      ? `${recovery.carry.sets} ${recovery.carry.from} set${recovery.carry.sets === 1 ? "" : "s"} earlier today` : null,
+    recovery.priorDrop >= 0.005
+      ? `RPE ${fmt(recovery.peak)} ${recovery.from || sel} session ${recovery.days}d ago` : null,
+    condFactor < 0.999 ? condWhy : null,
+  ].filter(Boolean);
+  const [whyTrim, setWhyTrim] = useState(false);
+
   const onFirst = setsIn === 0;
   const stepTarget = onFirst ? sel : boTarget;
   const curReps = onFirst ? tReps : boReps;
@@ -5081,7 +5218,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       // Work earlier in the day handicaps every set of this lift, not just the first.
       carry: recovery.carryDrop > 0.004 ? 1 - recovery.carryDrop : undefined,
     });
-    setBoDraft(null); setNote(""); setJustLogged(true);
+    setBoDraft(null); setNote(""); setNoteOpen(false); setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
   };
 
@@ -5137,437 +5274,177 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* exercise selector */}
-      <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
-      <button onClick={() => setPickingLift(true)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
-        gap: 10, background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: "13px 15px",
-        cursor: "pointer", color: C.text, textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ ...label, fontSize: 9, display: "block", marginBottom: 3 }}>Training</span>
-          <span style={{ display: "block", fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em",
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel || "Pick a lift"}</span>
-        </span>
-        <ChevronDown size={18} style={{ color: C.faint, flexShrink: 0 }} />
-      </button>
-      {/* Standing in front of the bar is exactly when you want to see the movement. */}
-      {sel && <HowTo name={sel} size={56}
-        style={{ height: "auto", borderRadius: R.surface, background: G.card, color: C.text }} />}
+      {/* THE DAY — one strip you thumb along, instead of a card the size of a hand.
+          Dots carry the progress, so the session reads without being read. */}
+      <div style={{ position: "sticky", top: 0, zIndex: 12, paddingTop: 4,
+        background: "rgba(6,7,11,0.86)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        margin: "0 -16px", padding: "6px 16px 0" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between",
+          gap: 10, marginBottom: 8 }}>
+          <span style={{ ...label, fontSize: 9.5 }}>
+            {sessionSlots.length ? (progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today") : "Training"}
+          </span>
+          <span style={{ display: "inline-flex", gap: 13 }}>
+            {sessionSlots.length > 0 && (
+              <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none",
+                border: "none", color: C.faint, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>Can't train this?</button>
+            )}
+            <button onClick={() => setPickingLift(true)} style={{ background: "none", border: "none",
+              color: C.red, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>
+              {sessionSlots.length ? "Another lift" : "Change lift"}
+            </button>
+          </span>
+        </div>
+        <MoveStrip moves={stripMoves} current={sel} onPick={(m) => (m.slot ? loadSlot(m.slot) : setSel(m.ex))} />
       </div>
-      {sel && (
-        <button onClick={() => setLinking(true)} style={{ alignSelf: "flex-start", background: "none", border: "none",
-          color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0", display: "inline-flex", alignItems: "center", gap: 6, marginTop: -4 }}>
-          <span style={{ color: C.red, fontSize: 14 }}>↔</span>
-          {parentName ? `Feeds ${parentName} · ${ratioPct}%` : childNames.length ? `Includes ${childNames.join(", ")}` : "Link as a variation"}
-        </button>
-      )}
 
       {meetDays != null && meetDays >= 0 && (
-        <div style={{ background: C.redSoft, border: `1px solid ${C.redLine}`, borderRadius: 12, padding: "9px 12px",
-          fontSize: 12.5, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <b style={{ color: C.red }}>{meetName || "Meet"}</b>
-          <span style={{ fontFamily: MONO, fontWeight: 700 }}>{meetDays === 0 ? "Meet day" : meetDays + " day" + (meetDays === 1 ? "" : "s") + " out"}</span>
-        </div>
-      )}
-
-      {/* strength readout — a plank has no one-rep max, so it does not get one */}
-      {!timedSel && (
-      <Card accent={C.blue}>
-        {locked ? (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={label}>Training max{sel ? ` · ${sel}` : ""}</div>
-              {!editTmax && <button onClick={() => { setTmaxInput(ref != null ? String(ref) : ""); setEditTmax(true); }}
-                style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>Edit</button>}
-            </div>
-            {editTmax ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-                <div style={{ flex: 1 }}><NumField value={tmaxInput} onChange={setTmaxInput} suffix={unit} /></div>
-                <Btn kind="primary" onClick={() => { const v = parseFloat(tmaxInput); if (isFinite(v) && v > 0) setTmax(roundTo(v, round)); setEditTmax(false); }}>Save</Btn>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontFamily: SKETCH, fontSize: 30, fontWeight: 700, color: C.chalk, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                  {ref != null ? fmt(ref) : "—"}<span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{unit}</span>
-                </div>
-                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2 }}>
-                  {e1rm != null ? `app estimate ${fmt(roundTo(e1rm, round))} ${unit}` : "log a set to see your estimate"}{tmax == null ? " · using estimate — set yours" : ""}
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span style={{ width: 5, height: 5, borderRadius: 99, background: selHue, flexShrink: 0,
-                    boxShadow: `0 0 8px ${tint(selHue, 0.9)}` }} />
-                  <span style={{ ...label, fontSize: 9.5 }}>{accMode ? "Working weight" : "Estimated 1RM"}</span>
-                </div>
-                <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, color: C.text, lineHeight: 1.05,
-                  marginTop: 6, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
-                  {accMode
-                    ? (accWork != null ? fmt(roundTo(accWork, round)) : "—")
-                    : (e1rm != null ? fmt(roundTo(e1rm, round)) : "—")}
-                  <span style={{ fontFamily: SANS, fontSize: 13, color: C.muted, marginLeft: 5, fontWeight: 600 }}>{unit}</span>
-                  {accMode && accWork != null && (
-                    <span style={{ fontFamily: MONO, fontSize: 15, color: C.muted, marginLeft: 8, fontWeight: 600 }}>
-                      × {accReps}
-                    </span>
-                  )}
-                </div>
-                {accMode && (
-                  <div style={{ fontSize: 11, color: C.faint, marginTop: 5 }}>
-                    what you'd handle for {accReps} at a hard effort
-                  </div>
-                )}
-              </div>
-              <div style={{ textAlign: "right", fontSize: 11.5, color: C.muted, lineHeight: 1.5, flexShrink: 0 }}>
-                {model.count > 0
-                  ? <>from {model.count} session{model.count > 1 ? "s" : ""}<br />updated {dshort(model.points[model.points.length - 1].ts)}</>
-                  : "not calibrated"}
-              </div>
-            </div>
-            {model.points && model.points.length > 1 && (
-              <div style={{ margin: "12px -17px -17px" }}>
-                <Spark points={accPoints || model.points} color={selHue} h={44} />
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-      )}
-
-      <CheckinCard state={state} setState={setState} sel={sel} dateStr={logDate} />
-
-      {sessionSlots.length > 0 ? (
-      <Card accent={C.amber} style={{ padding: "14px 15px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
-            <span style={{ ...label, fontSize: 9.5 }}>{progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"}</span>
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 13 }}>
-            {/* The moment you know today isn't happening, the fix is one tap away. */}
-            <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none", border: "none",
-              color: C.muted, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Can't train this?</button>
-            <button onClick={() => setTab && setTab("plan")} style={{ background: "none", border: "none", color: C.red,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Edit block</button>
-          </span>
-        </div>
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
-          {decorateSlots(sessionSlots).map((d) => {
-            const sl = d.sl;
-            const on = sl.ex === sel;
-            const prog = doneSlots[sl.id] || { n: 0, total: 1, done: false };
-            const done = prog.done;
-            return (
-              <React.Fragment key={sl.id}>
-              {d.grouped && d.first && (
-                <div style={{ ...label, fontSize: 9, color: C.blue, margin: "4px 0 -2px 2px" }}>
-                  Superset {d.tag.charAt(0)}{d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""}
-                </div>
-              )}
-              <button onClick={() => loadSlot(sl)} style={{ display: "flex", alignItems: "center", gap: 10,
-                marginLeft: d.grouped ? 10 : 0, borderLeft: d.grouped ? `2px solid ${C.blue}` : undefined,
-                background: on ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)",
-                border: `1px solid ${on ? C.line2 : C.line}`, borderRadius: 12, padding: "10px 12px",
-                cursor: "pointer", textAlign: "left", color: C.text, WebkitTapHighlightColor: "transparent" }}>
-                <span style={{ width: 18, height: 18, borderRadius: 99, flexShrink: 0, display: "grid", placeItems: "center",
-                  background: done ? C.good : "transparent", border: done ? "none" : `1px solid ${C.line2}` }}>
-                  {done ? <Check size={11} style={{ color: "#07100B" }} /> : null}
-                </span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: "block", fontWeight: 800, fontSize: 13, whiteSpace: "nowrap",
-                    overflow: "hidden", textOverflow: "ellipsis", opacity: done ? 0.55 : 1 }}>
-                    {d.grouped ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.blue, marginRight: 6 }}>{d.tag}</span> : null}{sl.ex}</span>
-                  <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 2 }}>
-                    {slotSummary(sl)}{sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : ""}
-                    {prog.n > 0 && !done ? <span style={{ color: C.gold }}>{`  ·  ${prog.n}/${prog.total} in`}</span> : null}
-                  </span>
-                </span>
-                {sl.role === "accessory" && <span style={{ fontSize: 9.5, color: C.faint, fontFamily: MONO, letterSpacing: "0.08em" }}>ACC</span>}
-              </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </Card>
-      ) : (
-      <Card accent={C.amber} style={{ padding: "14px 15px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-            <span style={{ width: 3, height: 14, borderRadius: 2, background: C.amber, boxShadow: `0 0 10px ${C.amber}88` }} />
-            <span style={{ ...label, fontSize: 9.5 }}>Today's plan</span>
-          </span>
-          <button onClick={() => (state.program ? (setTab && setTab("plan")) : onEditPlan())} style={{ background: "none", border: "none", color: C.red,
-            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>{state.program ? "Open block" : (todayPlan.length ? "Edit" : "Set up")}</button>
-        </div>
-        {todayPlan.length ? (
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
-            {todayPlan.map((it, i) => {
-              const on = it.name === sel && it.reps === tReps && (inputMode === "rir" ? 10 - it.rpe : it.rpe) === tInt;
-              return (
-                <Chip key={i} active={on} onClick={() => loadPlanned(it)}>
-                  {it.name} · {it.reps}@{inputMode === "rir" ? `${fmt(10 - it.rpe)}R` : fmt(it.rpe)}{it.bo ? ` +${it.bo.sets}×${it.bo.reps}` : ""}
-                </Chip>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
-            {state.program ? "Nothing programmed for today — a rest day, or train whatever you like below." : "No lifts planned for today. Build a block in Plan and Train opens ready to go."}
-          </div>
-        )}
-      </Card>
+        <Callout tone="warn">
+          {meetDays === 0 ? "Meet day" : `${meetDays} day${meetDays === 1 ? "" : "s"} to ${meetName || "your meet"}`}
+          {meetDays > 0 && meetDays <= 21 ? " — openers and taper matter more than another hard session now." : ""}
+        </Callout>
       )}
 
       {/* A hold, a carry or a bike interval has no one-rep max, so the whole
-          prescribe-and-estimate apparatus is replaced by a plain clock logger
-          rather than shown with meaningless numbers in it. The session list and
-          the day's check-in stay put — both are about the day, not the lift. */}
+          prescribe-and-estimate apparatus is replaced by a plain clock logger. */}
       {timedSel ? <TimedLogger {...{ state, sel, logSet, logDate, setLogDate, unit, slot: timedSlot }} /> : (<>
-      {/* ONE SET AT A TIME — what this set asks for, what to load, and logging it,
-          in a single card. A top set into back-offs and five sets across are the
-          same list of sets with different numbers in it, so they get the same card
-          and the difference shows up where it belongs: in what each set asks for. */}
-      <Card accent={C.red} glow="none">
-        <SectionHead accent={C.red} right={setsAsked > 1 ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>Sets</span>
-            <Stepper compact value={setsAsked} min={1} max={12}
-              onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
-          </span>
-        ) : null} sub={onFirst
-          ? "The load comes off your estimate, trimmed for how today is going."
-          : "Each set reads the fatigue the one before it spent, so holding the effort brings the weight down."}>
-          {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
-        </SectionHead>
 
-        {/* The plan asks something different of the first set, so say which this is. */}
-        {stepsDiffer && (
-          <div style={{ marginTop: 9 }}>
-            <span style={{ ...label2, color: onFirst ? C.red : C.good, border: `1px solid ${onFirst ? C.redLine : tint(C.good, 0.4)}`,
-              borderRadius: 6, padding: "3px 7px" }}>{onFirst ? "Top set" : `Back-off ${doneCount + 1}`}</span>
+      {/* THE SET IN FRONT OF YOU. Everything on this card is about one set: what
+          it asks for, what to load, and the button that writes it down. */}
+      <Card accent={selHue} glow="none" style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-0.025em", lineHeight: 1.15,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel}</div>
+            <div style={{ ...label2, color: C.faint, marginTop: 5 }}>
+              {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
+              {stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : ""}
+              {stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : ""}
+            </div>
           </div>
-        )}
-
-        {/* a back-off can run on a variation of the same lift */}
-        {!onFirst && boFamily.length > 1 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 11 }}>
-            {boFamily.map((n) => (
-              <Chip key={n} sm active={n === stepTarget} onClick={() => setStep(doneCount, { lift: n === sel ? null : n })}>
-                {n === sel ? n : `${n} · ${Math.round(ratioOf(n) * 100)}%`}
-              </Chip>
-            ))}
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ ...label2, color: C.faint, fontSize: 8.5 }}>{accMode ? "Working" : "Est. 1RM"}</div>
+            <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: C.muted, marginTop: 3,
+              fontVariantNumeric: "tabular-nums" }}>
+              {accMode ? (accWork != null ? fmt(roundTo(accWork, round)) : "—") : (e1rm != null ? fmt(roundTo(e1rm, round)) : "—")}
+            </div>
           </div>
-        )}
-        {!onFirst && stepTarget !== sel && (
-          <div style={{ fontSize: 11, color: C.blue, fontWeight: 700, marginTop: 9 }}>
-            Scaled to {Math.round(ratioOf(stepTarget) * 100)}% of {sel} · fatigue still chains off your last set
-          </div>
-        )}
-
-        {/* What you did here last time, so the first set is not a guess from memory. */}
-        {onFirst && lastTime && lastTime.best && (
-          <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 11, padding: "9px 11px",
-            background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`, borderRadius: R.ctrl }}>
-            <span style={{ ...label2, color: C.faint, flexShrink: 0 }}>Last time</span>
-            <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, color: C.text }}>
-              {fmt(lastTime.best.weight)}{unit} × {lastTime.best.reps}
-              <span style={{ color: C.muted, fontWeight: 600 }}> @ {inputMode === "rir"
-                ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`}</span>
-            </span>
-            <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 10.5, color: C.faint, textAlign: "right", flexShrink: 0 }}>
-              {dshort(lastTime.ts)}<br />{lastTime.n} set{lastTime.n === 1 ? "" : "s"}
-            </span>
-          </div>
-        )}
-
-        {/* The target owns the suggested load, and nothing else does. It sits on one
-            line because the plan usually has it right; open it when it doesn't. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 11 }}>
-          <span style={{ ...label2, color: C.faint }}>Target</span>
-          <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700 }}>
-            {curReps} × {percentMode ? `${fmt(curIntVal)}%`
-              : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
-          </span>
-          <span style={{ flex: 1 }} />
-          <button onClick={() => setTargetOpen((v) => !v)} style={{ background: "none", border: "none",
-            color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex",
-            alignItems: "center", gap: 4, padding: 0, WebkitTapHighlightColor: "transparent" }}>
-            Change <ChevronDown size={14} style={{ transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
-          </button>
         </div>
-        {targetOpen && (
-          <>
-            <div style={{ display: "flex", gap: 14, marginTop: 11, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-                <Stepper value={curReps} onChange={setCurReps} min={1} max={30} />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
-                {percentMode
-                  ? <Stepper value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
-                  : <Stepper value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
-              </div>
-            </div>
-            {/* One even row rather than three-and-a-stray: these are a scale, and a scale
-                that wraps stops reading as one. */}
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${percentMode ? 5 : 4}, 1fr)`,
-              gap: 6, marginTop: 12 }}>
-              {(percentMode ? [70, 75, 80, 85, 90] : (inputMode === "rir" ? [3, 2, 1, 0] : [7, 8, 9, 10])).map((v) => {
-                const on = curIntVal === v;
-                return (
-                  <button key={v} onClick={() => setCurInt(v)}
-                    style={{ fontFamily: SANS, fontWeight: 700, fontSize: percentMode ? 12.5 : 13, borderRadius: R.pill,
-                      padding: "10px 0", minHeight: 40, cursor: "pointer", whiteSpace: "nowrap",
-                      WebkitTapHighlightColor: "transparent", transition: "background .15s ease, color .15s ease",
-                      background: on ? G.red : "rgba(255,255,255,0.03)", color: on ? "#fff" : C.muted,
-                      border: `1px solid ${on ? "transparent" : C.line}` }}>
-                    {percentMode ? `${v}%` : inputMode === "rir" ? `${v} RIR` : `RPE ${v}`}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
 
-        <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
-
-        {/* what to put on the bar */}
-        <div style={{ textAlign: "center", margin: "0 -17px", padding: "18px 17px 6px",
-          background: `linear-gradient(180deg, ${tint(selHue, 0.11)}, ${tint(selHue, 0.025)} 55%, transparent)` }}>
-          <div style={{ ...label, fontSize: 9.5 }}>{onFirst ? "Recommended load" : "Suggested next"}</div>
+        {/* THE NUMBER. It is what you came to the screen for. */}
+        <div style={{ textAlign: "center", margin: "0 -16px", padding: "16px 16px 4px",
+          background: `linear-gradient(180deg, ${tint(selHue, 0.12)}, transparent 72%)` }}>
           {suggested != null ? (
             <>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 10,
-                whiteSpace: "nowrap" }}>
-                <span style={{ fontFamily: MONO, fontSize: 62, fontWeight: 700, lineHeight: 0.96, color: C.text,
-                  letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums",
-                  textShadow: `0 0 50px ${tint(selHue, 0.45)}`, transition: "color .2s" }}>{fmt(suggested)}</span>
-                <span style={{ fontFamily: SANS, fontSize: 17, color: C.muted, fontWeight: 600 }}>{unit}</span>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 7 }}>
+                <span style={{ fontFamily: MONO, fontSize: 66, fontWeight: 700, lineHeight: 0.94, color: C.text,
+                  letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums",
+                  textShadow: `0 0 54px ${tint(selHue, 0.5)}` }}>{fmt(suggested)}</span>
+                <span style={{ fontFamily: SANS, fontSize: 16, color: C.muted, fontWeight: 600 }}>{unit}</span>
               </div>
-              <div style={{ height: 2, borderRadius: 2, margin: "15px auto 12px", width: 96,
-                background: `linear-gradient(90deg, transparent, ${selHue}, transparent)`, opacity: 0.8 }} />
-              <div style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>
-                {percentMode
-                  ? `${curReps} rep${curReps > 1 ? "s" : ""} @ ${fmt(curIntVal)}%`
-                  : `${curReps} rep${curReps > 1 ? "s" : ""} @ ${inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}`}
-              </div>
-              {percentMode && predRpe != null && onFirst && (
-                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>≈ RPE {fmt(Math.round(predRpe * 2) / 2)} · {fmt(Math.max(0, Math.round((10 - predRpe) * 2) / 2))} RIR</div>
-              )}
-              {!percentMode && onFirst && (strongDay || toughDay) && (
-                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>
-                  {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
-                </div>
-              )}
-              {!onFirst && prevForBo && !percentMode && (
-                <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8, fontFamily: MONO }}>
-                  off your {inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set
-                </div>
-              )}
-              {recovery.carry && recovery.carryDrop >= 0.01 && (
-                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                  Trimmed {fmt(Math.round(recovery.carryDrop * 1000) / 10)}% — {recovery.carry.sets} {recovery.carry.from} set{recovery.carry.sets === 1 ? "" : "s"} earlier today
-                </div>
-              )}
-              {recovery.priorDrop >= 0.01 && (
-                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                  Trimmed {fmt(Math.round(recovery.priorDrop * 1000) / 10)}% — RPE {fmt(recovery.peak)} {(recovery.from || sel) + " "}session {recovery.days}d ago
-                </div>
-              )}
-              {condFactor < 0.999 && (
-                <div style={{ fontSize: 11, color: C.gold, marginTop: 7, fontWeight: 700 }}>
-                  Trimmed {fmt(Math.round((1 - condFactor) * 1000) / 10)}% — {condWhy}
-                </div>
-              )}
-              {/* plates, and the ramp up to the first set */}
-              <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
-                <button onClick={() => setShowPlates((v) => !v)} style={{ background: "none", border: "none",
-                  color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  Plates per side <ChevronDown size={14} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
-                </button>
-                {onFirst && warmup.length > 1 && (
-                  <button onClick={() => setShowWarm((v) => !v)} style={{ background: "none", border: "none",
-                    color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    Warm-up <ChevronDown size={14} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
-                  </button>
-                )}
-              </div>
-              {showPlates && <PlateView total={parseFloat(curWeight) || suggested} bar={bar} denoms={denoms} unit={unit} />}
-              {onFirst && showWarm && warmup.length > 1 && (
-                <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
-                  overflow: "hidden" }}>
-                  {warmup.map((w, i) => (
-                    <button key={i} onClick={() => setWarmOpen(warmOpen === i ? null : i)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 13px",
-                        background: warmOpen === i ? "rgba(255,255,255,0.04)" : "none", border: "none",
-                        borderTop: i ? `1px solid ${C.line}` : "none", color: C.text, cursor: "pointer",
-                        textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
-                      <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0 }}>
-                        {w.bar ? "BAR" : `${Math.round(w.pct * 100)}%`}
-                      </span>
-                      <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
-                        fontVariantNumeric: "tabular-nums" }}>
-                        {fmt(w.weight)}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{unit}</span>
-                      </span>
-                      <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>× {w.reps}</span>
-                      <span style={{ flex: 1 }} />
-                      <ChevronDown size={13} style={{ color: C.faint, flexShrink: 0,
-                        transform: warmOpen === i ? "rotate(180deg)" : "none", transition: ".2s" }} />
-                    </button>
-                  ))}
-                  {warmOpen != null && warmup[warmOpen] && !warmup[warmOpen].bar && (
-                    <div style={{ padding: "0 13px 11px" }}>
-                      <PlateView total={warmup[warmOpen].weight} bar={bar} denoms={denoms} unit={unit} />
-                    </div>
-                  )}
-                  <div style={{ fontSize: 10.5, color: C.faint, padding: "9px 13px 11px", lineHeight: 1.5,
-                    borderTop: `1px solid ${C.line}` }}>
-                    Percentages of today's working set, so a trimmed day brings the ramp down with it.
-                  </div>
-                </div>
-              )}
+              <button onClick={() => setTargetOpen((v) => !v)} style={{ background: "none", border: "none",
+                color: C.muted, cursor: "pointer", marginTop: 11, padding: 0, fontFamily: SANS,
+                fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {curReps} rep{curReps > 1 ? "s" : ""} @ {percentMode ? `${fmt(curIntVal)}%`
+                  : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
+                <ChevronDown size={13} style={{ color: C.faint, transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
+              </button>
             </>
           ) : (
-            <div style={{ color: C.muted, fontSize: 13.5, padding: "18px 8px", lineHeight: 1.5 }}>
-              Log a set to calibrate <b style={{ color: C.text }}>{sel}</b>. A known 1RM (1 rep @ RPE 10) or any working set will do.
+            <div style={{ color: C.muted, fontSize: 13.5, padding: "14px 6px", lineHeight: 1.5 }}>
+              Log a set to calibrate <b style={{ color: C.text }}>{sel}</b>. A known 1RM or any working set will do.
             </div>
           )}
         </div>
 
-        <div style={{ height: 1, background: C.line, boxShadow: "0 1px 0 rgba(255,255,255,0.03)", margin: "16px -16px" }} />
-
-        {/* log it */}
-        {logDate !== todayStr() && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: C.red, marginBottom: 6, fontWeight: 700 }}>Date · backdated</div>
-            <DateField value={logDate} onChange={setLogDate} />
+        {/* the target, when you want to move it */}
+        {targetOpen && (
+          <div style={{ border: `1px solid ${C.line2}`, borderRadius: R.ctrl, padding: 12, marginTop: 10 }}>
+            <div style={{ ...label2, color: C.faint, marginBottom: 9 }}>What this set asks for</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
+                <Stepper compact value={curReps} onChange={setCurReps} min={1} max={30} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
+                {percentMode
+                  ? <Stepper compact value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
+                  : <Stepper compact value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
+              </div>
+              <span style={{ flex: 1 }} />
+              {setsAsked > 1 && (
+                <div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Sets</div>
+                  <Stepper compact value={setsAsked} min={1} max={12}
+                    onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
+                </div>
+              )}
+            </div>
+            {!onFirst && boFamily.length > 1 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 11 }}>
+                {boFamily.map((n) => (
+                  <Chip key={n} sm active={n === stepTarget} onClick={() => setStep(doneCount, { lift: n === sel ? null : n })}>
+                    {n === sel ? shortLift(n) : `${shortLift(n)} · ${Math.round(ratioOf(n) * 100)}%`}
+                  </Chip>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        <div style={{ ...label, fontSize: 9.5, marginBottom: 9 }}>What you did</div>
-        {/* Three things on one line, because they are one answer: the set you did. */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(78px, 1fr) auto auto",
-          gap: 9, alignItems: "end" }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700, whiteSpace: "nowrap" }}>
-              Weight{weightDirty ? "" : <span style={{ color: C.faint, fontWeight: 600 }}> · sugg.</span>}
-            </div>
-            <NumField value={curWeight} onChange={setCurWeight} suffix={unit} />
+
+        {/* what the app wants to tell you about this set, one line at a time */}
+        {(onFirst && lastTime && lastTime.best) || (!onFirst && prevForBo && !percentMode)
+          || trimTotal >= 0.005 || (onFirst && !percentMode && (strongDay || toughDay)) ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 12 }}>
+            {onFirst && lastTime && lastTime.best && (
+              <Callout tone="info">
+                Last time {fmt(lastTime.best.weight)}{unit} × {lastTime.best.reps} @ {inputMode === "rir"
+                  ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`}
+                <span style={{ color: C.faint, fontWeight: 600 }}> · {dshort(lastTime.ts)}, {lastTime.n} set{lastTime.n === 1 ? "" : "s"}</span>
+              </Callout>
+            )}
+            {!onFirst && prevForBo && !percentMode && (
+              <Callout>Off your {inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`} set
+                <span style={{ color: C.faint, fontWeight: 600 }}> — holding the effort brings the weight down.</span></Callout>
+            )}
+            {/* One number for the handicap, because one number is what it does to the
+                bar. The reasons behind it are a tap away rather than three lines
+                deep, which is what pushed the button off the screen. */}
+            {trimTotal >= 0.005 && (
+              <button onClick={() => setWhyTrim((v) => !v)} style={{ background: "none", border: "none",
+                padding: 0, display: "block", width: "100%", textAlign: "left", cursor: "pointer" }}>
+                <Callout tone="warn">
+                  Trimmed {fmt(Math.round(trimTotal * 1000) / 10)}% — {trimWhy[0]}
+                  {trimWhy.length > 1 ? <span style={{ color: C.faint, fontWeight: 600 }}>{` +${trimWhy.length - 1} more`}</span> : null}
+                  <ChevronDown size={12} style={{ color: C.faint, marginLeft: 5, verticalAlign: "-1px",
+                    transform: whyTrim ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                </Callout>
+              </button>
+            )}
+            {whyTrim && trimWhy.length > 1 && (
+              <div style={{ paddingLeft: 13, display: "flex", flexDirection: "column", gap: 5 }}>
+                {trimWhy.slice(1).map((w, i) => (
+                  <div key={i} style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.4 }}>· {w}</div>
+                ))}
+              </div>
+            )}
+            {onFirst && !percentMode && (strongDay || toughDay) && (
+              <div style={{ fontSize: 11.5, color: C.faint, fontFamily: MONO, textAlign: "center" }}>
+                {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
+              </div>
+            )}
           </div>
-          <div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
-            <Stepper compact value={actReps} onChange={setActReps} min={1} max={50} />
-          </div>
-          <div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{inputMode === "rir" ? "RIR" : "RPE"}</div>
-            <Stepper compact value={actIntVal} onChange={setActInt} step={0.5}
-              min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />
-          </div>
+        ) : null}
+
+        {/* WHAT GOES DOWN. Three chips, thumbs under each, no scrolling. */}
+        <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
+          <StatChip wide label={weightDirty ? "Weight" : "Weight · sugg"} input value={curWeight}
+            onInput={setCurWeight} tone={weightDirty ? C.text : C.muted}
+            onStep={(v) => setCurWeight(String(Math.max(0, v)))} step={round} min={0} />
+          <StatChip label="Reps" value={actReps} onStep={setActReps} min={1} max={50} />
+          <StatChip label={inputMode === "rir" ? "RIR" : "RPE"} value={actIntVal} onStep={setActInt}
+            step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />
         </div>
         {offTarget && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9, flexWrap: "wrap" }}>
@@ -5580,67 +5457,121 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         )}
 
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ width: "100%", marginTop: 12, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
-            padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
-
-        <Btn kind="primary" onClick={logCurrent} style={{ width: "100%", marginTop: 12 }} disabled={!parseFloat(curWeight)}>
-          {justLogged ? <><Check size={17} /> Logged</>
-            : stepTarget !== sel ? `Log ${stepTarget}`
+        <Btn kind="primary" onClick={logCurrent} style={{ width: "100%", marginTop: 12, minHeight: 54, fontSize: 16 }}
+          disabled={!parseFloat(curWeight)}>
+          {justLogged ? <><Check size={18} /> Logged</>
+            : stepTarget !== sel ? `Log ${shortLift(stepTarget)}`
             : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"}
         </Btn>
 
-        {lastToday ? (
-          <button onClick={() => setFilming(lastToday)} style={{ width: "100%", marginTop: 9, background: "none",
-            border: `1px dashed ${(state.clips || {})[lastToday.id] ? tint(selHue, 0.5) : C.line2}`, borderRadius: R.ctrl,
-            color: (state.clips || {})[lastToday.id] ? selHue : C.muted, cursor: "pointer", padding: "10px 12px",
-            fontFamily: SANS, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center",
-            justifyContent: "center", gap: 7, WebkitTapHighlightColor: "transparent" }}>
-            {(state.clips || {})[lastToday.id]
-              ? <><Play size={14} /> Watch {fmt(lastToday.weight)}{unit} × {lastToday.reps}</>
-              : <><Camera size={14} /> Film that set — {fmt(lastToday.weight)}{unit} × {lastToday.reps}</>}
+        {/* everything else about this set, one tap away */}
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+          {suggested != null && (
+            <button onClick={() => setShowPlates((v) => !v)} style={{ background: "none", border: "none",
+              color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              Plates <ChevronDown size={13} style={{ transform: showPlates ? "rotate(180deg)" : "none", transition: ".2s" }} />
+            </button>
+          )}
+          {onFirst && warmup.length > 1 && (
+            <button onClick={() => setShowWarm((v) => !v)} style={{ background: "none", border: "none",
+              color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              Warm-up <ChevronDown size={13} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
+            </button>
+          )}
+          {logDate !== todayStr() && (
+            <span style={{ fontSize: 12, color: C.red, fontWeight: 700 }}>backdated</span>
+          )}
+          <button onClick={() => setNoteOpen((v) => !v)} style={{ background: "none", border: "none",
+            color: note.trim() ? selHue : C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            {note.trim() ? "Note ✓" : "Note"}
           </button>
-        ) : null}
+          {/* The set you just did, one tap from its camera. Burying this in a
+              collapsed list is how the feature went missing the first time. */}
+          {lastToday && (
+            <button onClick={() => setFilming(lastToday)}
+              aria-label={(state.clips || {})[lastToday.id] ? "Watch this set" : "Film this set"}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", gap: 5,
+                color: (state.clips || {})[lastToday.id] ? selHue : C.muted }}>
+              {(state.clips || {})[lastToday.id] ? <><Play size={12} /> Watch last</> : <><Camera size={13} /> Film last</>}
+            </button>
+          )}
+        </div>
+        {noteOpen && (
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" autoFocus
+            style={{ width: "100%", marginTop: 10, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
+              padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
+        )}
+        {logDate !== todayStr() && <div style={{ marginTop: 10 }}><DateField value={logDate} onChange={setLogDate} /></div>}
+        {showPlates && suggested != null && <PlateView total={parseFloat(curWeight) || suggested} bar={bar} denoms={denoms} unit={unit} />}
+        {onFirst && showWarm && warmup.length > 1 && (
+          <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
+            overflow: "hidden" }}>
+            {warmup.map((w, i) => (
+              <button key={i} onClick={() => setWarmOpen(warmOpen === i ? null : i)}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 13px",
+                  background: warmOpen === i ? "rgba(255,255,255,0.04)" : "none", border: "none",
+                  borderTop: i ? `1px solid ${C.line}` : "none", color: C.text, cursor: "pointer",
+                  textAlign: "left", WebkitTapHighlightColor: "transparent" }}>
+                <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0 }}>
+                  {w.bar ? "BAR" : `${Math.round(w.pct * 100)}%`}
+                </span>
+                <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
+                  fontVariantNumeric: "tabular-nums" }}>
+                  {fmt(w.weight)}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{unit}</span>
+                </span>
+                <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>× {w.reps}</span>
+                <span style={{ flex: 1 }} />
+                <ChevronDown size={13} style={{ color: C.faint, flexShrink: 0,
+                  transform: warmOpen === i ? "rotate(180deg)" : "none", transition: ".2s" }} />
+              </button>
+            ))}
+            {warmOpen != null && warmup[warmOpen] && !warmup[warmOpen].bar && (
+              <div style={{ padding: "0 13px 11px" }}>
+                <PlateView total={warmup[warmOpen].weight} bar={bar} denoms={denoms} unit={unit} />
+              </div>
+            )}
+          </div>
+        )}
 
-        <div style={{ fontSize: 11.5, marginTop: 9, textAlign: "center", fontWeight: 700,
+        <div style={{ fontSize: 11.5, marginTop: 12, textAlign: "center", fontWeight: 700,
           color: setsIn >= setsAsked && setsAsked > 1 ? C.good : setsIn > 0 ? C.gold : C.faint }}>
           {setsIn >= setsAsked && setsAsked > 1
-            ? `All ${setsAsked} sets of ${sel} in — log another, or pick the next movement above.`
-            : setsIn > 0
-              ? `${setsIn} of ${setsAsked} in.`
-              : "Every set you log retunes your estimate — the day's best set is the one that counts."}
+            ? `All ${setsAsked} sets in — log another, or pick the next movement above.`
+            : setsIn > 0 ? `${setsIn} of ${setsAsked} in.`
+            : "The day's best set is the one your estimate counts."}
         </div>
       </Card>
 
       </>)}
 
-      {/* What you have done today, on the screen you did it from. Train had no set
-          list at all, which left filming a set discoverable only in History. */}
+      {/* the session so far, and every set a tap from its camera */}
       {sessionToday.length > 0 && (
         <Card style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ padding: "14px 16px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={() => setShowDone((v) => !v)} style={{ width: "100%", padding: "13px 16px",
+            display: "flex", justifyContent: "space-between", alignItems: "center", background: "none",
+            border: "none", color: C.text, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-              <span style={{ width: 3, height: 13, borderRadius: 2, background: selHue,
-                boxShadow: `0 0 10px ${tint(selHue, 0.55)}` }} />
+              <span style={{ width: 3, height: 13, borderRadius: 2, background: C.good, boxShadow: `0 0 10px ${C.good}88` }} />
               <span style={{ ...label, fontSize: 9.5 }}>Logged today</span>
             </span>
-            <span style={{ fontSize: 11.5, color: C.faint }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11.5, color: C.faint }}>
               {sessionToday.length} set{sessionToday.length === 1 ? "" : "s"}
+              <ChevronDown size={14} style={{ transform: showDone ? "rotate(180deg)" : "none", transition: ".2s" }} />
             </span>
-          </div>
-          {sessionToday.map((x) => {
+          </button>
+          {showDone && sessionToday.map((x) => {
             const clip = (state.clips || {})[x.id];
             return (
               <div key={x.id} style={{ padding: "10px 16px", borderTop: `1px solid ${C.line}`, display: "flex",
                 alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600 }}>
-                    {x.secs != null
-                      ? fmtDur(x.secs)
+                    {x.secs != null ? fmtDur(x.secs)
                       : <>{fmt(x.weight)}{unit} × {x.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`}</span></>}
                   </div>
                   <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>
-                    {x.lift !== sel ? <span style={{ color: C.blue }}>{x.lift} · </span> : null}
+                    {x.lift !== sel ? <span style={{ color: C.blue }}>{shortLift(x.lift)} · </span> : null}
                     {x.backoff ? "back-off" : "top set"}
                   </div>
                 </div>
@@ -5658,24 +5589,11 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </Card>
       )}
 
-      <button onClick={() => setShowHow((v) => !v)} style={{ background: "none", border: "none", color: C.faint,
-        fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, alignSelf: "center" }}>
-        <Info size={14} /> How the numbers work
-      </button>
-      {showHow && (
-        <Card style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-          Your RPE tells the calculator how close to failure a set was — RPE 8 means 2 reps left (2 RIR). That maps every set to a percent of your
-          one-rep max using the standard RPE chart, so a triple at RPE 9 and a heavy single both inform the same estimate. New sets are blended in
-          with recent ones weighted more, and low-rep top sets count more than long high-rep sets. Recommendations just run that estimate backward
-          for the reps and RPE you prescribe. Back-offs read the fatigue from your last set's actual reps and how close to failure it was — a grindy RPE 9
-          set drops the next one further than an easy one — and each set, top or back-off, feeds the one after it. The app also learns how fast you personally
-          fade from past sessions. Back-offs stay out of your 1RM estimate so a tired one never drags your numbers down. Your daily check-in works the same way
-          from the other end: it trims what you're asked to lift by a few percent, records that handicap against every set you log under it, and divides it back
-          out before your max is updated — so a rough week changes today's loads without ever being recorded as lost strength.
-          Work you have already done earlier the same day counts too, in proportion to how much the two movements actually share: squats take a real bite
-          out of a deadlift later that session, a smaller one out of a bench, and essentially nothing out of a curl. That handicap is recorded and divided
-          back out the same way, so training your deadlift after squats every week never reads as your deadlift shrinking.
-        </Card>
+      {sel && !timedSel && (
+        <button onClick={() => setLinking(true)} style={{ background: "none", border: "none", color: C.faint,
+          fontSize: 11.5, fontWeight: 700, cursor: "pointer", alignSelf: "center", padding: 0 }}>
+          {childNames.length ? `Includes ${childNames.map(shortLift).join(", ")}` : "Link as a variation"}
+        </button>
       )}
 
       <ClipSheet open={!!filming} onClose={() => setFilming(null)}
@@ -5815,7 +5733,7 @@ function FilmStrip({ ex, sets, clips, unit, hue, onPick }) {
   );
 }
 
-function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip }) {
+function HistoryTab({ state, setState, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip, analysis }) {
   const names = Object.keys(state.exercises);
   if (names.length === 0)
     return <Card style={{ textAlign: "center", color: C.muted, fontSize: 14, padding: "28px 16px" }}>
@@ -5887,6 +5805,14 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             </div>
           ))}
         </div>
+        {/* How much evidence is behind that number. One reading per training day,
+            so this counts sessions rather than sets. */}
+        {model.count > 0 && (
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 12, marginTop: -6 }}>
+            from {model.count} session{model.count > 1 ? "s" : ""}
+            {model.points.length ? ` · updated ${dshort(model.points[model.points.length - 1].ts)}` : ""}
+          </div>
+        )}
         <span style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
           <span style={{ width: 3, height: 13, borderRadius: 2, background: hueFor(cur, state),
             boxShadow: `0 0 10px ${tint(hueFor(cur, state), 0.55)}` }} />
@@ -5953,6 +5879,10 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           </div>
         ))}
       </Card>
+
+      {/* What this lift has been doing — variations against it, accessory progress,
+          the strength profile. It used to be a tab; it belongs beside the lift. */}
+      <Analysis view="lift" analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
 
       {armName === cur ? (
         <Card accent={C.red}>
@@ -6588,7 +6518,7 @@ function MultiTrend({ series, height = 184, days = 90 }) {
   );
 }
 
-function InsightsTab({ analysis, unit, state, setState, models }) {
+function Analysis({ analysis, unit, state, setState, models, view }) {
   const { total, totalDelta, parts, insights } = analysis;
   const sevColor = { alert: C.red, watch: C.gold, win: C.good, note: "#7FA8C9" };
   const [share, setShare] = useState(null);
@@ -6649,8 +6579,13 @@ function InsightsTab({ analysis, unit, state, setState, models }) {
     })
     .sort((a, b2) => (a.pct - a.expected) - (b2.pct - b2.expected));
 
+  /* Insights stopped being a place you go and became two things you already had
+     open: what today looks like, on the Dashboard, and what a lift has been doing,
+     on the screen where that lift is selected. Same analysis, no fifth tab. */
+  const today = view !== "lift", lift = view !== "today";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {today && (<>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
 
       {trendSeries.length > 0 && (
@@ -6666,6 +6601,35 @@ function InsightsTab({ analysis, unit, state, setState, models }) {
         </Card>
       )}
 
+      {shownInsights.length > 0 && (
+        <SectionHead accent={C.red} right={Object.keys(dismissed).length > 0 ? (
+          <button onClick={() => setState((s) => ({ ...s, dismissedInsights: {} }))}
+            style={{ background: "none", border: "none", color: C.faint, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+            Restore dismissed
+          </button>
+        ) : null}>What changed</SectionHead>
+      )}
+      {shownInsights.map((it) => (
+        <div key={it.id} style={{ background: G.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: R.surface, padding: "14px 15px", boxShadow: ELEV }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0, boxShadow: `0 0 8px ${sevColor[it.sev]}` }} />
+              <span style={{ fontWeight: 800, fontSize: 13.5 }}>{it.title}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
+              <button onClick={() => dismiss(it)} aria-label="Dismiss" style={iconBtn}><X size={15} /></button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{it.detail}</div>
+        </div>
+      ))}
+
+      <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
+        These read your own logged data and refresh every time you train.
+      </div>
+      </>)}
+      {lift && (<>
       {ratios.length > 0 && (
         <Card accent={C.violet}>
           <span style={{ ...label, fontSize: 9.5 }}>Variations vs their main lift</span>
@@ -6734,33 +6698,6 @@ function InsightsTab({ analysis, unit, state, setState, models }) {
         </Card>
       )}
 
-      {shownInsights.length > 0 && (
-        <SectionHead accent={C.red} right={Object.keys(dismissed).length > 0 ? (
-          <button onClick={() => setState((s) => ({ ...s, dismissedInsights: {} }))}
-            style={{ background: "none", border: "none", color: C.faint, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>
-            Restore dismissed
-          </button>
-        ) : null}>What changed</SectionHead>
-      )}
-      {shownInsights.map((it) => (
-        <div key={it.id} style={{ background: G.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sevColor[it.sev]}`, borderRadius: R.surface, padding: "14px 15px", boxShadow: ELEV }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 99, background: sevColor[it.sev], flexShrink: 0, boxShadow: `0 0 8px ${sevColor[it.sev]}` }} />
-              <span style={{ fontWeight: 800, fontSize: 13.5 }}>{it.title}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <button onClick={() => shareInsight(it)} aria-label="Share" style={iconBtn}><Share size={15} /></button>
-              <button onClick={() => dismiss(it)} aria-label="Dismiss" style={iconBtn}><X size={15} /></button>
-            </div>
-          </div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{it.detail}</div>
-        </div>
-      ))}
-
-      <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 2, lineHeight: 1.5 }}>
-        These read your own logged data and refresh every time you train.
-      </div>
       <ProfileCard state={state} unit={unit} />
       <RecentCard state={state} unit={unit} inputMode={state.settings.inputMode} />
       <Btn kind="ghost" onClick={() => setShowEngine(true)} style={{ width: "100%" }}><Info size={15} /> How the engine thinks</Btn>
@@ -6782,6 +6719,7 @@ function InsightsTab({ analysis, unit, state, setState, models }) {
           </div>
         ))}
       </Sheet>
+      </>)}
       {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
   );
