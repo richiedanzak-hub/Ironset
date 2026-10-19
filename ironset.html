@@ -1612,6 +1612,7 @@ const DEFAULT = {
   meet: { date: null, name: "", attempts: {} }, // attempts: { liftName: { opener, second, third } in kg }
   checkins: {}, // "YYYY-MM-DD" -> { score 1-10, gear: [..], ts }
   clips: {}, // setId -> { ex, ts, bytes, dur, w, h, type } — the video itself lives in IndexedDB
+  library: [], // saved blocks: [{ id, name, savedAt, offsets, sessions, weeks, lifts }]
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", trainingMode: "rpe", maxMode: "dynamic", topPct: 85, backoff: { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75, steps: [] } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
@@ -2613,6 +2614,65 @@ const dayStart = (str) => { const [y, m, d] = String(str || todayStr()).split("-
 const addDays = (str, n) => { const d = dayStart(str); d.setDate(d.getDate() + n); return dateStrFromTs(d.getTime()); };
 const weekStartOf = (str) => { const d = dayStart(str); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dateStrFromTs(d.getTime()); };
 const weekDates = (str) => { const a = weekStartOf(str); return DAY_KEYS.map((_, i) => addDays(a, i)); };
+const daysBetween = (a, b) => Math.round((dayStart(b) - dayStart(a)) / 86400000);
+
+/* ------------------------------------------------------------------
+   THE LIBRARY — somewhere to put a block down without losing it.
+
+   A block lives on real dates, which is exactly what makes one
+   useless to re-run as it stands: "Oct 5" means nothing next March.
+   So an archived block is stored as offsets from its own first day,
+   and restoring it lays those offsets back down from whatever start
+   you pick. That is the whole trick — it is what separates an archive
+   you can actually reuse from a screenshot of one you can't.
+
+   Slot ids are regenerated on the way back out, so a restored block
+   can sit beside the one it was copied from without the two sharing
+   identity and confusing every edit after.
+
+   Nothing here touches a logged set. Archiving copies the plan; your
+   training history stays exactly where it is.
+------------------------------------------------------------------ */
+const archiveId = () => "lib" + uid();
+
+function blockToArchive(program, name) {
+  const days = (program && program.days) || {};
+  const keys = Object.keys(days).filter((k) => (days[k] || []).length).sort();
+  if (!keys.length) return null;
+  const first = keys[0];
+  const offsets = {};
+  for (const k of keys) {
+    // the id belongs to the live block, not to the shape of it
+    offsets[daysBetween(first, k)] = days[k].map(({ id, ...rest }) => rest);
+  }
+  const span = daysBetween(first, keys[keys.length - 1]);
+  const lifts = [];
+  for (const k of keys) for (const sl of days[k]) if (lifts.indexOf(sl.ex) < 0) lifts.push(sl.ex);
+  return { id: archiveId(), name: (name || "").trim() || (program.name || "Saved block"),
+    savedAt: Date.now(), offsets, sessions: keys.length, weeks: Math.max(1, Math.ceil((span + 1) / 7)),
+    lifts, startedOn: first };
+}
+
+// Lay a saved block back down from `start`. Returns only the days it covers, so
+// the caller decides whether that merges into the calendar or replaces it.
+function archiveToDays(entry, start) {
+  const out = {};
+  if (!entry || !entry.offsets) return out;
+  for (const off of Object.keys(entry.offsets)) {
+    const slots = entry.offsets[off] || [];
+    if (!slots.length) continue;
+    out[addDays(start, Number(off))] = slots.map((sl) => ({ ...sl, id: uid(),
+      bo: sl.bo ? { ...sl.bo } : sl.bo }));
+  }
+  return out;
+}
+
+// What a saved block looks like in one line, so the list reads without opening.
+function archiveLine(entry) {
+  if (!entry) return "";
+  const s = entry.sessions || 0, w = entry.weeks || 1;
+  return `${s} session${s === 1 ? "" : "s"} · ${w} week${w === 1 ? "" : "s"}`;
+}
 function weekNoFor(program, dateStr) {
   const a = dayStart(weekStartOf((program && program.startDate) || todayStr()));
   const b = dayStart(weekStartOf(dateStr));
@@ -4029,7 +4089,132 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays, state }
 
 // Destructive actions live together, behind one door, so none of them is a
 // mis-tap away while you are editing a session.
-function ResetSheet({ open, onClose, weekLabel, onClearWeek, onTrimAfter, onStartOver }) {
+// The library: save the block you built, then change it freely. One sheet does
+// both halves, because "save this" and "what have I saved" are the same thought
+// arriving a few weeks apart.
+function LibrarySheet({ open, onClose, program, library, onSave, onLoad, onRename, onDelete }) {
+  const [name, setName] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const [start, setStart] = useState(todayStr());
+  const [renaming, setRenaming] = useState(null);
+  const [armed, setArmed] = useState(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!open) { setOpenId(null); setRenaming(null); setArmed(null); setSaved(false); return; }
+    setName(program.name === "My program" ? "" : program.name || "");
+    // A block you re-run almost always starts on a Monday, and almost never today.
+    setStart(weekStartOf(addDays(todayStr(), 7)));
+  }, [open]);
+  const live = blockToArchive(program, name);
+  const list = (library || []).slice().sort((a, b) => b.savedAt - a.savedAt);
+  const stamp = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Block library">
+      {/* save the one you are looking at */}
+      <div style={{ border: `1px solid ${C.line2}`, borderRadius: R.surface, padding: 14, marginBottom: 16 }}>
+        <div style={{ ...label2, color: C.faint, marginBottom: 9 }}>Save this block</div>
+        {live ? (
+          <>
+            <input value={name} onChange={(e) => { setName(e.target.value); setSaved(false); }}
+              placeholder={program.name || "Name this block"}
+              style={{ width: "100%", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+                borderRadius: R.input, padding: "0 13px", height: 44, color: C.text, fontFamily: SANS,
+                fontSize: 14.5, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ fontSize: 11.5, color: C.faint, margin: "9px 0 11px", lineHeight: 1.5 }}>
+              {archiveLine(live)} · {live.lifts.length} movement{live.lifts.length === 1 ? "" : "s"}.
+              Saved by shape, not by date, so you can start it again whenever you want.
+            </div>
+            <Btn kind="primary" style={{ width: "100%", minHeight: 46 }}
+              onClick={() => { if (saved) return; onSave(name); setSaved(true); }}>
+              {saved ? <><Check size={16} /> Saved to library</> : "Save to library"}
+            </Btn>
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.5 }}>
+            There is nothing planned on the calendar yet, so there is no block to save.
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...label2, color: C.faint, marginBottom: 10 }}>
+        Saved blocks{list.length ? ` · ${list.length}` : ""}
+      </div>
+      {!list.length && (
+        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.55, paddingBottom: 6 }}>
+          Nothing saved yet. Anything you save here keeps its shape — the sessions, the
+          lifts, the sets and the RPEs — and stays out of your way until you load it.
+        </div>
+      )}
+      {list.map((e) => {
+        const on = openId === e.id;
+        return (
+          <div key={e.id} style={{ border: `1px solid ${on ? C.line2 : C.line}`, borderRadius: R.surface,
+            marginBottom: 9, overflow: "hidden", background: on ? "rgba(255,255,255,0.03)" : "none" }}>
+            <button onClick={() => { setOpenId(on ? null : e.id); setRenaming(null); setArmed(null); }}
+              style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 14px",
+                cursor: "pointer", color: C.text, WebkitTapHighlightColor: "transparent" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
+                <span style={{ fontWeight: 800, fontSize: 14.5, letterSpacing: "-0.02em", minWidth: 0,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                <ChevronDown size={13} style={{ color: C.faint, marginLeft: "auto", flexShrink: 0,
+                  transform: on ? "rotate(180deg)" : "none", transition: ".2s" }} />
+              </div>
+              <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>
+                {archiveLine(e)} · saved {stamp(e.savedAt)}
+              </div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {(e.lifts || []).map(shortLift).join(" · ")}
+              </div>
+            </button>
+            {on && (
+              <div style={{ padding: "0 14px 14px" }}>
+                {renaming != null ? (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
+                    <input value={renaming} onChange={(ev) => setRenaming(ev.target.value)} autoFocus
+                      style={{ flex: 1, minWidth: 0, background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+                        borderRadius: R.input, padding: "0 12px", height: 42, color: C.text, fontFamily: SANS,
+                        fontSize: 14, fontWeight: 700, outline: "none" }} />
+                    <Btn kind="solid" style={{ minHeight: 42, fontSize: 12.5 }}
+                      onClick={() => { onRename(e.id, renaming); setRenaming(null); }}>Save</Btn>
+                  </div>
+                ) : null}
+                <div style={{ ...label2, color: C.faint, marginBottom: 7 }}>Start it on</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
+                  <input type="date" value={start} onChange={(ev) => setStart(ev.target.value || todayStr())}
+                    style={{ flex: 1, minWidth: 0, background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+                      borderRadius: R.input, padding: "0 12px", height: 44, color: C.text, fontFamily: MONO,
+                      fontSize: 14, fontWeight: 700, outline: "none", colorScheme: "dark" }} />
+                  <Btn kind="primary" style={{ minHeight: 44, fontSize: 13 }}
+                    onClick={() => { onLoad(e, start); onClose(); }}>Add to calendar</Btn>
+                </div>
+                <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, marginBottom: 11 }}>
+                  Its {e.sessions} session{e.sessions === 1 ? "" : "s"} land from that date onward, replacing
+                  only the days they fall on. One undo away, and your logged sets are never touched.
+                </div>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <button onClick={() => setRenaming(e.name)} style={{ background: "none", border: "none",
+                    color: C.muted, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0,
+                    display: "inline-flex", alignItems: "center", gap: 5 }}><Pencil size={12} /> Rename</button>
+                  <button onClick={() => { if (armed === e.id) { onDelete(e.id); setOpenId(null); setArmed(null); }
+                      else setArmed(e.id); }}
+                    style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5,
+                      cursor: "pointer", padding: 0, marginLeft: "auto", display: "inline-flex",
+                      alignItems: "center", gap: 5 }}>
+                    <Trash2 size={12} /> {armed === e.id ? "Tap again to delete" : "Delete"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </Sheet>
+  );
+}
+
+function ResetSheet({ open, onClose, weekLabel, onClearWeek, onTrimAfter, onStartOver, hasBlock, onSaveFirst }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => { if (!open) setArmed(false); }, [open]);
   const row = (title, desc, onClick, danger) => (
@@ -4042,6 +4227,18 @@ function ResetSheet({ open, onClose, weekLabel, onClearWeek, onTrimAfter, onStar
   );
   return (
     <Sheet open={open} onClose={onClose} title="Reset">
+      {/* Every option below destroys work. The one that doesn't goes first. */}
+      {hasBlock && onSaveFirst && (
+        <button onClick={onSaveFirst} style={{ width: "100%", textAlign: "left", background: tint(C.good, 0.08),
+          border: `1px solid ${tint(C.good, 0.3)}`, borderRadius: R.surface, padding: "14px 15px",
+          cursor: "pointer", color: C.text, marginBottom: 13, WebkitTapHighlightColor: "transparent" }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: C.good }}>Save this block to the library first</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            Keeps the whole thing under a name you choose, ready to start again on any date.
+            Then clear whatever you like below.
+          </div>
+        </button>
+      )}
       {row("Clear " + (weekLabel || "this week"), "Empties all seven days of the selected calendar week.", () => { onClearWeek(); onClose(); })}
       {row("Delete everything after this week", "Keeps every planned day up to the end of " + (weekLabel || "this week") + ".", () => { onTrimAfter(); onClose(); })}
       {row(armed ? "Tap again to delete the program" : "Start over",
@@ -4310,6 +4507,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
   const [picking, setPicking] = useState(null);
   const [cloning, setCloning] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [libOpen, setLibOpen] = useState(false);
   const [picking2, setPicking2] = useState(false);
   const [dayOpen, setDayOpen] = useState(false);
   // An armed move/copy/swap waiting for you to tap its destination on the calendar.
@@ -4319,6 +4517,10 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
   // which is the whole reason these operations return a new map instead of mutating.
   const [undo, setUndo] = useState(null);
   const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
+  // The library is state like anything else, so it rides along with export,
+  // import and the offline store without a line of extra plumbing.
+  const library = state.library || [];
+  const setLibrary = (fn) => setState((s) => ({ ...s, library: fn(s.library || []) }));
   // Every whole-day change goes through here, so every one of them is undoable and
   // says what it did. Nothing about moving a session should feel risky.
   const applyDays = (next, said) => {
@@ -4513,6 +4715,10 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
             {blockStats.span || "Nothing scheduled yet"}
           </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
+            <button onClick={() => setLibOpen(true)} style={{ background: "none", border: "none", color: C.muted,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+              Library{library.length ? ` · ${library.length}` : ""}
+            </button>
             <button onClick={() => setPicking2(true)} style={{ background: "none", border: "none", color: C.muted,
               fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Programmes</button>
             <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
@@ -4640,7 +4846,24 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
         </div>
       )}
 
+      <LibrarySheet open={libOpen} onClose={() => setLibOpen(false)} program={program} library={library}
+        onSave={(nm) => { const entry = blockToArchive(program, nm); if (entry) setLibrary((l) => [...l, entry]); }}
+        onLoad={(entry, start) => {
+          // A restored block is ordinary calendar days, so it merges, it is one
+          // undo away, and it brings its own name and start date with it.
+          const built = archiveToDays(entry, start);
+          applyDays({ ...days, ...built }, `Loaded ${entry.name}`);
+          setProgram((pr) => ({ ...pr, name: entry.name, startDate: start, active: true }));
+          setSelDate(start);
+          const d = dayStart(start);
+          setCur({ y: d.getFullYear(), m: d.getMonth() });
+        }}
+        onRename={(id, nm) => setLibrary((l) => l.map((x) => x.id === id
+          ? { ...x, name: (nm || "").trim() || x.name } : x))}
+        onDelete={(id) => setLibrary((l) => l.filter((x) => x.id !== id))} />
+
       <ResetSheet open={resetting} onClose={() => setResetting(false)} weekLabel={"week " + weekNo}
+        hasBlock={Object.keys(days).length > 0} onSaveFirst={() => { setResetting(false); setLibOpen(true); }}
         onClearWeek={() => setProgram((pr) => { const nd = { ...(pr.days || {}) }; for (const d of weekDates(sel)) delete nd[d]; return { ...pr, days: nd }; })}
         onTrimAfter={() => setProgram((pr) => { const nd = {}; const cut = addDays(weekStartOf(sel), 7);
           for (const k of Object.keys(pr.days || {})) if (k < cut) nd[k] = pr.days[k]; return { ...pr, days: nd }; })}
