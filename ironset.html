@@ -2007,7 +2007,19 @@ function residualFatigue(sets, refTs, includeToday) {
        reps at the same effort is genuinely more to recover from, but the fifteenth
        rep of a long set adds far less than the third rep of a heavy one — so volume
        counts on a square root, the usual shape for this. */
-    for (const s of byDay[d]) { S += Math.sqrt(Math.max(1, s.reps)) * strainExcess(s.rpe) * (s.backoff ? 0.4 : 1); if (!s.backoff) peak = Math.max(peak, s.rpe); lastTs = Math.max(lastTs, s.ts); }
+    /* peak names the set this debt came from, so it has to be a set that actually
+       left one. Reading the day's hardest TOP set instead meant a session whose
+       strain came entirely from hard back-offs got reported under the light
+       single in front of them — "trimmed, because of your RPE 4 overhead press",
+       which is both wrong and the fastest way to lose trust in the number. Any
+       day that survives the S <= 0 check has at least one set above 8, so this
+       is always the honest answer to "from what". */
+    for (const s of byDay[d]) {
+      const ex = strainExcess(s.rpe);
+      S += Math.sqrt(Math.max(1, s.reps)) * ex * (s.backoff ? 0.4 : 1);
+      if (ex > 0) peak = Math.max(peak, s.rpe);
+      lastTs = Math.max(lastTs, s.ts);
+    }
     const days = Math.max(0.17, (refTs - lastTs) / 86400000);
     if (days > 12 || S <= 0) continue;
     const c = 0.25 * S * Math.exp(-days / 4);
