@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
 <meta name="apple-mobile-web-app-title" content="IRONSET"/>
 <meta name="theme-color" content="#06070B"/>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1208,8 +1208,8 @@ function shortLift(name) {
 
 // The day, as one line you can thumb along. Dots say how far into each movement
 // you are, so the session is legible without reading a word.
-function MoveStrip({ moves, current, onPick }) {
-  if (!moves.length) return null;
+function MoveStrip({ moves, current, onPick, onAdd, addLabel }) {
+  if (!moves.length && !onAdd) return null;
   return (
     <div style={{ display: "flex", gap: 7, overflowX: "auto", padding: "2px 16px 10px",
       margin: "0 -16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
@@ -1235,6 +1235,20 @@ function MoveStrip({ moves, current, onPick }) {
           </button>
         );
       })}
+      {/* Off-plan this strip is one lonely chip, and the only way out of it used
+          to be an 11px text link in the far corner. A chip that looks like the
+          others — and sits where your thumb already is — is the whole fix. */}
+      {onAdd && (
+        <button onClick={onAdd} aria-label={addLabel || "Another lift"}
+          style={{ flex: "0 0 auto", cursor: "pointer", background: "none",
+          border: `1px dashed ${C.line2}`, borderRadius: R.pill, padding: "8px 13px 7px",
+          color: C.muted, display: "inline-flex", alignItems: "center", gap: 6,
+          WebkitTapHighlightColor: "transparent" }}>
+          <Plus size={13} />
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap",
+            letterSpacing: "-0.01em" }}>{addLabel || "Another lift"}</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -5238,7 +5252,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // spent capacity; the load is then scaled by how that variation measures up to the main.
   const boFamily = sel ? [sel].concat(Object.keys(state.exercises).filter((n) => state.exercises[n].parent === sel)) : [];
   const ratioOf = (n) => (n === sel ? 1 : ((models[n] && models[n].ratio) || (state.exercises[n] && state.exercises[n].ratio) || 1));
-  useEffect(() => { setBoDraft(null); setTargetOpen(false); }, [sel]);
+  // With a plan, the session already said what this set asks for and the panel
+  // is a correction you rarely need. Without one, it is the only way to say what
+  // you are doing — so off-plan it starts open rather than hiding behind a tap.
+  useEffect(() => { setBoDraft(null); setTargetOpen(sessionSlots.length === 0); }, [sel]);
   // Every back-off carries its OWN prescription — reps, intensity, and which lift in the
   // family it runs on — so a session can descend (5 @ 8, then 4 @ 6, then a single on a
   // paused variation) without rewriting one shared target between sets. A slot you have
@@ -5514,18 +5531,14 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           <span style={{ ...label, fontSize: 9.5 }}>
             {sessionSlots.length ? (progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today") : "Training"}
           </span>
-          <span style={{ display: "inline-flex", gap: 13 }}>
-            {sessionSlots.length > 0 && (
-              <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none",
-                border: "none", color: C.faint, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>Can't train this?</button>
-            )}
-            <button onClick={() => setPickingLift(true)} style={{ background: "none", border: "none",
-              color: C.red, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>
-              {sessionSlots.length ? "Another lift" : "Change lift"}
-            </button>
-          </span>
+          {sessionSlots.length > 0 && (
+            <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none",
+              border: "none", color: C.faint, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>Can't train this?</button>
+          )}
         </div>
-        <MoveStrip moves={stripMoves} current={sel} onPick={(m) => (m.slot ? loadSlot(m.slot) : setSel(m.ex))} />
+        <MoveStrip moves={stripMoves} current={sel} onAdd={() => setPickingLift(true)}
+          addLabel={sessionSlots.length ? "Another lift" : "Switch lift"}
+          onPick={(m) => (m.slot ? loadSlot(m.slot) : setSel(m.ex))} />
       </div>
 
       {meetDays != null && meetDays >= 0 && meetDays <= 21 && (
@@ -5544,9 +5557,18 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       <Card accent={selHue} glow="none" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: "-0.025em", lineHeight: 1.2,
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel}</div>
-            <div style={{ ...label2, color: C.faint, marginTop: 6 }}>
+            {/* The lift is both the headline and the thing people most often want
+                to change, so it stops being a label and becomes the control. */}
+            <button onClick={() => setPickingLift(true)} aria-label={`${sel} — tap to change lift`}
+              style={{ display: "inline-flex", alignItems: "center",
+              gap: 7, maxWidth: "100%", background: tint(selHue, 0.14), border: `1px solid ${tint(selHue, 0.42)}`,
+              borderRadius: R.pill, padding: "7px 12px 7px 14px", cursor: "pointer", color: C.text,
+              WebkitTapHighlightColor: "transparent" }}>
+              <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.025em", lineHeight: 1.15,
+                minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel}</span>
+              <ChevronDown size={14} style={{ color: C.muted, flexShrink: 0 }} />
+            </button>
+            <div style={{ ...label2, color: C.faint, marginTop: 7 }}>
               {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
               {stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : ""}
               {stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : ""}
@@ -5579,12 +5601,16 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 <span style={{ fontFamily: SANS, fontSize: 18, color: C.muted, fontWeight: 700,
                   letterSpacing: "-0.01em" }}>{unit}</span>
               </div>
-              <button onClick={() => setTargetOpen((v) => !v)} style={{ background: "none", border: "none",
-                color: C.muted, cursor: "pointer", marginTop: 10, padding: "4px 2px", fontFamily: SANS,
-                fontSize: 13.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <button onClick={() => setTargetOpen((v) => !v)} style={{ marginTop: 11,
+                background: targetOpen ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${targetOpen ? C.line2 : C.line}`, borderRadius: R.pill,
+                color: C.text, cursor: "pointer", padding: "8px 13px", fontFamily: SANS,
+                fontSize: 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 7,
+                WebkitTapHighlightColor: "transparent" }}>
                 {curReps} rep{curReps > 1 ? "s" : ""} @ {percentMode ? `${fmt(curIntVal)}%`
                   : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
-                <ChevronDown size={13} style={{ color: C.faint, transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
+                {setsAsked > 1 ? <span style={{ color: C.muted, fontWeight: 600 }}>· {setsAsked} sets</span> : null}
+                <ChevronDown size={13} style={{ color: C.muted, transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
               </button>
             </>
           ) : (
@@ -5598,25 +5624,22 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         {targetOpen && (
           <div style={{ border: `1px solid ${C.line2}`, borderRadius: R.ctrl, padding: 12, marginTop: 10 }}>
             <div style={{ ...label2, color: C.faint, marginBottom: 9 }}>What this set asks for</div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9 }}>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Reps</div>
                 <Stepper compact value={curReps} onChange={setCurReps} min={1} max={30} />
               </div>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>{percentMode ? "% of max" : (inputMode === "rir" ? "RIR" : "RPE")}</div>
                 {percentMode
                   ? <Stepper compact value={curIntVal} onChange={setCurInt} step={2.5} min={30} max={105} suffix="%" />
                   : <Stepper compact value={curIntVal} onChange={setCurInt} step={0.5} min={inputMode === "rir" ? 0 : 5} max={inputMode === "rir" ? 5 : 10} />}
               </div>
-              <span style={{ flex: 1 }} />
-              {setsAsked > 1 && (
-                <div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Sets</div>
-                  <Stepper compact value={setsAsked} min={1} max={12}
-                    onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
-                </div>
-              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Sets</div>
+                <Stepper compact value={setsAsked} min={1} max={12}
+                  onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
+              </div>
             </div>
             {!onFirst && boFamily.length > 1 && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 11 }}>
