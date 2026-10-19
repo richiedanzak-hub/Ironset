@@ -1143,7 +1143,7 @@ function Callout({ tone = "muted", children, style }) {
   const col = tone === "warn" ? C.gold : tone === "good" ? C.good
     : tone === "bad" ? C.red : tone === "info" ? C.blue : C.muted;
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "10px 12px",
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "8px 11px",
       borderRadius: R.ctrl, background: tint(col, 0.07), border: `1px solid ${tint(col, 0.22)}`,
       ...style }}>
       <span style={{ width: 6, height: 6, borderRadius: 4, background: col, flexShrink: 0,
@@ -1876,17 +1876,21 @@ function App() {
               <Settings size={17} />
             </button>
           </div>
-          {/* The title names where you are; the date grounds it. Both smaller than
-              before — a header should not cost a fifth of the screen. */}
-          <div style={{ marginTop: 13 }}>
-            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 25, letterSpacing: "-0.03em",
-              lineHeight: 1.05, color: C.text }}>
-              {(tabs.find((x) => x.id === tab) || {}).label}
+          {/* The title names where you are; the date grounds it. Train is the one
+              screen you read with a bar in your hands, and the strip below it
+              already carries the week and the day — so there the header stands
+              down and gives the set those eighty pixels instead. */}
+          {tab !== "train" && (
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 25, letterSpacing: "-0.03em",
+                lineHeight: 1.05, color: C.text }}>
+                {(tabs.find((x) => x.id === tab) || {}).label}
+              </div>
+              <div style={{ ...label2, color: C.faint, marginTop: 6 }}>
+                {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+              </div>
             </div>
-            <div style={{ ...label2, color: C.faint, marginTop: 6 }}>
-              {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-            </div>
-          </div>
+          )}
         </div>
 
         {newBuild && (
@@ -5174,6 +5178,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     if (onFirst) setTInt(n); else setStep(doneCount, { rpe: inputMode === "rir" ? 10 - n : n });
   };
   const suggested = onFirst ? recR : boSug;
+  // Four figures on a phone is a different size from three.
+  const heroStr = suggested != null ? fmt(suggested) : "";
+  const heroSize = heroStr.length >= 6 ? 42 : heroStr.length === 5 ? 50 : heroStr.length === 4 ? 55 : 62;
   // What the prescription says this set should feel like. In percentage mode that is
   // whatever the load works out to against the current estimate.
   const curBaseRpe = onFirst ? (percentMode ? (predRpe != null ? predRpe : 8) : tRpe) : boBaseRpe;
@@ -5273,7 +5280,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* THE DAY — one strip you thumb along, instead of a card the size of a hand.
           Dots carry the progress, so the session reads without being read. */}
       <div style={{ position: "sticky", top: 0, zIndex: 12, paddingTop: 4,
@@ -5298,10 +5305,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         <MoveStrip moves={stripMoves} current={sel} onPick={(m) => (m.slot ? loadSlot(m.slot) : setSel(m.ex))} />
       </div>
 
-      {meetDays != null && meetDays >= 0 && (
+      {meetDays != null && meetDays >= 0 && meetDays <= 21 && (
         <Callout tone="warn">
           {meetDays === 0 ? "Meet day" : `${meetDays} day${meetDays === 1 ? "" : "s"} to ${meetName || "your meet"}`}
-          {meetDays > 0 && meetDays <= 21 ? " — openers and taper matter more than another hard session now." : ""}
+          {meetDays > 0 ? " — openers and taper matter more than another hard session now." : ""}
         </Callout>
       )}
 
@@ -5314,9 +5321,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       <Card accent={selHue} glow="none" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-0.025em", lineHeight: 1.15,
+            <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: "-0.025em", lineHeight: 1.2,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel}</div>
-            <div style={{ ...label2, color: C.faint, marginTop: 5 }}>
+            <div style={{ ...label2, color: C.faint, marginTop: 6 }}>
               {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
               {stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : ""}
               {stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : ""}
@@ -5331,27 +5338,34 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         </div>
 
-        {/* THE NUMBER. It is what you came to the screen for. */}
-        <div style={{ textAlign: "center", margin: "0 -16px", padding: "16px 16px 4px",
-          background: `linear-gradient(180deg, ${tint(selHue, 0.12)}, transparent 72%)` }}>
+        {/* THE NUMBER. It is what you came to the screen for, so it gets its own
+            band with air on both sides rather than being wedged under the title.
+            Tight tracking on a 68px glyph eats into whatever follows it, which is
+            why the unit was sitting inside the last digit — the number carries a
+            matching pad on its right to give it back. */}
+        <div style={{ textAlign: "center", margin: "13px -16px 0", padding: "16px 16px 5px",
+          borderTop: `1px solid ${C.line}`,
+          background: `linear-gradient(180deg, ${tint(selHue, 0.13)}, transparent 78%)` }}>
           {suggested != null ? (
             <>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 7 }}>
-                <span style={{ fontFamily: MONO, fontSize: 66, fontWeight: 700, lineHeight: 0.94, color: C.text,
-                  letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums",
-                  textShadow: `0 0 54px ${tint(selHue, 0.5)}` }}>{fmt(suggested)}</span>
-                <span style={{ fontFamily: SANS, fontSize: 16, color: C.muted, fontWeight: 600 }}>{unit}</span>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 10 }}>
+                <span style={{ fontFamily: MONO, fontSize: heroSize, fontWeight: 700, lineHeight: 1, color: C.text,
+                  letterSpacing: "-0.035em", paddingRight: Math.round(heroSize * 0.035),
+                  fontVariantNumeric: "tabular-nums",
+                  textShadow: `0 0 54px ${tint(selHue, 0.5)}` }}>{heroStr}</span>
+                <span style={{ fontFamily: SANS, fontSize: 18, color: C.muted, fontWeight: 700,
+                  letterSpacing: "-0.01em" }}>{unit}</span>
               </div>
               <button onClick={() => setTargetOpen((v) => !v)} style={{ background: "none", border: "none",
-                color: C.muted, cursor: "pointer", marginTop: 11, padding: 0, fontFamily: SANS,
-                fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                color: C.muted, cursor: "pointer", marginTop: 10, padding: "4px 2px", fontFamily: SANS,
+                fontSize: 13.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 {curReps} rep{curReps > 1 ? "s" : ""} @ {percentMode ? `${fmt(curIntVal)}%`
                   : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
                 <ChevronDown size={13} style={{ color: C.faint, transform: targetOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
               </button>
             </>
           ) : (
-            <div style={{ color: C.muted, fontSize: 13.5, padding: "14px 6px", lineHeight: 1.5 }}>
+            <div style={{ color: C.muted, fontSize: 13.5, padding: "10px 6px", lineHeight: 1.5 }}>
               Log a set to calibrate <b style={{ color: C.text }}>{sel}</b>. A known 1RM or any working set will do.
             </div>
           )}
@@ -5396,12 +5410,12 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         {/* what the app wants to tell you about this set, one line at a time */}
         {(onFirst && lastTime && lastTime.best) || (!onFirst && prevForBo && !percentMode)
           || trimTotal >= 0.005 || (onFirst && !percentMode && (strongDay || toughDay)) ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 11 }}>
             {onFirst && lastTime && lastTime.best && (
               <Callout tone="info">
                 Last time {fmt(lastTime.best.weight)}{unit} × {lastTime.best.reps} @ {inputMode === "rir"
                   ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`}
-                <span style={{ color: C.faint, fontWeight: 600 }}> · {dshort(lastTime.ts)}, {lastTime.n} set{lastTime.n === 1 ? "" : "s"}</span>
+                <span style={{ color: C.faint, fontWeight: 600 }}> · {dshort(lastTime.ts)}</span>
               </Callout>
             )}
             {!onFirst && prevForBo && !percentMode && (
@@ -5430,7 +5444,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               </div>
             )}
             {onFirst && !percentMode && (strongDay || toughDay) && (
-              <div style={{ fontSize: 11.5, color: C.faint, fontFamily: MONO, textAlign: "center" }}>
+              <div style={{ fontSize: 11.5, color: C.faint, fontFamily: MONO, paddingLeft: 13 }}>
                 {strongDay ? `strong day ${fmt(strongDay)}` : ""}{strongDay && toughDay ? "  ·  " : ""}{toughDay ? `tough day ${fmt(toughDay)}` : ""}
               </div>
             )}
@@ -5438,7 +5452,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         ) : null}
 
         {/* WHAT GOES DOWN. Three chips, thumbs under each, no scrolling. */}
-        <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <StatChip wide label={weightDirty ? "Weight" : "Weight · sugg"} input value={curWeight}
             onInput={setCurWeight} tone={weightDirty ? C.text : C.muted}
             onStep={(v) => setCurWeight(String(Math.max(0, v)))} step={round} min={0} />
