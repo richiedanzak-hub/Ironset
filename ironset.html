@@ -1031,7 +1031,11 @@ function Btn({ children, onClick, kind = "ghost", style, disabled, as }) {
   /* A <label> or <a> wrapping a real <button> swallows the click, so file
      pickers and downloads get the same control rendered as a span. */
   const Tag = as === "span" ? "span" : "button";
-  const extra = as === "span" ? { role: "button" } : {};
+  /* Dropping the handler and greying it was the whole of "disabled" here, which
+     left a real <button> that still focused, still announced itself as ready to
+     press, and did nothing when it was. Say it where it counts. */
+  const extra = as === "span" ? { role: "button", "aria-disabled": disabled || undefined }
+    : { disabled: !!disabled };
   return <Tag onClick={disabled ? undefined : onClick} {...press} {...extra}
     style={{ ...base, ...kinds[kind], ...style }}>{children}</Tag>;
 }
@@ -2618,6 +2622,76 @@ function setLine(st, state) {
 const libFind = (name) => LIB.find((x) => x.n === name) || null;
 // A movement is "strength-tracked" when it rolls up to one of the big lifts; the
 // rest are logged and charted but kept out of your competition total.
+/* ----------------------------------------------------------------------------
+   BODYWEIGHT MOVEMENTS
+
+   A push-up is not a zero-pound lift, and the app used to treat it as one:
+   the log button simply refused, because weight had to be positive. The
+   library already tags these with equipment "bw" — Deficit Push-Up among them
+   — so nothing new has to be guessed about which movements they are.
+
+   What gets stored is the load you actually moved: bodyweight times the
+   fraction of it the movement holds up, plus anything you hung off a belt.
+   Storing the real number is what lets the other forty-odd readers of
+   set.weight — the estimator, the charts, the plate maths, cross-lift
+   fatigue — keep working without knowing bodyweight movements exist.
+
+   The bodyweight used is frozen onto the set at log time. A press you did at
+   220lb stays a press you did at 220lb after you cut to 205; it is the load
+   that was on you that day, and letting later weigh-ins rewrite old sets
+   would quietly redraw your whole history.
+
+   The fraction matters more than it looks. Logging push-ups at a full 220
+   would make them read as a heavy movement, and cross-lift fatigue would
+   start trimming your bench off them.
+---------------------------------------------------------------------------- */
+const LIB_BY_NAME = (() => { const m = {}; for (const x of LIB) if (x && x.n) m[x.n.toLowerCase()] = x; return m; })();
+const equipOf = (name) => (LIB_BY_NAME[String(name || "").toLowerCase()] || {}).e || null;
+
+// Roughly what share of you the movement actually lifts. Rounded, honest-ish
+// numbers from the usual load-cell studies — a push-up is about two thirds of
+// standing bodyweight, a pull-up is all of it.
+const BW_SHARE = [
+  [/\bdips?\b|\bmuscle-?up/i, 1], [/pull-?up|chin-?up|pull-?down bodyweight/i, 1],
+  [/push-?up/i, 0.65], [/inverted row|body ?row|australian/i, 0.5],
+  [/pistol|shrimp squat|single-?leg squat/i, 0.85], [/nordic|glute-?ham|ghr/i, 0.85],
+  [/sit-?up|crunch|leg raise|knee raise|hollow|v-?up|toes to bar/i, 0.45],
+  [/lunge|step-?up|split squat|bulgarian/i, 0.75],
+  [/glute bridge|hip thrust/i, 0.55], [/back extension|hyperextension|reverse hyper/i, 0.55],
+  [/calf raise/i, 0.9], [/air squat|bodyweight squat|squat jump/i, 0.7],
+  [/plank|hold|hang|l-?sit/i, 0.6], [/burpee|mountain climber/i, 0.6],
+];
+const bwShareFor = (name) => { for (const [re, f] of BW_SHARE) if (re.test(String(name || ""))) return f; return 0.7; };
+
+// An explicit flag on the exercise always wins, so anything the library does not
+// know — or gets wrong for how you do it — can be set by hand.
+// How a logged set states its load. A bodyweight set says what it was — you,
+// plus whatever you hung on — rather than the total, which reads like a lie
+// when you never touched a 145lb anything.
+const loadLabel = (s, unit) => (s && s.bwBase != null)
+  ? (s.added ? `BW+${fmt(s.added)}` : "BW")
+  : `${fmt(s.weight)}${unit}`;
+
+function isBodyweightMove(name, state) {
+  const ex = ((state || {}).exercises || {})[name];
+  if (ex && ex.bw != null) return !!ex.bw;
+  return equipOf(name) === "bw";
+}
+// Most recent weigh-in, in the unit the screen is speaking. Null when there is
+// none on file, which the caller has to handle rather than invent a number.
+function bodyweightNow(state, unit) {
+  const arr = (state && state.bodyweight) || [];
+  if (!arr.length) return null;
+  const kg = arr[arr.length - 1].kg;
+  if (kg == null) return null;
+  return unit === "kg" ? kg : kg * LBKG;
+}
+// The load a bodyweight set puts on you, before anything you add to it.
+function bwBaseFor(name, state, unit) {
+  const bw = bodyweightNow(state, unit);
+  return bw == null ? null : bw * bwShareFor(name);
+}
+
 const isAccessory = (name, state) => {
   const ex = state && state.exercises && state.exercises[name];
   if (ex && typeof ex.accessory === "boolean") return ex.accessory;
@@ -5255,6 +5329,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [boDraft, setBoDraft] = useState(null);
   // The plan usually has the target right, so it stays folded away until it doesn't.
   const [targetOpen, setTargetOpen] = useState(false);
+  const [bwEntry, setBwEntry] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [showDone, setShowDone] = useState(true);
   const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
@@ -5412,6 +5487,10 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   const onFirst = setsIn === 0;
   const stepTarget = onFirst ? sel : boTarget;
+  // Bodyweight movements put the number in the box on TOP of what you carry.
+  const bwMove = isBodyweightMove(stepTarget, state);
+  const bwBaseNow = bwMove ? bwBaseFor(stepTarget, state, unit) : null;
+  const bwReady = bwBaseNow != null;
   const curReps = onFirst ? tReps : boReps;
   // The effort this set asks for, in whatever language the screen is speaking.
   const curIntVal = percentMode ? (onFirst ? topPct : boStepPct)
@@ -5463,12 +5542,24 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   const logCurrent = () => {
     if (!stepTarget) return;
-    const w = parseFloat(curWeight);
-    if (!isFinite(w) || w <= 0) return;
+    // An empty box on a bodyweight movement means "just me" — which is a whole
+    // set, not a missing number.
+    const raw = String(curWeight == null ? "" : curWeight).trim();
+    const typed = raw === "" ? (bwMove ? 0 : NaN) : parseFloat(raw);
+    if (!isFinite(typed) || typed < 0) return;
+    // On a bodyweight movement the number in the box is what you ADDED, so zero
+    // is a complete, loggable set rather than a missing one.
+    const bwBase = bwMove ? bwBaseFor(stepTarget, state, unit) : null;
+    const w = bwBase != null ? bwBase + typed : typed;
+    if (w <= 0) return;
     const cf = conditionFactor(dayCheckin, liftClass(stepTarget));
     logSet(stepTarget, {
       id: uid(), weight: roundTo(w, round), reps: actReps, rpe: curRpe, ts: tsFromDateStr(logDate),
       backoff: !onFirst,
+      // Kept so the set can be shown as "BW + 25" rather than a bare total, and
+      // so a later weigh-in never rewrites what this day actually was.
+      bwBase: bwBase != null ? roundTo(bwBase, round) : undefined,
+      added: bwBase != null ? typed : undefined,
       // The target is kept beside what happened, which is what the calibration reads.
       fromRec: !actDirty, tReps: curReps, tRpe: Math.round(curBaseRpe * 2) / 2,
       rec: suggested != null ? suggested : roundTo(w, round),
@@ -5671,7 +5762,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 11 }}>
             {onFirst && lastTime && lastTime.best && (
               <Callout tone="info">
-                Last time {fmt(lastTime.best.weight)}{unit} × {lastTime.best.reps} @ {inputMode === "rir"
+                Last time {loadLabel(lastTime.best, unit)} × {lastTime.best.reps} @ {inputMode === "rir"
                   ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`}
                 <span style={{ color: C.faint, fontWeight: 600 }}> · {dshort(lastTime.ts)}</span>
               </Callout>
@@ -5709,10 +5800,37 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </div>
         ) : null}
 
+        {/* A bodyweight movement whose load we cannot know yet. Asking here, with
+            the box right under the question, beats sending someone to Settings
+            mid-session — and beats quietly logging a number that means nothing. */}
+        {bwMove && !bwReady && (
+          <div style={{ marginTop: 12, padding: "12px 13px", borderRadius: R.ctrl,
+            background: tint(C.blue, 0.07), border: `1px solid ${tint(C.blue, 0.26)}` }}>
+            <div style={{ fontSize: 12.5, color: C.text, fontWeight: 600, lineHeight: 1.45 }}>
+              {shortLift(stepTarget)} is a bodyweight movement. Your bodyweight is the load,
+              so IRONSET needs it once.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <input value={bwEntry} onChange={(e) => setBwEntry(e.target.value)}
+                inputMode="decimal" placeholder={`Bodyweight (${unit})`}
+                style={{ flex: 1, minWidth: 0, background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+                  borderRadius: R.input, padding: "0 12px", height: 44, color: C.text, fontFamily: MONO,
+                  fontSize: 15, fontWeight: 700, outline: "none" }} />
+              <Btn kind="solid" style={{ minHeight: 44, fontSize: 13 }} disabled={!(parseFloat(bwEntry) > 0)}
+                onClick={() => { const v = parseFloat(bwEntry); if (!(v > 0)) return;
+                  setState((st) => ({ ...st, bodyweight: [...(st.bodyweight || []),
+                    { id: uid(), ts: Date.now(), kg: toKg(v, unit) }] }));
+                  setBwEntry(""); }}>Save</Btn>
+            </div>
+          </div>
+        )}
+
         {/* WHAT GOES DOWN. Three chips, thumbs under each, no scrolling. */}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <StatChip wide label={weightDirty ? "Weight" : "Weight · sugg"} input value={curWeight}
-            onInput={setCurWeight} tone={weightDirty ? C.text : C.muted}
+          <StatChip wide input value={curWeight} onInput={setCurWeight}
+            label={bwMove ? (parseFloat(curWeight) > 0 ? "Added to BW" : "Bodyweight")
+              : weightDirty ? "Weight" : "Weight · sugg"}
+            tone={bwMove && !parseFloat(curWeight) ? C.muted : weightDirty ? C.text : C.muted}
             onStep={(v) => setCurWeight(String(Math.max(0, v)))} step={round} min={0} />
           <StatChip label="Reps" value={actReps} onStep={setActReps} min={1} max={50} />
           <StatChip label={inputMode === "rir" ? "RIR" : "RPE"} value={actIntVal} onStep={setActInt}
@@ -5730,7 +5848,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         )}
 
         <Btn kind="primary" onClick={logCurrent} style={{ width: "100%", marginTop: 12, minHeight: 54, fontSize: 16 }}
-          disabled={!parseFloat(curWeight)}>
+          disabled={bwMove ? !bwReady : !parseFloat(curWeight)}>
           {justLogged ? <><Check size={18} /> Logged</>
             : stepTarget !== sel ? `Log ${shortLift(stepTarget)}`
             : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"}
@@ -5840,7 +5958,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600 }}>
                     {x.secs != null ? fmtDur(x.secs)
-                      : <>{fmt(x.weight)}{unit} × {x.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`}</span></>}
+                      : <>{loadLabel(x, unit)} × {x.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`}</span></>}
                   </div>
                   <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>
                     {x.lift !== sel ? <span style={{ color: C.blue }}>{shortLift(x.lift)} · </span> : null}
@@ -6114,7 +6232,7 @@ function HistoryTab({ state, setState, sel, setSel, models, deleteSet, updateSet
               <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600 }}>
                 {s.secs != null
                   ? <>{fmtDur(s.secs)}{s.weight ? <span style={{ color: C.muted }}> · {fmt(s.weight)}{unit}</span> : null}</>
-                  : <>{fmt(s.weight)}{unit} × {s.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span></>}
+                  : <>{loadLabel(s, unit)} × {s.reps} <span style={{ color: C.muted }}>@ {inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}</span></>}
                 {s.backoff && <span style={{ fontFamily: SANS, fontSize: 10, fontWeight: 800, color: C.muted,
                   border: `1px solid ${C.line2}`, borderRadius: 6, padding: "1px 6px", marginLeft: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>Back-off</span>}
               </div>
@@ -6588,7 +6706,7 @@ function SessionCard({ session, unit, inputMode }) {
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5 }}>{l.name}</div>
               <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2, fontFamily: MONO }}>
-                {fmt(l.top.weight)}{unit} × {l.top.reps} <span style={{ color: C.faint }}>@ {eff(l.top)}</span>
+                {loadLabel(l.top, unit)} × {l.top.reps} <span style={{ color: C.faint }}>@ {eff(l.top)}</span>
               </div>
             </div>
             {l.e1rm != null && (
@@ -6700,7 +6818,7 @@ function RecentCard({ state, unit, inputMode }) {
               </span>
             </div>
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, fontFamily: MONO }}>
-              top {fmt(top.weight)}{unit} × {top.reps} <span style={{ color: C.faint }}>@ {eff(top)}</span>
+              top {loadLabel(top, unit)} × {top.reps} <span style={{ color: C.faint }}>@ {eff(top)}</span>
               <span style={{ color: C.faint }}>  ·  {all.length} sets</span>
             </div>
           </div>
@@ -7027,6 +7145,23 @@ function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose,
   const [pct, setPct] = useState(String(Math.round((exercise.ratioManual ?? exercise.ratio ?? effectiveRatio ?? 0.9) * 100)));
   const fld = { fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 700 };
   const options = mains.filter((m) => m !== name);
+  // The library knows a push-up from a bench press, but not how YOU do a given
+  // movement — and it cannot know about anything you named yourself.
+  const bwNow = isBodyweightMove(name, state);
+  const bwRow = (
+    <div style={{ marginBottom: 18, borderBottom: `1px solid ${C.line}`, paddingBottom: 16 }}>
+      <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>What you load</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <Chip sm active={!bwNow} onClick={() => onSave({ bw: false })}>External weight</Chip>
+        <Chip sm active={bwNow} onClick={() => onSave({ bw: true })}>Bodyweight</Chip>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 9, lineHeight: 1.5 }}>
+        {bwNow
+          ? `Logged against ${Math.round(bwShareFor(name) * 100)}% of your bodyweight — the share this movement actually holds up — plus anything you add. Leave the weight box empty for a plain set.`
+          : "Every set is the weight you put on the bar or the stack."}
+      </div>
+    </div>
+  );
   const trackRow = (
     <div style={{ marginBottom: 18, borderBottom: `1px solid ${C.line}`, paddingBottom: 16 }}>
       <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>Strength tracking</div>
@@ -7048,6 +7183,7 @@ function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose,
   };
   return (
     <Sheet open onClose={onClose} title="Link to a main lift">
+      {bwRow}
       {trackRow}
       {isMainWithKids ? (
         <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
