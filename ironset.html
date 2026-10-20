@@ -320,12 +320,16 @@ function buildModel(sets, allSets) {
 ---------------------------------------------------------------------------- */
 // A snapshot of everything logged today: which lifts, the top set on each, whether the
 // session pushed any estimate to a new high, and total working/back-off set counts.
-function sessionToday(state, models) {
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  const t0 = start.getTime();
+function sessionToday(state, models) { return sessionForDay(state, models, null); }
+// The same snapshot for any given day, because Train can be pointed at one that
+// is not today and a recap has to describe the session you are actually looking at.
+function sessionForDay(state, models, dateStr) {
+  const start = dateStr ? dayStart(dateStr) : new Date();
+  start.setHours(0, 0, 0, 0);
+  const t0 = start.getTime(), t1 = t0 + 86400000;
   const lifts = []; let totalSets = 0, backoffs = 0;
   for (const [name, ex] of Object.entries(state.exercises)) {
-    const today = ex.sets.filter((s) => s.ts >= t0);
+    const today = ex.sets.filter((s) => s.ts >= t0 && s.ts < t1);
     if (!today.length) continue;
     const work = today.filter((s) => !s.backoff);
     const bo = today.filter((s) => s.backoff);
@@ -338,7 +342,9 @@ function sessionToday(state, models) {
       for (const p of m.points) { if (p.ts < t0) before = p.value; else break; }
       up = before != null && e1rm - before > 0.5;
     }
-    lifts.push({ name, top, e1rm, up, sets: today.length, bo: bo.length });
+    // Tonnage per lift, so a recap can say what the day actually weighed.
+    const vol = today.reduce((a, x) => a + (x.weight || 0) * Math.max(0, x.reps || 0), 0);
+    lifts.push({ name, top, e1rm, up, sets: today.length, bo: bo.length, vol });
   }
   if (!lifts.length) return null;
   lifts.sort((a, b) => b.top.weight - a.top.weight);
@@ -1631,6 +1637,7 @@ const DEFAULT = {
   checkins: {}, // "YYYY-MM-DD" -> { score 1-10, gear: [..], ts }
   clips: {}, // setId -> { ex, ts, bytes, dur, w, h, type } — the video itself lives in IndexedDB
   library: [], // saved blocks: [{ id, name, savedAt, offsets, sessions, weeks, lifts }]
+  done: {},  // "YYYY-MM-DD" -> ts the session was called finished
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", trainingMode: "rpe", maxMode: "dynamic", topPct: 85, backoff: { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75, steps: [] } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
@@ -4192,6 +4199,71 @@ function MonthCalendar({ y, m, sel, onSel, onShift, program, loggedDays, state }
 // The library: save the block you built, then change it freely. One sheet does
 // both halves, because "save this" and "what have I saved" are the same thought
 // arriving a few weeks apart.
+/* The end of a session is a moment, and the app used to just... stop. This is
+   what you did, whether or not it matched the plan — because a session you cut
+   short is still a session you turned up for, and a recap that scolds you for
+   the two sets you skipped is a recap nobody opens twice. */
+function RecapSheet({ open, onClose, session, planned, unit, inputMode, dateStr, onShare }) {
+  if (!open || !session) return null;
+  const { lifts, totalSets, backoffs, anyUp } = session;
+  const eff = (x) => inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`;
+  const tonnage = lifts.reduce((a, l) => a + l.vol, 0);
+  return (
+    <Sheet open={open} onClose={onClose} title="Session complete">
+      <div style={{ textAlign: "center", padding: "4px 0 18px" }}>
+        <div style={{ fontFamily: MONO, fontSize: 54, fontWeight: 700, letterSpacing: "-0.04em",
+          lineHeight: 1, color: C.text }}>{totalSets}</div>
+        <div style={{ ...label2, color: C.faint, marginTop: 7 }}>
+          set{totalSets === 1 ? "" : "s"} · {lifts.length} movement{lifts.length === 1 ? "" : "s"}
+          {backoffs ? ` · ${backoffs} back-off` : ""}
+        </div>
+        {tonnage > 0 && (
+          <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted, marginTop: 8 }}>
+            {fmt(Math.round(tonnage))}{unit} moved
+          </div>
+        )}
+      </div>
+
+      {anyUp && <Callout tone="good" style={{ marginBottom: 12 }}>New estimated high today — that is the number going up.</Callout>}
+      {planned && planned.total > 0 && (
+        <Callout tone={planned.done >= planned.total ? "good" : "muted"} style={{ marginBottom: 12 }}>
+          {planned.done >= planned.total
+            ? `All ${planned.total} planned movement${planned.total === 1 ? "" : "s"} done.`
+            : `${planned.done} of ${planned.total} planned — the rest keeps till next time.`}
+        </Callout>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        {lifts.map((l) => (
+          <div key={l.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 13px",
+            borderRadius: R.ctrl, background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}` }}>
+            <span style={{ width: 3, alignSelf: "stretch", borderRadius: 2,
+              background: l.up ? C.good : tint(hueFor(l.name), 0.6) }} />
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: "block", fontWeight: 800, fontSize: 14, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+              <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
+                {loadLabel(l.top, unit)} × {l.top.reps} @ {eff(l.top)} · {l.sets} set{l.sets === 1 ? "" : "s"}
+              </span>
+            </span>
+            {l.e1rm != null && (
+              <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, flexShrink: 0,
+                color: l.up ? C.good : C.muted }}>{l.up ? "▲ " : ""}{fmt(Math.round(l.e1rm))}</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <Btn kind="primary" onClick={onShare} style={{ width: "100%", minHeight: 50 }}>
+        <Share size={16} /> Share this session
+      </Btn>
+      <div style={{ fontSize: 11.5, color: C.faint, textAlign: "center", marginTop: 11, lineHeight: 1.5 }}>
+        {dateStr} · logged and in the books.
+      </div>
+    </Sheet>
+  );
+}
+
 function LibrarySheet({ open, onClose, program, library, onSave, onLoad, onRename, onDelete }) {
   const [name, setName] = useState("");
   const [openId, setOpenId] = useState(null);
@@ -5193,6 +5265,20 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const straightCount = (activeSlot && !activeSlot.bo && !slotTimed(activeSlot) && activeSlot.sets > 1)
     ? activeSlot.sets : 0;
 
+  /* Changing what today asks for changes TODAY'S PLAN, not just this screen.
+     Cutting three sets to two because you ran out of time is a real decision
+     about the session, and the calendar should carry it — otherwise Plan keeps
+     insisting you owe a set you already decided not to do. Only this date's
+     slot moves; the rest of the block is untouched. */
+  const patchSlot = (slotId, patch) => setState((st) => {
+    const pr = st.program; if (!pr || !pr.days) return st;
+    const day = pr.days[logDate]; if (!day) return st;
+    let hit = false;
+    const next = day.map((x) => (x.id === slotId ? (hit = true, { ...x, ...patch }) : x));
+    if (!hit) return st;
+    return { ...st, program: { ...pr, days: { ...pr.days, [logDate]: next } } };
+  });
+
   const loadSlot = (sl) => {
     setActiveSlotId(sl.id);
     // A movement programmed but never trained yet gets created on first tap, wired
@@ -5330,6 +5416,20 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // The plan usually has the target right, so it stays folded away until it doesn't.
   const [targetOpen, setTargetOpen] = useState(false);
   const [bwEntry, setBwEntry] = useState("");
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [shareImg, setShareImg] = useState(null);
+  // Everything logged on the day being viewed, which is what a recap is about.
+  const recapSession = useMemo(() => sessionForDay(state, models, logDate), [state.exercises, models, logDate]);
+  const recapReady = !!recapSession;
+  const dayDone = !!((state.done || {})[logDate]);
+  const markDone = () => setState((st) => ({ ...st, done: { ...(st.done || {}), [logDate]: Date.now() } }));
+  // How much of what the day asked for actually happened. Reported, never scored.
+  const plannedProgress = useMemo(() => {
+    const total = sessionSlots.length;
+    if (!total) return null;
+    const done = sessionSlots.filter((sl) => (doneSlots[sl.id] || {}).started).length;
+    return { total, done };
+  }, [sessionSlots, doneSlots]);
   const [noteOpen, setNoteOpen] = useState(false);
   const [showDone, setShowDone] = useState(true);
   const scaleTop = useMemo(() => learnDropScale(selEx ? selEx.sets : [], DEFAULT_FATIGUE_K, true), [selEx]);
@@ -5740,8 +5840,14 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Sets</div>
-                <Stepper compact value={setsAsked} min={1} max={12}
-                  onChange={(v) => setBo({ sets: Math.max(0, Math.min(11, v - 1)) })} />
+                {/* Sets-across movements take their count from the planned slot, so
+                    writing to bo.sets here changed nothing at all — the number sat
+                    there taking taps. Whichever one is driving gets written. */}
+                <Stepper compact value={setsAsked} min={Math.max(1, setsIn)} max={12}
+                  onChange={(v) => { const n = Math.max(1, Math.min(12, v));
+                    if (straightCount) patchSlot(activeSlot.id, { sets: n });
+                    else { setBo({ sets: Math.max(0, n - 1) });
+                      if (activeSlot && activeSlot.bo) patchSlot(activeSlot.id, { bo: { ...activeSlot.bo, sets: Math.max(0, n - 1) } }); } }} />
               </div>
             </div>
             {!onFirst && boFamily.length > 1 && (
@@ -5979,12 +6085,35 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         </Card>
       )}
 
+      {/* Finishing is a decision, not a score. It is offered the moment anything
+          is logged, whether or not the plan is satisfied — a session you cut
+          short is still a session you turned up for. */}
+      {recapReady && (
+        <Btn kind={dayDone ? "ghost" : "primary"} onClick={() => { if (!dayDone) markDone(); setRecapOpen(true); }}
+          style={{ width: "100%", minHeight: 52, fontSize: 15.5 }}>
+          {dayDone ? <><Check size={17} /> Session complete — see recap</> : "Done training"}
+        </Btn>
+      )}
+
       {sel && !timedSel && (
         <button onClick={() => setLinking(true)} style={{ background: "none", border: "none", color: C.faint,
           fontSize: 11.5, fontWeight: 700, cursor: "pointer", alignSelf: "center", padding: 0 }}>
           {childNames.length ? `Includes ${childNames.map(shortLift).join(", ")}` : "Link as a variation"}
         </button>
       )}
+
+      <RecapSheet open={recapOpen} onClose={() => setRecapOpen(false)} session={recapSession}
+        planned={plannedProgress} unit={unit} inputMode={inputMode}
+        dateStr={dayStart(logDate).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+        onShare={() => { const S = recapSession; if (!S) return;
+          doShare(setShareImg, { type: "session",
+            date: dayStart(logDate).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+            headline: S.lifts.length === 1 ? S.lifts[0].name : `${S.lifts.length} lifts \u00b7 ${S.totalSets} sets`,
+            sub: S.anyUp ? "new estimated high" : `${S.totalSets} sets${S.backoffs ? ` \u00b7 ${S.backoffs} back-off` : ""}`,
+            lifts: S.lifts.map((l) => ({ name: l.name, up: l.up,
+              detail: `${loadLabel(l.top, unit)} \u00d7 ${l.top.reps} @ ${inputMode === "rir" ? `${fmt(10 - l.top.rpe)} RIR` : `RPE ${fmt(l.top.rpe)}`}`,
+              e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null })) }); }} />
+      {shareImg && <ShareSheet data={shareImg} onClose={() => setShareImg(null)} />}
 
       <ClipSheet open={!!filming} onClose={() => setFilming(null)}
         setId={filming ? filming.id : null} ex={filming ? filming.ex : sel} set={filming} unit={unit} inputMode={inputMode}
