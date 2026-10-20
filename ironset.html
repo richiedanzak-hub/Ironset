@@ -1234,6 +1234,8 @@ function MoveStrip({ moves, current, onPick, onAdd, addLabel }) {
             <span style={{ display: "block", fontFamily: SANS, fontWeight: 700, fontSize: 12.5,
               whiteSpace: "nowrap", letterSpacing: "-0.01em" }}>
               {m.done ? <Check size={11} style={{ color: C.good, marginRight: 4, verticalAlign: "-1px" }} /> : null}
+              {m.tag ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: on ? m.hue : C.faint,
+                marginRight: 5 }}>{m.tag}</span> : null}
               {m.short}
             </span>
             <span style={{ display: "flex", gap: 3, marginTop: 5 }}>
@@ -5416,11 +5418,13 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // The plan usually has the target right, so it stays folded away until it doesn't.
   const [targetOpen, setTargetOpen] = useState(false);
   const [bwEntry, setBwEntry] = useState("");
+  const [dateOpen, setDateOpen] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
   const [shareImg, setShareImg] = useState(null);
   // Everything logged on the day being viewed, which is what a recap is about.
   const recapSession = useMemo(() => sessionForDay(state, models, logDate), [state.exercises, models, logDate]);
   const recapReady = !!recapSession;
+  const backdated = logDate !== todayStr();
   const dayDone = !!((state.done || {})[logDate]);
   const markDone = () => setState((st) => ({ ...st, done: { ...(st.done || {}), [logDate]: Date.now() } }));
   // How much of what the day asked for actually happened. Reported, never scored.
@@ -5560,10 +5564,27 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   // The day as a row of chips: every programmed movement, plus whatever you are
   // actually on if you have wandered off the plan.
+  // Who is paired with whom. The plan has carried this all along — it is drawn in
+  // Plan and in the session list — but the one screen you actually train from
+  // said nothing, so a superset looked like two unrelated movements in a row.
+  const slotTags = useMemo(() => {
+    const m = {};
+    for (const d of decorateSlots(sessionSlots)) m[d.sl.id] = d;
+    return m;
+  }, [sessionSlots]);
+  const activeTag = activeSlot ? slotTags[activeSlot.id] : null;
+  const supersetWith = useMemo(() => {
+    if (!activeTag || !activeTag.grouped) return [];
+    const grp = groupSlots(sessionSlots).find((g) => g.some((x) => x.id === activeSlot.id)) || [];
+    return grp.filter((x) => x.id !== activeSlot.id);
+  }, [activeTag, sessionSlots, activeSlot]);
+
   const stripMoves = useMemo(() => {
-    const out = sessionSlots.filter((sl) => !sl.link || true).map((sl) => {
+    const out = sessionSlots.map((sl) => {
       const pr = doneSlots[sl.id] || { n: 0, total: 1, done: false };
+      const d = slotTags[sl.id];
       return { id: sl.id, ex: sl.ex, short: shortLift(sl.ex), hue: hueFor(sl.ex, state),
+        tag: d && d.grouped ? d.tag : null,
         n: pr.n, total: pr.total, done: pr.done, slot: sl };
     });
     if (sel && !out.some((m) => m.ex === sel)) {
@@ -5572,7 +5593,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         n, total: Math.max(n + 1, 1), done: false, slot: null });
     }
     return out;
-  }, [sessionSlots, doneSlots, sel, sessionToday, state.exercises]);
+  }, [sessionSlots, doneSlots, sel, sessionToday, state.exercises, slotTags]);
 
   // Two handicaps multiply into one figure on the bar, so that is the figure shown.
   const trimTotal = 1 - (1 - recovery.drop) * condFactor;
@@ -5731,18 +5752,50 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
         margin: "0 -16px", padding: "6px 16px 0" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between",
           gap: 10, marginBottom: 8 }}>
-          <span style={{ ...label, fontSize: 9.5 }}>
-            {sessionSlots.length ? (progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today") : "Training"}
-          </span>
+          {/* The day you are logging to was a caption; it is now the control, because
+              "this was last Tuesday, not today" is a thing people need to say and
+              there was no way to say it outside the timed logger. */}
+          <button onClick={() => setDateOpen((v) => !v)} style={{ background: "none", border: "none",
+            padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+            WebkitTapHighlightColor: "transparent" }}>
+            <span style={{ ...label, fontSize: 9.5, color: backdated ? C.gold : C.muted }}>
+              {backdated ? dayStart(logDate).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+                : sessionSlots.length ? (progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today") : "Training"}
+            </span>
+            <ChevronDown size={11} style={{ color: backdated ? C.gold : C.faint,
+              transform: dateOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
+          </button>
           {sessionSlots.length > 0 && (
             <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none",
               border: "none", color: C.faint, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>Can't train this?</button>
           )}
         </div>
+        {dateOpen && (
+          <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap", marginBottom: 9 }}>
+            <Chip sm active={!backdated} onClick={() => { setLogDate(todayStr()); setDateOpen(false); }}>Today</Chip>
+            <Chip sm active={logDate === addDays(todayStr(), -1)}
+              onClick={() => { setLogDate(addDays(todayStr(), -1)); setDateOpen(false); }}>Yesterday</Chip>
+            <input type="date" value={logDate} max={todayStr()}
+              onChange={(e) => setLogDate(e.target.value || todayStr())}
+              style={{ flex: "1 1 140px", minWidth: 0, background: "rgba(0,0,0,0.35)", border: `1px solid ${C.line}`,
+                borderRadius: R.input, padding: "0 11px", height: 38, color: C.text, fontFamily: MONO,
+                fontSize: 13, fontWeight: 700, outline: "none", colorScheme: "dark" }} />
+          </div>
+        )}
         <MoveStrip moves={stripMoves} current={sel} onAdd={() => setPickingLift(true)}
           addLabel={sessionSlots.length ? "Another lift" : "Switch lift"}
           onPick={(m) => (m.slot ? loadSlot(m.slot) : setSel(m.ex))} />
       </div>
+
+      {backdated && (
+        <Callout tone="warn">
+          Logging to {dayStart(logDate).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}, not today.
+          <button onClick={() => setLogDate(todayStr())} style={{ background: "none", border: "none",
+            color: C.gold, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: "0 0 0 8px" }}>
+            Back to today
+          </button>
+        </Callout>
+      )}
 
       {meetDays != null && meetDays >= 0 && meetDays <= 21 && (
         <Callout tone="warn">
@@ -5772,6 +5825,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               <ChevronDown size={14} style={{ color: C.muted, flexShrink: 0 }} />
             </button>
             <div style={{ ...label2, color: C.faint, marginTop: 7 }}>
+              {activeTag && activeTag.grouped ? <span style={{ fontFamily: MONO, color: selHue }}>{activeTag.tag} · </span> : null}
               {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
               {stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : ""}
               {stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : ""}
@@ -5859,6 +5913,32 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* A superset is two movements you alternate, so the partner belongs on the
+            card you are looking at — with a tap to go straight to it, because
+            that is the next thing you do. */}
+        {supersetWith.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 11, flexWrap: "wrap",
+            padding: "9px 11px", borderRadius: R.ctrl, background: tint(C.blue, 0.07),
+            border: `1px solid ${tint(C.blue, 0.26)}` }}>
+            <span style={{ ...label2, color: C.blue, fontSize: 9 }}>Superset</span>
+            <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>alternate with</span>
+            {supersetWith.map((x) => (
+              <button key={x.id} onClick={() => loadSlot(x)} style={{ cursor: "pointer",
+                background: "rgba(255,255,255,0.05)", border: `1px solid ${C.line2}`, borderRadius: R.pill,
+                padding: "5px 11px", color: C.text, fontFamily: SANS, fontWeight: 700, fontSize: 12,
+                WebkitTapHighlightColor: "transparent" }}>
+                {slotTags[x.id] ? <span style={{ fontFamily: MONO, fontSize: 10, color: C.faint, marginRight: 5 }}>{slotTags[x.id].tag}</span> : null}
+                {shortLift(x.ex)}
+              </button>
+            ))}
+            {activeTag && activeTag.rounds ? (
+              <span style={{ fontSize: 11.5, color: C.faint, marginLeft: "auto", fontFamily: MONO }}>
+                {activeTag.rounds} rounds
+              </span>
+            ) : null}
           </div>
         )}
 
@@ -5974,9 +6054,6 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               Warm-up <ChevronDown size={13} style={{ transform: showWarm ? "rotate(180deg)" : "none", transition: ".2s" }} />
             </button>
           )}
-          {logDate !== todayStr() && (
-            <span style={{ fontSize: 12, color: C.red, fontWeight: 700 }}>backdated</span>
-          )}
           <button onClick={() => setNoteOpen((v) => !v)} style={{ background: "none", border: "none",
             color: note.trim() ? selHue : C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
             {note.trim() ? "Note ✓" : "Note"}
@@ -5998,7 +6075,6 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             style={{ width: "100%", marginTop: 10, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 12,
               padding: "11px 12px", color: C.text, fontFamily: SANS, fontSize: 14, outline: "none" }} />
         )}
-        {logDate !== todayStr() && <div style={{ marginTop: 10 }}><DateField value={logDate} onChange={setLogDate} /></div>}
         {showPlates && suggested != null && <PlateView total={parseFloat(curWeight) || suggested} bar={bar} denoms={denoms} unit={unit} />}
         {onFirst && showWarm && warmup.length > 1 && (
           <div style={{ textAlign: "left", marginTop: 12, border: `1px solid ${C.line}`, borderRadius: R.ctrl,
