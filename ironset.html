@@ -2029,7 +2029,18 @@ function residualFatigue(sets, refTs, includeToday) {
        is always the honest answer to "from what". */
     for (const s of byDay[d]) {
       const ex = strainExcess(s.rpe);
-      S += Math.sqrt(Math.max(1, s.reps)) * ex * (s.backoff ? 0.4 : 1);
+      const reps = Math.max(1, s.reps || 1);
+      /* How heavy the set was, as a share of what that lift could do for one —
+         straight off the rep chart, so it needs no model and cannot go circular.
+         Without it, reps and proximity to failure were the only inputs, and a
+         set of twenty leg extensions taken to RPE 9.5 came out TEN TIMES the
+         debt of a true max single. Going linear-to-sqrt on reps tamed the worst
+         of that but left the ordering wrong, because rep count keeps piling up
+         with no reference to the load. What blunts a heavy lift two days later
+         tracks the weight far more than the rep count, so intensity enters
+         squared and the long light sets fall back behind the heavy work. */
+      const load = pctForN(repsToFailure(reps, s.rpe == null ? 8 : s.rpe)) / 100;
+      S += Math.sqrt(reps) * ex * load * load * (s.backoff ? 0.4 : 1);
       if (ex > 0) peak = Math.max(peak, s.rpe);
       lastTs = Math.max(lastTs, s.ts);
     }
@@ -2047,13 +2058,22 @@ function residualFatigue(sets, refTs, includeToday) {
 // week-over-week measure deliberately ignores everything below RPE 8: three sets of
 // five at 8 leaves nothing to carry into next Tuesday, but it absolutely leaves
 // something for the deadlift you are about to do twenty minutes from now.
-const SESSION_K = 0.018;
+const SESSION_K = 0.055;
 const SESSION_CAP = 0.085;   // other lifts alone never explain more than 8.5%
 function sessionStrain(sets) {
   let S = 0, peak = 0, n = 0;
   for (const s of sets) {
     if (s.reps == null && s.secs != null) continue;      // timed work carries no load
-    S += Math.max(1, s.reps || 1) * fatigueEffort(s.rpe == null ? 8 : s.rpe) * (s.backoff ? 0.65 : 1);
+    // Same flaw as the week-over-week measure, and worse here because reps enter
+    // linearly: without weighting by how heavy the set was, sixty reps of leg
+    // extensions earlier today buried a heavy squat triple many times over.
+    const reps = Math.max(1, s.reps || 1);
+    const rpe = s.rpe == null ? 8 : s.rpe;
+    const load = pctForN(repsToFailure(reps, rpe)) / 100;
+    // Reps on a square root here too. The week-over-week measure was moved off
+    // linear reps for exactly this reason and this path was left behind, which
+    // is the whole of why it read a set of twenty as twenty times a single.
+    S += Math.sqrt(reps) * fatigueEffort(rpe) * load * load * (s.backoff ? 0.65 : 1);
     if (!s.backoff) peak = Math.max(peak, s.rpe || 0);
     n++;
   }
@@ -5597,13 +5617,17 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
   // Two handicaps multiply into one figure on the bar, so that is the figure shown.
   const trimTotal = 1 - (1 - recovery.drop) * condFactor;
+  /* Biggest cause first. Listing them in a fixed order meant the line could lead
+     with a 0.6% contributor and bury the 6% one under "+1 more", which reads as
+     the app blaming the wrong thing — and is how you end up doubting a number
+     that was right. */
   const trimWhy = [
-    recovery.carry && recovery.carryDrop >= 0.005
-      ? `${recovery.carry.sets} ${recovery.carry.from} set${recovery.carry.sets === 1 ? "" : "s"} earlier today` : null,
-    recovery.priorDrop >= 0.005
-      ? `RPE ${fmt(recovery.peak)} ${recovery.from || sel} session ${recovery.days}d ago` : null,
-    condFactor < 0.999 ? condWhy : null,
-  ].filter(Boolean);
+    { w: recovery.carryDrop, show: recovery.carry && recovery.carryDrop >= 0.005,
+      t: recovery.carry ? `${recovery.carry.sets} ${recovery.carry.from} set${recovery.carry.sets === 1 ? "" : "s"} earlier today` : "" },
+    { w: recovery.priorDrop, show: recovery.priorDrop >= 0.005,
+      t: `RPE ${fmt(recovery.peak)} ${recovery.from || sel} session ${recovery.days}d ago` },
+    { w: 1 - condFactor, show: condFactor < 0.999, t: condWhy },
+  ].filter((x) => x.show && x.t).sort((a, b) => b.w - a.w).map((x) => x.t);
   const [whyTrim, setWhyTrim] = useState(false);
 
   const onFirst = setsIn === 0;
