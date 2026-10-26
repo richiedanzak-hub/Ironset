@@ -2475,7 +2475,8 @@ const LIB = [
   ["Deficit Deadlift 1in","deadlift","Deadlift",0.95,"rpe","bb"],["Deficit Deadlift 2in","deadlift","Deadlift",0.92,"rpe","bb"],
   ["Deficit Deadlift 3in","deadlift","Deadlift",0.9,"rpe","bb"],["Block Pull 2in","deadlift","Deadlift",1.08,"rpe","bb"],
   ["Block Pull 4in","deadlift","Deadlift",1.15,"rpe","bb"],["Rack Pull Below Knee","deadlift","Deadlift",1.15,"rpe","bb"],
-  ["Rack Pull At Knee","deadlift","Deadlift",1.25,"rpe","bb"],["Pause Deadlift","deadlift","Deadlift",0.9,"rpe","bb"],
+  ["Rack Pull At Knee","deadlift","Deadlift",1.25,"rpe","bb"],["Pause Deadlift","deadlift","Deadlift",0.85,"rpe","bb"],
+  ["2ct Pause Deadlift","deadlift","Deadlift",0.83,"rpe","bb"],["3ct Pause Deadlift","deadlift","Deadlift",0.8,"rpe","bb"],
   ["Pause Below Knee","deadlift","Deadlift",0.88,"rpe","bb"],["Tempo Deadlift","deadlift","Deadlift",0.88,"rpe","bb"],
   ["Snatch-Grip Deadlift","deadlift","Deadlift",0.85,"rpe","bb"],["Halting Deadlift","deadlift","Deadlift",0.9,"rpe","bb"],
   ["Banded Deadlift","deadlift","Deadlift",0.9,"pct","bd"],["Chain Deadlift","deadlift","Deadlift",0.9,"pct","bb"],
@@ -5236,6 +5237,18 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // a squat day than a bench day and matches that lift everywhere else in the app.
   const selHue = hueFor(sel, state);
   const e1rm = model.e1rm;
+  /* An estimate with nothing of its own behind it. A variation you have never
+     trained takes its number from its parent lift times a library guess at the
+     ratio, and the screen used to present that with exactly the same confidence
+     as a lift with twenty sessions in it. Being 16% heavy on the first set of a
+     paused deadlift is a bad way to find out the guess was optimistic. */
+  const inferred = useMemo(() => {
+    const ex = sel && state.exercises[sel];
+    if (!ex || !ex.parent || !state.exercises[ex.parent]) return null;
+    if ((ex.sets || []).some((x) => x.secs == null)) return null;   // it has its own history
+    const r = (models[sel] && models[sel].ratio) || ex.ratioManual || ex.ratio || 0.9;
+    return { parent: ex.parent, pct: Math.round(r * 100) };
+  }, [sel, state.exercises, models]);
   // Accessories are shown in the unit they are actually trained in. The estimate
   // underneath is the same one every other lift uses — only the way it is read out
   // changes, because "your leg extension one-rep max" is not a thing anyone does.
@@ -5856,7 +5869,9 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             </div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <div style={{ ...label2, color: C.faint, fontSize: 8.5 }}>{accMode ? "Working" : "Est. 1RM"}</div>
+            <div style={{ ...label2, color: inferred ? C.gold : C.faint, fontSize: 8.5 }}>
+              {inferred ? `From ${shortLift(inferred.parent)}` : accMode ? "Working" : "Est. 1RM"}
+            </div>
             <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: C.muted, marginTop: 3,
               fontVariantNumeric: "tabular-nums" }}>
               {accMode ? (accWork != null ? fmt(roundTo(accWork, round)) : "—") : (e1rm != null ? fmt(roundTo(e1rm, round)) : "—")}
@@ -5938,6 +5953,14 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               </div>
             )}
           </div>
+        )}
+
+        {inferred && (
+          <Callout tone="warn">
+            First time on this — {fmt(roundTo(e1rm || 0, round))} is your {inferred.parent} at {inferred.pct}%,
+            not anything you have lifted.
+            <span style={{ color: C.faint, fontWeight: 600 }}> Treat set 1 as a feeler; it corrects the moment you log one.</span>
+          </Callout>
         )}
 
         {/* A superset is two movements you alternate, so the partner belongs on the
