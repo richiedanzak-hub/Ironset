@@ -1949,7 +1949,7 @@ function App() {
             <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, updateSet, deleteSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools, saveClip, dropClip }} />
           )}
           {tab === "plan" && (
-            <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
+            <ProgramTab {...{ state, setState, setTab, setSel, models, focusDay, onFocusDone: () => setFocusDay(null) }} />
           )}
           {tab === "history" && (
             <HistoryTab {...{ state, setState, sel, setSel, models, deleteSet, updateSet, deleteExercise, unit, inputMode, saveClip, dropClip, analysis }} />
@@ -3276,6 +3276,391 @@ const PROGRAMS = [
     },
   },
   {
+    id: "ppl", name: "Push / Pull / Legs", origin: "the six-day bodybuilding split, run twice a week",
+    level: [2, 3], days: [6], weeks: [6, 12], goal: "size", deload: 4,
+    blurb: "Each pattern twice a week, with enough volume to actually grow.",
+    how: "Six short sessions beat three long ones for volume you can recover from — nothing has to be third in the queue.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 4);
+      const push = [topSet("Competition Bench", 6, r, 3, 8, r - 1), acc("Overhead Press", 3, 10), acc("Incline Bench", 3, 10), acc("Lateral Raise", 3, 15), acc("Overhead Triceps Extension", 3, 12)];
+      const pull = [acc("Pull-Up", 4, 8), acc("Chest-Supported Row", 4, 10), acc("Straight-Arm Pulldown", 3, 12), acc("Face Pull", 3, 15), acc("Barbell Curl", 3, 12)];
+      const legs = [topSet("Low-Bar Squat", 6, r, 3, 8, r - 1), acc("Romanian Deadlift", 3, 10), acc("Leg Press", 3, 12), acc("Lying Leg Curl", 3, 12), acc("Standing Calf Raise", 4, 12)];
+      const pull2 = [topSet("Conventional Deadlift", 4, r, 2, 6, r - 1), acc("Seal Row", 4, 10), acc("Lat Pulldown", 3, 12), acc("Rear Delt Fly", 3, 15), acc("Hammer Curl", 3, 12)];
+      return [push, pull, legs, push, pull2, legs];
+    },
+  },
+  {
+    id: "ppl3", name: "Push / Pull / Legs, Three Days", origin: "the same rotation at half the frequency",
+    level: [1, 2], days: [3], weeks: [6, 16], goal: "size", deload: 5,
+    blurb: "One push, one pull, one legs — the simplest way to cover everything.",
+    how: "Three sessions is what most people actually manage. Each pattern gets a full day rather than a corner of one.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 5);
+      return [
+        [topSet("Competition Bench", 8, r, 3, 10, r - 1), acc("Overhead Press", 3, 10), acc("Dip", 3, 10), acc("Lateral Raise", 3, 15)],
+        [acc("Pull-Up", 4, 8), acc("Barbell Row", 4, 10), acc("Face Pull", 3, 15), acc("Barbell Curl", 3, 12)],
+        [topSet("Low-Bar Squat", 8, r, 3, 10, r - 1), acc("Romanian Deadlift", 3, 10), acc("Leg Press", 3, 12), acc("Lying Leg Curl", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "ul-hyp", name: "Upper / Lower Hypertrophy", origin: "the four-day split built for volume rather than singles",
+    level: [2, 3], days: [4], weeks: [6, 12], goal: "size", deload: 4,
+    blurb: "Four days of moderate reps, each pattern twice a week.",
+    how: "Sets of six to twelve at a hard but repeatable effort — the range where most size is built, and where the estimator is at its steadiest.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 4);
+      return [
+        [topSet("Low-Bar Squat", 6, r, 3, 8, r - 1), acc("Romanian Deadlift", 4, 8), acc("Leg Press", 3, 12), acc("Lying Leg Curl", 3, 12)],
+        [topSet("Competition Bench", 6, r, 3, 8, r - 1), acc("Chest-Supported Row", 4, 10), acc("Incline Bench", 3, 10), acc("Lateral Raise", 3, 15)],
+        [topSet("Conventional Deadlift", 5, r, 2, 6, r - 1), acc("Front Squat", 3, 8), acc("Walking Lunge", 3, 10), acc("Standing Calf Raise", 4, 12)],
+        [topSet("Overhead Press", 6, r, 3, 8, r - 1), acc("Pull-Up", 4, 8), acc("Dip", 3, 10), acc("Barbell Curl", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "antag", name: "Antagonist Pairs", origin: "pairing opposing movements to halve the time",
+    level: [2, 3], days: [4], weeks: [6, 12], goal: "size", deload: 4,
+    blurb: "Push supersetted with pull, all the way down.",
+    how: "While one side works the other recovers, so the session takes about two thirds as long for the same work. IRONSET pairs them and alternates for you.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 4);
+      const pair = (a, b) => [a, { ...b, link: true }];
+      return [
+        [topSet("Competition Bench", 6, r, 3, 8, r - 1), ...pair(acc("Incline Bench", 3, 10), acc("Barbell Row", 3, 10)), ...pair(acc("Dip", 3, 10), acc("Lat Pulldown", 3, 12))],
+        [topSet("Low-Bar Squat", 6, r, 3, 8, r - 1), ...pair(acc("Leg Extension", 3, 12), acc("Lying Leg Curl", 3, 12)), acc("Standing Calf Raise", 4, 15)],
+        [topSet("Overhead Press", 6, r, 3, 8, r - 1), ...pair(acc("Lateral Raise", 3, 15), acc("Face Pull", 3, 15)), ...pair(acc("Overhead Triceps Extension", 3, 12), acc("Barbell Curl", 3, 12))],
+        [topSet("Conventional Deadlift", 5, r, 2, 6, r - 1), ...pair(acc("Hip Thrust", 3, 10), acc("Back Extension", 3, 12)), acc("Hanging Leg Raise", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "fb-hyp", name: "Full Body Hypertrophy", origin: "three full-body days, built around volume",
+    level: [1, 2], days: [3], weeks: [6, 12], goal: "size", deload: 5,
+    blurb: "Every pattern three times a week, moderate reps throughout.",
+    how: "Frequency does the work a split does with volume. Each lift is hit often enough that none of it needs to be taken to the edge.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 5);
+      return [
+        [topSet("Low-Bar Squat", 8, r, 2, 10, r - 1), acc("Competition Bench", 3, 10), acc("Barbell Row", 3, 10), acc("Lateral Raise", 3, 15)],
+        [topSet("Overhead Press", 8, r, 2, 10, r - 1), acc("Romanian Deadlift", 3, 10), acc("Pull-Up", 3, 8), acc("Leg Extension", 3, 12)],
+        [topSet("Competition Bench", 8, r, 2, 10, r - 1), acc("Front Squat", 3, 8), acc("Lat Pulldown", 3, 12), acc("Barbell Curl", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "express", name: "Forty-Five Minutes", origin: "the session that fits in a lunch break",
+    level: [1, 3], days: [3, 4], weeks: [4, 16], goal: "strength", deload: 5,
+    blurb: "One main lift, two accessories, out the door.",
+    how: "Cut to what moves the total. Everything that survived is either a competition lift or the thing that most directly feeds one.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7.5, w, 5);
+      const a = [topSet("Low-Bar Squat", 5, r, 2, 6, r - 1), acc("Romanian Deadlift", 2, 8), acc("Hanging Leg Raise", 2, 12)];
+      const b = [topSet("Competition Bench", 5, r, 3, 6, r - 1), acc("Barbell Row", 3, 8), acc("Overhead Triceps Extension", 2, 12)];
+      const c = [topSet("Conventional Deadlift", 4, r, 2, 5, r - 1), acc("Pull-Up", 3, 6), acc("Back Extension", 2, 12)];
+      const e = [topSet("Overhead Press", 6, r, 2, 8, r - 1), acc("Lat Pulldown", 3, 10), acc("Barbell Curl", 2, 12)];
+      return d === 3 ? [a, b, c] : [a, b, c, e];
+    },
+  },
+  {
+    id: "travel", name: "Travel Week", origin: "a hotel gym and whatever it happens to have",
+    level: [1, 3], days: [2, 3], weeks: [1, 3], goal: "maintain", deload: 0,
+    blurb: "Dumbbells, a bench and your own bodyweight.",
+    how: "A week away costs nothing if you keep the patterns moving. No barbell anywhere in it, so it works in a hotel basement.",
+    build: () => {
+      const a = [acc("Goblet Squat", 4, 12), acc("Push-Up", 4, 15, 1), acc("Dumbbell Row", 4, 12), acc("Walking Lunge", 3, 12)];
+      const b = [acc("Bulgarian Split Squat", 4, 10), acc("Dip", 4, 10, 1), acc("Lat Pulldown", 4, 12), acc("Plank", 3, 45)];
+      const c = [acc("Romanian Deadlift", 4, 12), acc("Incline Bench", 4, 12), acc("Chin-Up", 4, 8, 1), acc("Lateral Raise", 3, 15)];
+      return [a, b, c];
+    },
+  },
+  {
+    id: "barbell-only", name: "Barbell Only", origin: "a rack, a bar and plates",
+    level: [1, 3], days: [3, 4], weeks: [6, 16], goal: "strength", deload: 4,
+    blurb: "No machines, no cables, nothing you might not have.",
+    how: "Built for a garage. Every accessory is a barbell movement, so nothing in the block depends on equipment you have to drive to.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7.5, w, 4);
+      const a = [topSet("Low-Bar Squat", 5, r, 3, 6, r - 1), acc("Romanian Deadlift", 3, 8), acc("Barbell Row", 3, 8)];
+      const b = [topSet("Competition Bench", 5, r, 3, 6, r - 1), acc("Overhead Press", 3, 8), acc("Barbell Curl", 3, 10)];
+      const c = [topSet("Conventional Deadlift", 4, r, 2, 5, r - 1), acc("Front Squat", 3, 6), acc("Back Extension", 3, 12)];
+      const e = [topSet("Overhead Press", 6, r, 2, 8, r - 1), acc("Pendlay Row", 4, 8), acc("Close-Grip Bench", 3, 8)];
+      return d === 3 ? [a, b, c] : [a, b, c, e];
+    },
+  },
+  {
+    id: "eod", name: "Every Other Day", origin: "a rotation that ignores the calendar week",
+    level: [2, 3], days: [4], weeks: [6, 12], goal: "strength", deload: 4,
+    blurb: "Train, rest, train — four movements rotating regardless of what day it is.",
+    how: "A seven-day week is an accident of the calendar, not of recovery. This rotates on your schedule instead, which suits shift work and anyone whose week is not the same twice.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7.5, w, 4);
+      return [
+        [topSet("Low-Bar Squat", 4, r, 3, 5, r - 1), acc("Leg Press", 3, 10), acc("Hanging Leg Raise", 3, 12)],
+        [topSet("Competition Bench", 4, r, 3, 5, r - 1), acc("Barbell Row", 4, 8), acc("Overhead Triceps Extension", 3, 12)],
+        [topSet("Conventional Deadlift", 3, r, 2, 5, r - 1), acc("Front Squat", 3, 6), acc("Back Extension", 3, 12)],
+        [topSet("Overhead Press", 5, r, 3, 6, r - 1), acc("Pull-Up", 4, 6), acc("Lateral Raise", 3, 15)],
+      ];
+    },
+  },
+  {
+    id: "six-day", name: "Six-Day Split", origin: "high frequency for people who recover well",
+    level: [3, 3], days: [6], weeks: [4, 10], goal: "strength", deload: 3,
+    blurb: "Short, frequent, and each lift touched three times a week.",
+    how: "Frequency this high only works because each session is small. Nothing here goes past a hard single set plus a back-off, which is what makes six days survivable.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 3);
+      return [
+        [topSet("Low-Bar Squat", 3, r, 2, 5, r - 1), acc("Leg Extension", 2, 12)],
+        [topSet("Competition Bench", 3, r, 2, 5, r - 1), acc("Barbell Row", 3, 8)],
+        [topSet("Conventional Deadlift", 2, r, 1, 4, r - 1), acc("Back Extension", 2, 12)],
+        [topSet("Pause Squat", 4, r - 0.5, 2, 5, r - 1.5), acc("Lying Leg Curl", 2, 12)],
+        [topSet("2ct Pause Bench", 4, r - 0.5, 2, 5, r - 1.5), acc("Lat Pulldown", 3, 10)],
+        [topSet("Overhead Press", 5, r, 2, 6, r - 1), acc("Face Pull", 3, 15)],
+      ];
+    },
+  },
+  {
+    id: "novice-reset", name: "Novice Linear, With Resets", origin: "linear progression and the part nobody writes down",
+    level: [1, 1], days: [3], weeks: [8, 20], goal: "strength", deload: 0,
+    blurb: "Add weight every session until you stall, then drop back and run it up again.",
+    how: "The stall is the point, not the failure — it is how you find the edge. The app drops you to around ninety percent of where you stopped and climbs back, which is the reset every linear programme assumes you know to do.",
+    build: (d, lvl, w) => {
+      const dip = (w + 1) % 6 === 0;
+      const r = dip ? 6 : 7.5;
+      return [
+        [straight("Low-Bar Squat", 3, 5, r), straight("Competition Bench", 3, 5, r), acc("Barbell Row", 3, 8)],
+        [straight("Low-Bar Squat", 3, 5, r - 0.5), straight("Overhead Press", 3, 5, r), straight("Conventional Deadlift", 1, 5, r)],
+        [straight("Low-Bar Squat", 3, 5, r), straight("Competition Bench", 3, 5, r), acc("Chin-Up", 3, 6)],
+      ];
+    },
+  },
+  {
+    id: "lin-amrap", name: "Linear With Rep-Outs", origin: "linear progression with the last set taken out",
+    level: [1, 2], days: [3], weeks: [6, 16], goal: "strength", deload: 0,
+    blurb: "Straight sets, and the last one goes until it stops.",
+    how: "The rep-out does two jobs: it adds the volume straight sets miss, and it tells the estimator exactly where you are, because a set taken to the edge is the most honest data you can give it.",
+    build: (d, lvl, w) => {
+      const r = 7.5;
+      const amr = (ex, sets, reps) => ({ ...straight(ex, sets, reps, r), amrap: "last" });
+      return [
+        [amr("Low-Bar Squat", 3, 5), amr("Competition Bench", 3, 5), acc("Barbell Row", 3, 8)],
+        [amr("Overhead Press", 3, 5), amr("Conventional Deadlift", 2, 5), acc("Chin-Up", 3, 6)],
+        [amr("Low-Bar Squat", 3, 5), amr("Close-Grip Bench", 3, 6), acc("Lat Pulldown", 3, 10)],
+      ];
+    },
+  },
+  {
+    id: "taper2", name: "Two-Week Taper", origin: "the short taper, for a meet that came round fast",
+    level: [2, 3], days: [3, 4], weeks: [2, 2], goal: "peak", deload: 0,
+    blurb: "Two weeks: open heavy, then get out of the way.",
+    how: "Volume falls off a cliff and intensity holds. Two weeks is the least you can taper on and still arrive fresh; anything shorter is just a deload with a meet at the end.",
+    build: (d, lvl, w) => {
+      const first = w === 0;
+      const r = first ? 8.5 : 7;
+      const a = [topSet("Low-Bar Squat", first ? 2 : 1, r, first ? 1 : 0, 3, r - 1.5), acc("Hanging Leg Raise", 2, 10, 4)];
+      const b = [topSet("Competition Bench", first ? 2 : 1, r, first ? 1 : 0, 3, r - 1.5), acc("Lat Pulldown", 2, 10, 4)];
+      const c = [topSet("Conventional Deadlift", first ? 2 : 1, r, 0, 3, r - 1.5), acc("Back Extension", 2, 10, 4)];
+      return d === 3 ? [a, b, c] : [a, b, c, [acc("Pull-Up", 2, 6, 4), acc("Face Pull", 2, 15, 4)]];
+    },
+  },
+  {
+    id: "taper3", name: "Three-Week Taper", origin: "the standard run-in to a platform",
+    level: [2, 3], days: [3, 4], weeks: [3, 3], goal: "peak", deload: 0,
+    blurb: "Openers in week one, second attempts in week two, rest in week three.",
+    how: "Each week takes volume out and leaves intensity alone, so the last heavy thing you touch is roughly your opener. Meet week is deliberately almost empty.",
+    build: (d, lvl, w) => {
+      const r = [8.5, 9, 6][w] || 6;
+      const sets = [2, 1, 1][w] || 1;
+      const bo = [2, 1, 0][w] || 0;
+      const a = [topSet("Low-Bar Squat", w === 2 ? 3 : sets, r, bo, 3, r - 1.5), acc("Hanging Leg Raise", 2, 10, 4)];
+      const b = [topSet("Competition Bench", w === 2 ? 3 : sets, r, bo, 3, r - 1.5), acc("Lat Pulldown", 2, 10, 4)];
+      const c = [topSet("Conventional Deadlift", w === 2 ? 3 : sets, r, bo, 3, r - 1.5), acc("Back Extension", 2, 10, 4)];
+      return d === 3 ? [a, b, c] : [a, b, c, [acc("Pull-Up", 2, 6, 4), acc("Face Pull", 2, 15, 4)]];
+    },
+  },
+  {
+    id: "meetweek", name: "Meet Week", origin: "the last seven days, and nothing more",
+    level: [2, 3], days: [2, 3], weeks: [1, 1], goal: "peak", deload: 0,
+    blurb: "Two light sessions early in the week, then nothing.",
+    how: "Nothing you do this week will make you stronger and several things could make you weaker. The only job is to keep the groove and arrive rested.",
+    build: () => [
+      [topSet("Low-Bar Squat", 2, 6, 0), topSet("Competition Bench", 2, 6, 0)],
+      [topSet("Conventional Deadlift", 1, 5.5, 0), acc("Lat Pulldown", 2, 10, 4)],
+      [acc("Face Pull", 2, 15, 4), acc("Plank", 2, 30, 4)],
+    ],
+  },
+  {
+    id: "single-peak", name: "Single-Lift Peak", origin: "eight weeks pointed at one number",
+    level: [2, 3], days: [3, 4], weeks: [6, 10], goal: "peak", deload: 4,
+    blurb: "One lift gets the frequency, the attention and the taper. The others tick over.",
+    how: "For a gym lift you want on a date — a first four-plate bench, a five-plate squat. Everything else is held at maintenance so the recovery goes where the goal is.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      return [
+        [topSet("Low-Bar Squat", Math.max(1, 5 - w), r, 3, 5, r - 1), acc("Leg Press", 3, 10), acc("Hanging Leg Raise", 3, 12)],
+        [topSet("Competition Bench", 5, 7, 2, 6, 6.5), acc("Barbell Row", 3, 8)],
+        [topSet("Pause Squat", 3, r - 1, 2, 4, r - 2), acc("Conventional Deadlift", 2, 5, 3), acc("Back Extension", 3, 12)],
+        [topSet("Overhead Press", 6, 7, 2, 8, 6.5), acc("Pull-Up", 3, 6)],
+      ].slice(0, d);
+    },
+  },
+  {
+    id: "return-injury", name: "Return From Injury", origin: "the ramp back, built to be boringly slow",
+    level: [1, 3], days: [3], weeks: [4, 8], goal: "maintain", deload: 0,
+    blurb: "Light, frequent and nowhere near failure, climbing one step a week.",
+    how: "Tissue tolerates load before it tolerates effort, so this adds frequency and reps long before it adds intensity. Nothing goes above RPE 7 until the last week, and every session is designed to be stopped early without ruining the block.",
+    build: (d, lvl, w) => {
+      const r = Math.min(7, 5 + w * 0.5);
+      return [
+        [straight("Low-Bar Squat", 3, 8, r), acc("Leg Press", 3, 12, 4), acc("Plank", 3, 30, 4)],
+        [straight("Competition Bench", 3, 8, r), acc("Chest-Supported Row", 3, 12, 4), acc("Face Pull", 3, 15, 4)],
+        [straight("Romanian Deadlift", 3, 8, r), acc("Back Extension", 3, 12, 4), acc("Lat Pulldown", 3, 12, 4)],
+      ];
+    },
+  },
+  {
+    id: "return-layoff", name: "Back After Time Off", origin: "the first month after a long break",
+    level: [1, 3], days: [3], weeks: [3, 6], goal: "strength", deload: 0,
+    blurb: "Rebuild the positions first; the strength comes back faster than you expect.",
+    how: "Strength returns much quicker than it was built, so the limit in the first weeks is soreness and technique, not capacity. Moderate reps at a comfortable effort, climbing steadily.",
+    build: (d, lvl, w) => {
+      const r = Math.min(8, 6 + w * 0.5);
+      return [
+        [straight("Low-Bar Squat", 3, 6, r), straight("Competition Bench", 3, 8, r), acc("Barbell Row", 3, 10)],
+        [straight("Overhead Press", 3, 8, r), straight("Romanian Deadlift", 3, 6, r), acc("Lat Pulldown", 3, 12)],
+        [straight("Front Squat", 3, 6, r), straight("Close-Grip Bench", 3, 8, r), acc("Back Extension", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "postmeet", name: "Post-Meet Rebuild", origin: "the four weeks after a platform",
+    level: [2, 3], days: [3, 4], weeks: [3, 6], goal: "size", deload: 0,
+    blurb: "Variations, higher reps, and no competition lift taken heavy.",
+    how: "After a meet the useful work is the work you have not been doing. Pauses, tempos and accessories at moderate effort, while the peak drains out of you.",
+    build: (d, lvl, w) => {
+      const r = Math.min(8, 6.5 + w * 0.5);
+      const a = [straight("Pause Squat", 4, 6, r), acc("Leg Press", 3, 12), acc("Lying Leg Curl", 3, 12)];
+      const b = [straight("Spoto Press", 4, 8, r), acc("Chest-Supported Row", 4, 10), acc("Lateral Raise", 3, 15)];
+      const c = [straight("Romanian Deadlift", 4, 8, r), acc("Front Squat", 3, 8), acc("Back Extension", 3, 12)];
+      const e = [straight("Overhead Press", 4, 8, r), acc("Pull-Up", 4, 8), acc("Barbell Curl", 3, 12)];
+      return d === 3 ? [a, b, c] : [a, b, c, e];
+    },
+  },
+  {
+    id: "offseason-sport", name: "Off-Season Strength", origin: "the winter block for a field-sport athlete",
+    level: [1, 2], days: [3, 4], weeks: [6, 12], goal: "strength", deload: 4,
+    blurb: "Strength and power, with enough left over to still be an athlete.",
+    how: "Built around trap bar and front squat rather than maximal competition lifts, and capped well short of failure so it does not compete with the field work.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7, w, 4);
+      const a = [topSet("Trap Bar Deadlift", 5, r, 2, 6, r - 1), acc("Box Jump", 4, 3, 5), acc("Walking Lunge", 3, 10)];
+      const b = [topSet("Competition Bench", 5, r, 2, 6, r - 1), acc("Pull-Up", 4, 8), acc("Face Pull", 3, 15)];
+      const c = [topSet("Front Squat", 5, r, 2, 6, r - 1), acc("Romanian Deadlift", 3, 8), acc("Hanging Leg Raise", 3, 12)];
+      const e = [topSet("Overhead Press", 6, r, 2, 8, r - 1), acc("Chest-Supported Row", 4, 10), acc("Standing Calf Raise", 3, 15)];
+      return d === 3 ? [a, b, c] : [a, b, c, e];
+    },
+  },
+  {
+    id: "inseason", name: "In-Season Maintenance", origin: "two short days a week during a competitive season",
+    level: [1, 3], days: [2], weeks: [8, 20], goal: "maintain", deload: 0,
+    blurb: "Enough to hold what you built, never enough to cost you a game.",
+    how: "Strength holds for a surprisingly long time on very little, provided the little is heavy. Low reps, low volume, a long way from failure.",
+    build: () => [
+      [topSet("Trap Bar Deadlift", 3, 7, 1, 4, 6), acc("Pull-Up", 2, 6, 3)],
+      [topSet("Competition Bench", 3, 7, 1, 4, 6), acc("Front Squat", 2, 5, 3), acc("Plank", 2, 40, 4)],
+    ],
+  },
+  {
+    id: "bridge", name: "Size Into Strength", origin: "the handover between a size block and a strength one",
+    level: [2, 3], days: [4], weeks: [3, 5], goal: "strength", deload: 0,
+    blurb: "Reps come down and effort goes up, week by week, until you are ready to be strong again.",
+    how: "Going straight from tens to singles wastes a fortnight feeling terrible. This walks the reps down — eights, then fives, then triples — so the first heavy week of the next block is not a shock.",
+    build: (d, lvl, w) => {
+      const reps = [8, 6, 5, 3, 3][w] || 3;
+      const r = Math.min(9, 7 + w * 0.5);
+      return [
+        [topSet("Low-Bar Squat", reps, r, 2, reps + 2, r - 1), acc("Leg Press", 3, 10), acc("Hanging Leg Raise", 3, 12)],
+        [topSet("Competition Bench", reps, r, 3, reps + 2, r - 1), acc("Barbell Row", 4, 8), acc("Overhead Triceps Extension", 3, 12)],
+        [topSet("Conventional Deadlift", Math.max(2, reps - 2), r, 2, reps, r - 1), acc("Front Squat", 3, 6), acc("Back Extension", 3, 12)],
+        [topSet("Overhead Press", reps + 1, r, 2, reps + 3, r - 1), acc("Pull-Up", 4, 6), acc("Lateral Raise", 3, 15)],
+      ];
+    },
+  },
+  {
+    id: "rev-pyramid", name: "Reverse Pyramid", origin: "the heaviest set first, while you are freshest",
+    level: [2, 3], days: [3, 4], weeks: [6, 12], goal: "strength", deload: 4,
+    blurb: "Top set first, then drop the weight and add reps.",
+    how: "The hardest set gets the freshest nervous system, which is the whole argument. Each drop is set by effort rather than a fixed percentage, so the fatigue from the set before is already priced in.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      const a = [topSet("Low-Bar Squat", 4, r, 2, 8, r - 1.5), acc("Leg Press", 3, 12), acc("Hanging Leg Raise", 3, 12)];
+      const b = [topSet("Competition Bench", 4, r, 2, 8, r - 1.5), acc("Barbell Row", 4, 8), acc("Overhead Triceps Extension", 3, 12)];
+      const c = [topSet("Conventional Deadlift", 3, r, 2, 6, r - 1.5), acc("Front Squat", 3, 8), acc("Back Extension", 3, 12)];
+      const e = [topSet("Overhead Press", 5, r, 2, 10, r - 1.5), acc("Pull-Up", 4, 6), acc("Lateral Raise", 3, 15)];
+      return d === 3 ? [a, b, c] : [a, b, c, e];
+    },
+  },
+  {
+    id: "rest-pause", name: "Rest-Pause Clusters", origin: "one hard set, broken into pieces",
+    level: [2, 3], days: [3], weeks: [4, 8], goal: "size", deload: 4,
+    blurb: "A heavy set, twenty seconds, then as much as is left — twice.",
+    how: "Clusters buy you hard reps at a weight you could not hold for a straight set. Brutal per minute and best used in short blocks, which is why this one caps at eight weeks.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(8, w, 4);
+      const cl = (ex, reps) => ({ ...topSet(ex, reps, r, 2, Math.max(2, Math.round(reps / 2)), r), amrap: "all" });
+      return [
+        [cl("Low-Bar Squat", 6), acc("Leg Press", 3, 12), acc("Lying Leg Curl", 3, 12)],
+        [cl("Competition Bench", 6), acc("Chest-Supported Row", 4, 10), acc("Lateral Raise", 3, 15)],
+        [cl("Conventional Deadlift", 4), acc("Pull-Up", 4, 8), acc("Back Extension", 3, 12)],
+      ];
+    },
+  },
+  {
+    id: "work-capacity", name: "Work Capacity", origin: "the block that makes the next block possible",
+    level: [1, 2], days: [4], weeks: [4, 8], goal: "size", deload: 5,
+    blurb: "More sets, moderate weight, short rests — building the engine, not the peak.",
+    how: "If you gas out before your last back-off, the limit is not strength. Higher set counts at a comfortable effort, with carries and sled work, so the next strength block has something to spend.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(6.5, w, 5);
+      return [
+        [straight("Low-Bar Squat", 5, 8, r), acc("Walking Lunge", 3, 12), acc("Sled Push", 4, 30, 3)],
+        [straight("Competition Bench", 5, 8, r), acc("Chest-Supported Row", 4, 12), acc("Push-Up", 3, 15)],
+        [straight("Romanian Deadlift", 4, 10, r), acc("Kettlebell Swing", 4, 15), acc("Back Extension", 3, 15)],
+        [straight("Overhead Press", 4, 10, r), acc("Lat Pulldown", 4, 12), acc("Plank", 3, 60, 3)],
+      ];
+    },
+  },
+  {
+    id: "press-spec", name: "Overhead Specialisation", origin: "a block for the lift that always comes last",
+    level: [2, 3], days: [4], weeks: [6, 10], goal: "strength", deload: 4,
+    blurb: "Press three times a week while squat and deadlift hold station.",
+    how: "The overhead press is usually trained last and tired. For one block it goes first, three times a week, and everything else runs at maintenance to pay for it.",
+    build: (d, lvl, w) => {
+      const r = waveRpe(7.5, w, 4);
+      return [
+        [topSet("Overhead Press", 5, r, 3, 6, r - 1), acc("Pull-Up", 4, 8), acc("Lateral Raise", 3, 15)],
+        [topSet("Low-Bar Squat", 5, 7, 2, 6, 6.5), acc("Hanging Leg Raise", 3, 12)],
+        [topSet("Pin Press", 4, r - 0.5, 2, 6, r - 1.5), acc("Chest-Supported Row", 4, 10), acc("Overhead Triceps Extension", 3, 12)],
+        [topSet("Conventional Deadlift", 4, 7, 1, 5, 6.5), acc("Overhead Press", 3, 10, 2), acc("Face Pull", 3, 15)],
+      ];
+    },
+  },
+  {
+    id: "bw-start", name: "Bodyweight Start", origin: "no equipment, and the first eight weeks of anything",
+    level: [1, 1], days: [3], weeks: [4, 12], goal: "strength", deload: 0,
+    blurb: "Push-ups, squats, rows and planks — earning the right to load a bar.",
+    how: "Nothing here needs a gym. The point is to build the positions and the habit; when push-ups get easy at fifteen reps you are ready for a barbell, and the app will tell you.",
+    build: (d, lvl, w) => {
+      const r = Math.min(8, 6 + w * 0.25);
+      return [
+        [straight("Push-Up", 4, 12, r), straight("Goblet Squat", 4, 12, r), acc("Plank", 3, 40, 3)],
+        [straight("Dumbbell Row", 4, 12, r), straight("Walking Lunge", 3, 12, r), acc("Hanging Leg Raise", 3, 10)],
+        [straight("Dip", 3, 8, r), straight("Chin-Up", 3, 6, r), acc("Back Extension", 3, 12)],
+      ];
+    },
+  },
+  {
     id: "deload", name: "Deload Week", origin: "one week, dropped in wherever you need it",
     level: [1, 3], days: [3], weeks: [1, 2], goal: "maintain", deload: 0,
     blurb: "A single week at half the work, to let a hard block land.",
@@ -4582,6 +4967,233 @@ function ConflictSheet({ open, onClose, conflict, days, onResolve }) {
 }
 
 // Browse the structures, set them to your week, see what lands before it lands.
+
+/* ----------------------------------------------------------------------------
+   THE RECOMMENDER
+
+   Most apps ask ten questions and hand back a programme with no reasoning, so
+   you cannot tell whether it understood you. The explanation IS the feature
+   here: every recommendation says which answers drove it and which of your own
+   numbers it read.
+
+   It also asks less than it could, because the app already knows a great deal.
+   It does not ask how strong you are — it reads the estimates. It does not ask
+   which lift is behind — it works it out from your ratios and offers that as
+   the pre-picked answer. Asking a question you can already answer is how you
+   teach someone the app is not paying attention.
+---------------------------------------------------------------------------- */
+const COACH_GEAR = {
+  full: { t: "A full gym", d: "Racks, machines, cables, dumbbells", has: null },
+  barbell: { t: "Barbell and rack", d: "A garage setup, maybe a bench", has: ["bb", "sp", "bw", "db", "kb", "bd"] },
+  dumbbell: { t: "Dumbbells only", d: "No barbell", has: ["db", "kb", "bw", "bd"] },
+  none: { t: "Nothing", d: "Bodyweight, wherever I am", has: ["bw"] },
+};
+// What a template actually needs, read off the movements it emits rather than a
+// tag someone has to remember to set.
+function templateGear(t) {
+  const need = new Set();
+  for (const d of t.days) {
+    let days; try { days = t.build(d, 2, 0, t.weeks[1]); } catch (e) { continue; }
+    for (const day of (days || []).slice(0, d)) for (const sl of (day || [])) need.add(equipOf(sl.ex) || "bb");
+  }
+  return need;
+}
+// Which lift is furthest behind, from the lifter's own numbers. Typical ratios to
+// the squat, from the usual population tables — a lift well under its share is the
+// one with room in it.
+const RATIO_OF_SQUAT = { "Competition Bench": 0.72, "Conventional Deadlift": 1.2, "Overhead Press": 0.45 };
+function weakestLift(models) {
+  const sq = models["Low-Bar Squat"] || models["Squat"] || models["High-Bar Squat"];
+  if (!sq || sq.e1rm == null) return null;
+  let worst = null;
+  for (const [name, share] of Object.entries(RATIO_OF_SQUAT)) {
+    const m = models[name]; if (!m || m.e1rm == null) continue;
+    const got = m.e1rm / sq.e1rm, gap = got / share;
+    if (!worst || gap < worst.gap) worst = { name, gap, got, share };
+  }
+  return worst && worst.gap < 0.95 ? worst : null;
+}
+
+function recommendBlocks(ans, state, models) {
+  const gear = COACH_GEAR[ans.gear || "full"];
+  const meetDate = (state.meet && state.meet.date) || null;
+  const out = [], nearly = [];
+  for (const t of PROGRAMS) {
+    if (ans.days && t.days.indexOf(ans.days) < 0) continue;
+    if (ans.level && (ans.level < t.level[0] || ans.level > t.level[1])) continue;
+    let missing = [];
+    if (gear.has) { const need = templateGear(t);
+      missing = [...need].filter((k) => gear.has.indexOf(k) < 0); }
+    let score = 0; const why = [];
+    if (ans.goal && t.goal === ans.goal) { score += 45; why.push(GOALS.find((g) => g.v === ans.goal).t.toLowerCase() + " is what it is built for"); }
+    else if (ans.goal === "peak" && t.goal !== "peak") score -= 25;
+    else if (ans.goal) score += 8;
+    if (ans.days) { score += 20; why.push(`it runs on ${ans.days} days`); }
+    if (ans.level) score += 12;
+    // Volume tolerance moves the needle toward templates that ask for more or less.
+    if (ans.vol) {
+      let sets = 0, n = 0;
+      try { for (const day of (t.build(ans.days || t.days[0], ans.level || 2, 0, t.weeks[1]) || [])) {
+        for (const sl of (day || [])) { sets += (sl.sets || 1) + (sl.bo ? sl.bo.sets : 0); n++; } } } catch (e) {}
+      const perDay = n ? sets / Math.max(1, t.days[0]) : 0;
+      if (ans.vol === "low" && perDay <= 14) { score += 18; why.push("the set count stays low, which is what you asked for"); }
+      if (ans.vol === "high" && perDay >= 18) { score += 18; why.push("it carries real volume"); }
+      if (ans.vol === "low" && perDay >= 22) score -= 20;
+    }
+    if (ans.weak && ans.weak !== "none") {
+      const spec = /spec|press-spec|single-peak|hifreq/.test(t.id);
+      if (spec) { score += 14; why.push(`it gives one lift the frequency, and yours is ${shortLift(ans.weak)}`); }
+    }
+    if (ans.goal === "peak" && t.meet && meetDate) { score += 12; why.push("it counts back from your meet date"); }
+    if (gear.has && !missing.length) why.push(`nothing in it needs more than ${gear.t.toLowerCase()}`);
+    if (missing.length) nearly.push({ t, score: score - 40, why, missing });
+    else out.push({ t, score, why });
+  }
+  out.sort((a, b) => b.score - a.score);
+  /* A hard equipment filter is right — a block you cannot perform is no use. But
+     narrow answers can leave one survivor, and one option is not a choice. So the
+     near-misses come back too, labelled with exactly what they would need, rather
+     than being silently dropped. */
+  if (out.length < 2) {
+    nearly.sort((a, b) => b.score - a.score);
+    return out.concat(nearly.slice(0, 3 - out.length)).slice(0, 4);
+  }
+  return out.slice(0, 4);
+}
+
+
+// One question a screen, every one skippable. A skipped question takes a sane
+// default and the explanation says so, rather than silently guessing.
+function CoachSheet({ open, onClose, state, models, onGenerate, unit }) {
+  const [ans, setAns] = useState({});
+  const [step, setStep] = useState(0);
+  useEffect(() => { if (open) { setAns({}); setStep(0); } }, [open]);
+  const weak = useMemo(() => (open ? weakestLift(models) : null), [open, models]);
+
+  const QS = [
+    { id: "goal", q: "What are you training for?", opts: [
+      { v: "strength", t: "Get stronger", d: "The three lifts, no date in mind" },
+      { v: "peak", t: "Peak for a meet", d: "There is a platform on the calendar" },
+      { v: "size", t: "Add size", d: "More muscle, strength along for the ride" },
+      { v: "maintain", t: "Hold what I have", d: "In season, busy, or coming back" }] },
+    { id: "days", q: "How many days a week?", opts: [2, 3, 4, 5, 6].map((n) => ({ v: n,
+      t: `${n} days`, d: n === 2 ? "Full body, both days" : n >= 5 ? "Short sessions, high frequency" : "" })) },
+    { id: "level", q: "How long have you trained seriously?", opts: LEVELS.map((l) => ({ v: l.v, t: l.t, d: l.d })) },
+    { id: "gear", q: "What do you have to train with?", opts: Object.entries(COACH_GEAR)
+      .map(([v, g]) => ({ v, t: g.t, d: g.d })) },
+    { id: "weak", q: "Which lift is furthest behind?", skip: (a) => a.goal === "size" || a.goal === "maintain",
+      opts: [
+        { v: "Low-Bar Squat", t: "Squat" }, { v: "Competition Bench", t: "Bench" },
+        { v: "Conventional Deadlift", t: "Deadlift" }, { v: "Overhead Press", t: "Overhead press" },
+        { v: "none", t: "They are all even", d: "Or I would rather not say" }] },
+    { id: "vol", q: "How do you handle volume?", opts: [
+      { v: "high", t: "I thrive on it", d: "More sets, more often, no problem" },
+      { v: "mid", t: "Somewhere in the middle" },
+      { v: "low", t: "It beats me up", d: "I do better on less work, harder" }] },
+  ];
+  const live = QS.filter((x) => !(x.skip && x.skip(ans)));
+  const cur = live[step];
+  const done = step >= live.length;
+  const picks = useMemo(() => (done ? recommendBlocks(ans, state, models) : []), [done, ans, state, models]);
+
+  if (!open) return null;
+  return (
+    <Sheet open={open} onClose={onClose} title={done ? "What I would run" : "Build me a block"}>
+      {!done && (
+        <>
+          <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+            {live.map((_, i) => (
+              <span key={i} style={{ flex: 1, height: 3, borderRadius: 2,
+                background: i <= step ? C.red : C.line2 }} />
+            ))}
+          </div>
+          <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.02em", marginBottom: 4 }}>{cur.q}</div>
+          {cur.id === "weak" && weak && (
+            <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 12, lineHeight: 1.45 }}>
+              Your numbers say {shortLift(weak.name)} — it is {Math.round(weak.got * 100)}% of your squat
+              where {Math.round(weak.share * 100)}% is typical.
+            </div>
+          )}
+          <div style={{ height: 10 }} />
+          {cur.opts.map((o) => {
+            const suggested = cur.id === "weak" && weak && o.v === weak.name;
+            return (
+              <button key={o.v} onClick={() => { setAns((a) => ({ ...a, [cur.id]: o.v })); setStep((s) => s + 1); }}
+                style={{ width: "100%", textAlign: "left", background: suggested ? tint(C.red, 0.1) : G.card,
+                  border: `1px solid ${suggested ? tint(C.red, 0.4) : C.line2}`, borderRadius: R.surface,
+                  padding: "13px 15px", cursor: "pointer", color: C.text, marginBottom: 8,
+                  WebkitTapHighlightColor: "transparent" }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>
+                  {o.t}{suggested ? <span style={{ color: C.red, fontSize: 11, marginLeft: 8 }}>your numbers</span> : null}
+                </div>
+                {o.d && <div style={{ fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.45 }}>{o.d}</div>}
+              </button>
+            );
+          })}
+          <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+            {step > 0 && (
+              <button onClick={() => setStep((s) => s - 1)} style={{ background: "none", border: "none",
+                color: C.faint, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Back</button>
+            )}
+            <button onClick={() => setStep((s) => s + 1)} style={{ background: "none", border: "none",
+              color: C.faint, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>
+              Skip this
+            </button>
+          </div>
+        </>
+      )}
+
+      {done && (
+        <>
+          {!picks.length && (
+            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
+              Nothing in the library matches all of that — most often it is the days and the
+              equipment together. Go back and loosen one.
+            </div>
+          )}
+          {picks.map((r, i) => (
+            <div key={r.t.id} style={{ border: `1px solid ${i ? C.line : tint(C.red, 0.45)}`,
+              background: i ? "none" : tint(C.red, 0.07), borderRadius: R.surface, padding: 15, marginBottom: 10 }}>
+              {i === 0 && <div style={{ ...label, fontSize: 9, color: C.red, marginBottom: 7 }}>My pick</div>}
+              <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: "-0.02em" }}>{r.t.name}</div>
+              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{r.t.blurb}</div>
+              {i === 0 && (
+                <div style={{ fontSize: 12, color: C.text, marginTop: 11, lineHeight: 1.55 }}>
+                  {/* The reasoning, in the app's own voice. A recommendation you cannot
+                      interrogate is a slot machine. */}
+                  <b>Because</b> {r.why.slice(0, 3).join(", ")}.
+                  {ans.weak && ans.weak !== "none" && !/spec/.test(r.t.id)
+                    ? ` Your ${shortLift(ans.weak)} gets the accessory work inside it rather than its own block.` : ""}
+                </div>
+              )}
+              {r.missing && r.missing.length > 0 && (
+                <div style={{ fontSize: 11.5, color: C.gold, marginTop: 9, fontWeight: 600, lineHeight: 1.45 }}>
+                  Needs {r.missing.map((k) => (LIB_EQUIP.find((e) => e.k === k) || { t: k }).t.toLowerCase()).join(" and ")}
+                  {" "}for some of it — swap those movements or pick another.
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 9, lineHeight: 1.45 }}>
+                {r.t.how}
+              </div>
+              <Btn kind={i ? "ghost" : "primary"} style={{ width: "100%", marginTop: 12, minHeight: 44, fontSize: 13.5 }}
+                onClick={() => { const d = r.t.days.indexOf(ans.days || 0) >= 0 ? ans.days : r.t.days[0];
+                  const wks = Math.min(r.t.weeks[1], Math.max(r.t.weeks[0], 6));
+                  onGenerate(r.t, { days: d, weeks: wks, level: ans.level || 2, startDate: todayStr() });
+                  onClose(); }}>
+                Start {r.t.name}
+              </Btn>
+            </div>
+          ))}
+          <button onClick={() => setStep(0)} style={{ background: "none", border: "none", color: C.faint,
+            fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: "6px 0", width: "100%" }}>
+            Change my answers
+          </button>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function ProgramPicker({ open, onClose, state, days, onGenerate }) {
   const [lvl, setLvl] = useState(null);
   const [dayF, setDayF] = useState(null);
@@ -4740,7 +5352,7 @@ function ProgramPicker({ open, onClose, state, days, onGenerate }) {
   );
 }
 
-function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) {
+function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocusDone }) {
   const program = state.program || null;
   const [sel, setSelDate] = useState(todayStr());
   const [cur, setCur] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
@@ -4748,6 +5360,7 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
   const [cloning, setCloning] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [libOpen, setLibOpen] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
   const [picking2, setPicking2] = useState(false);
   const [dayOpen, setDayOpen] = useState(false);
   // An armed move/copy/swap waiting for you to tap its destination on the calendar.
@@ -4812,8 +5425,12 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
             Lay your sessions out on the calendar — main work, variations, accessories — and Train opens each day already loaded.
             Every load still comes from your own estimator; the program only decides what you&rsquo;re doing, never how heavy.
           </div>
+          {/* Answering six questions beats scrolling forty-five structures you have
+              no way to tell apart, so it goes first. The other two doors stay. */}
           <Btn kind="primary" style={{ width: "100%", marginTop: 20 }}
-            onClick={() => { setProgram(newProgram()); setPicking2(true); }}>Choose a programme</Btn>
+            onClick={() => { setProgram(newProgram()); setCoachOpen(true); }}>Build me a block</Btn>
+          <Btn kind="ghost" style={{ width: "100%", marginTop: 9 }}
+            onClick={() => { setProgram(newProgram()); setPicking2(true); }}>Choose from {PROGRAMS.length} programmes</Btn>
           <Btn kind="ghost" style={{ width: "100%", marginTop: 9 }} onClick={() => setProgram(newProgram())}>
             Build my own
           </Btn>
@@ -4973,6 +5590,8 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
             {blockStats.span || "Nothing scheduled yet"}
           </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
+            <button onClick={() => setCoachOpen(true)} style={{ background: "none", border: "none", color: C.red,
+              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Build me a block</button>
             <button onClick={() => setLibOpen(true)} style={{ background: "none", border: "none", color: C.muted,
               fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
               Library{library.length ? ` · ${library.length}` : ""}
@@ -5099,6 +5718,17 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
         }} />
       <CloneSheet open={cloning} onClose={() => setCloning(false)} fromLabel={"week " + weekNo}
         onClone={(rule) => { cloneWeek(rule); setSelDate(addDays(sel, 7)); }} />
+      <CoachSheet open={coachOpen} onClose={() => setCoachOpen(false)} state={state} models={models}
+        unit={(state.settings || {}).unit}
+        onGenerate={(tpl, opts) => {
+          const built = generateProgram(tpl, opts);
+          applyDays({ ...days, ...built }, `Built ${tpl.name}`);
+          setProgram((pr) => ({ ...pr, name: tpl.name, startDate: opts.startDate, active: true }));
+          setSelDate(opts.startDate);
+          const d = dayStart(opts.startDate);
+          setCur({ y: d.getFullYear(), m: d.getMonth() });
+        }} />
+
       <ProgramPicker open={picking2} onClose={() => setPicking2(false)} state={state} days={days}
         onGenerate={(tpl, opts, built) => {
           // Generated days are ordinary days: they merge into what is already there,
