@@ -3033,6 +3033,9 @@ function App() {
   // Noticing you can't train today happens on Train, not Plan. This carries that
   // one intent across: open Plan on that date with the day's tools already up.
   const [focusDay, setFocusDay] = useState(null);
+  // Which door onboarding went through, so Plan can open on the right thing
+  // rather than leaving someone on an empty calendar they did not ask for.
+  const [planDoor, setPlanDoor] = useState(null);
   const openDayTools = dateStr => {
     setFocusDay(dateStr);
     setTab("plan");
@@ -3619,7 +3622,9 @@ function App() {
     setSel,
     models,
     focusDay,
-    onFocusDone: () => setFocusDay(null)
+    onFocusDone: () => setFocusDay(null),
+    openDoor: planDoor,
+    onDoorDone: () => setPlanDoor(null)
   }), tab === "history" && /*#__PURE__*/React.createElement(HistoryTab, {
     state,
     setState,
@@ -3711,38 +3716,42 @@ function App() {
     inputMode: state.settings.inputMode
   }), !state.settings.onboarded && /*#__PURE__*/React.createElement(Onboarding, {
     unit: state.settings.unit,
-    onDone: (patch, seeds) => setState(s => {
-      const exercises = {
-        ...s.exercises
-      };
-      (seeds || []).forEach(sd => {
-        const ex = exercises[sd.name] || {
-          name: sd.name,
-          sets: []
+    onDone: (patch, seeds, door) => {
+      if (door === "train") setTab("train");else {
+        setTab("plan");
+        setPlanDoor(door);
+      }
+      setState(s => {
+        const exercises = {
+          ...s.exercises
         };
-        exercises[sd.name] = {
-          ...ex,
-          sets: [...ex.sets, {
-            id: uid(),
-            ts: sd.ts,
-            weight: sd.weight,
-            reps: sd.reps,
-            rpe: sd.rpe,
-            fromRec: false
-          }]
+        (seeds || []).forEach(sd => {
+          const ex = exercises[sd.name] || {
+            name: sd.name,
+            sets: []
+          };
+          exercises[sd.name] = {
+            ...ex,
+            sets: [...ex.sets, {
+              id: uid(),
+              ts: sd.ts,
+              weight: sd.weight,
+              reps: sd.reps,
+              rpe: sd.rpe,
+              fromRec: false
+            }]
+          };
+        });
+        return {
+          ...s,
+          exercises,
+          settings: {
+            ...s.settings,
+            ...patch
+          }
         };
       });
-      return {
-        ...s,
-        exercises,
-        settings: {
-          ...s.settings,
-          ...patch
-        }
-      };
-    })
-  }), state.settings.onboarded && !state.settings.toured && /*#__PURE__*/React.createElement(FeatureTour, {
-    onDone: () => setSetting("toured", true)
+    }
   }));
 }
 
@@ -5879,8 +5888,21 @@ function Onboarding({
         ts: tsFromDateStr(r.date)
       });
     }
-    onDone(chosen, collected);
+    setChosen(c => ({
+      ...c,
+      _seeded: collected
+    }));
+    setStep("door");
   };
+  // Where someone lands matters more than anything else in this flow. Forty-five
+  // structures exist and nobody could find them; a recommender exists and nobody
+  // knew to ask. So the last screen is three doors rather than a feature tour,
+  // which is the one piece of teaching in this app that was never attached to a
+  // decision — and the only one nobody has ever mentioned.
+  const leave = door => onDone({
+    ...chosen,
+    _door: undefined
+  }, chosen._seeded || [], door);
   const anySeed = Object.keys(seeds).some(n => seeds[n].some(r => isFinite(parseFloat(r.weight)) && parseFloat(r.weight) > 0));
   const lbl = {
     fontSize: 10.5,
@@ -5967,7 +5989,15 @@ function Onboarding({
       fontWeight: 700,
       cursor: "pointer"
     }
-  }, "\u2190 Back")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "\u2190 Back")) : step === "door" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: C.muted,
+      fontSize: 13.5,
+      margin: "8px 0 22px",
+      lineHeight: 1.5
+    }
+  }, "Last thing. Where do you want to start?"), opt("Build me a block", `Six questions — days, equipment, what you are training for — and it picks from ${PROGRAMS.length} structures and explains why.`, () => leave("coach"), C.red), opt("Choose it myself", `Browse all ${PROGRAMS.length}, filtered by the days you can train.`, () => leave("picker"), C.blue), opt("Just log", "No plan. Open Train, pick a lift, log a set — the loads still come from your own numbers.", () => leave("train"), C.amber)) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       fontWeight: 800,
@@ -6113,88 +6143,6 @@ function Onboarding({
     }
   }, "Skip \u2014 I'll log as I go"))));
 }
-function FeatureTour({
-  onDone
-}) {
-  const row = (Icon, title, desc) => /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 12,
-      alignItems: "flex-start",
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: G.red,
-      borderRadius: 13,
-      padding: 9,
-      display: "flex",
-      flexShrink: 0,
-      boxShadow: `0 6px 16px -8px ${C.redLine}`
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    size: 16,
-    style: {
-      color: "#fff"
-    }
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 800,
-      fontSize: 13.5
-    }
-  }, title), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: C.muted,
-      marginTop: 2,
-      lineHeight: 1.5
-    }
-  }, desc)));
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "fixed",
-      inset: 0,
-      zIndex: 100,
-      background: "rgba(10,11,13,0.72)",
-      display: "flex",
-      alignItems: "flex-end",
-      justifyContent: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.surface,
-      border: `1px solid ${C.line2}`,
-      borderRadius: "12px 12px 0 0",
-      padding: "22px 20px calc(24px + env(safe-area-inset-bottom, 0px))",
-      maxWidth: 520,
-      width: "100%"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: DISPLAY,
-      fontWeight: 700,
-      fontSize: 25,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase"
-    }
-  }, "Quick tour"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: C.faint,
-      margin: "3px 0 16px"
-    }
-  }, "Thirty seconds, then it's all yours."), row(Activity, "Train", "Dial in your target set and it suggests the load. Log what you actually hit — every set teaches it your real strength."), row(Check, "Back-offs", "Auto-adjust off how hard your last set actually was. Grind the top set and the next loads drop to match."), row(Plus, "Variations", "Link variations to their main lift — paused bench under Bench, deficit pulls under Deadlift. They feed one strength model, so a PR on a variation sharpens the main lift's estimate too."), row(Zap, "Insights", "Your estimated 1RMs, strength score, meet prep, and flags for PRs, stalls, and hidden gains."), row(TrendingUp, "History", "Every set saved, editable, and charted — your strength trend builds as you train."), /*#__PURE__*/React.createElement(Btn, {
-    kind: "primary",
-    onClick: onDone,
-    style: {
-      width: "100%",
-      marginTop: 6
-    }
-  }, "Let's lift")));
-}
-
-/* =============================== DASHBOARD =============================== */
-// Where the projected total comes from — each lift's contribution and its 30-day move.
 function TotalSheet({
   open,
   onClose,
@@ -9735,7 +9683,9 @@ function ProgramTab({
   setSel,
   models,
   focusDay,
-  onFocusDone
+  onFocusDone,
+  openDoor,
+  onDoorDone
 }) {
   const program = state.program || null;
   const [sel, setSelDate] = useState(todayStr());
@@ -9817,6 +9767,15 @@ function ProgramTab({
       setUndo(null);
     }
   };
+  // Arriving straight from onboarding, open the thing they chose.
+  useEffect(() => {
+    if (!openDoor) return;
+    if (!state.program) setProgram(newProgram());
+    if (openDoor === "coach") setCoachOpen(true);
+    if (openDoor === "picker") setPicking2(true);
+    onDoorDone && onDoorDone();
+  }, [openDoor]);
+
   // Arriving from Train's "Can't train this?" lands on that date with the tools open.
   useEffect(() => {
     if (!focusDay) return;
