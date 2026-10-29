@@ -3309,7 +3309,8 @@ const slotSummary = (slot) => slotTimed(slot)
   // An AMRAP still needs a load, and the load comes from the written reps and
   // effort — you just do not stop there. So the prescription keeps both: the
   // number that picks the weight, and the fact that the set runs past it.
-  : `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.amrap ? `${slot.reps}+` : slot.reps} @ ${slotLabel(slot)}${slot.amrap ? " · AMRAP" : ""}`;
+  : `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.amrap ? `${slot.reps}+` : slot.reps} @ ${slotLabel(slot)}${
+      slot.amrap === "all" ? " · AMRAP every set" : slot.amrap ? " · AMRAP last" : ""}`;
 
 function Onboarding({ onDone, unit }) {
   const [step, setStep] = useState("style");
@@ -4022,16 +4023,22 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
               )}
             </div>
             {!timed && (
-              <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 13, cursor: "pointer" }}>
-                <input type="checkbox" checked={!!slot.amrap} onChange={(e) => up({ amrap: e.target.checked || undefined })}
-                  style={{ width: 18, height: 18, accentColor: C.red, flexShrink: 0 }} />
-                <span style={{ minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 700 }}>Last set is an AMRAP</span>
-                  <span style={{ display: "block", fontSize: 11, color: C.faint, marginTop: 2, lineHeight: 1.45 }}>
-                    The load still comes from {slot.reps} @ {slotLabel(slot)} — you just keep going to 0 RIR.
-                  </span>
-                </span>
-              </label>
+              <div style={{ marginTop: 13 }}>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Run to failure</div>
+                <Segmented value={slot.amrap === "all" ? "all" : slot.amrap ? "last" : "off"}
+                  onChange={(v) => up({ amrap: v === "off" ? undefined : v })}
+                  options={[{ value: "off", label: "No" }, { value: "last", label: "Last set" }, { value: "all", label: "Every set" }]} />
+                {slot.amrap && (
+                  <div style={{ fontSize: 11, color: C.faint, marginTop: 7, lineHeight: 1.45 }}>
+                    {/* The reps and effort above do not disappear when a set runs out —
+                        they are what picks the bar weight. An AMRAP at 8 @ RPE 7 is a
+                        different session from an AMRAP at 3 @ RPE 9.5, and the only
+                        thing that distinguishes them is this line. */}
+                    Load comes from <b style={{ color: C.muted }}>{slot.reps} @ {slotLabel(slot)}</b> — change those to move the weight.
+                    The reps you log are whatever you get.
+                  </div>
+                )}
+              </div>
             )}
             <div style={{ marginTop: 13 }}>
               <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Measured in</div>
@@ -4727,6 +4734,24 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
   // which is the whole reason these operations return a new map instead of mutating.
   const [undo, setUndo] = useState(null);
   const setProgram = (fn) => setState((s) => ({ ...s, program: typeof fn === "function" ? fn(s.program) : fn }));
+  /* The same carry-forward Train has. Editing a block in Plan is if anything MORE
+     likely to be a block-level decision than editing it in the gym, so having the
+     offer in only one of the two places was the wrong half. */
+  const PLAN_WAVE = ["reps", "sets", "val", "mode"];
+  const [spreadPlan, setSpreadPlan] = useState(null);
+  const spreadAhead = (fromDate, fromEx, patch, withNumbers) => setProgram((pr) => {
+    if (!pr || !pr.days) return pr;
+    const keep = {};
+    for (const k of Object.keys(patch)) if (withNumbers || PLAN_WAVE.indexOf(k) < 0) keep[k] = patch[k];
+    if (!Object.keys(keep).length) return pr;
+    const days = { ...pr.days };
+    for (const d of Object.keys(days)) {
+      if (d <= fromDate) continue;
+      if (!days[d].some((x) => x.ex === fromEx)) continue;
+      days[d] = days[d].map((x) => (x.ex === fromEx ? { ...x, ...keep } : x));
+    }
+    return { ...pr, days };
+  });
   // The library is state like anything else, so it rides along with export,
   // import and the offline store without a line of extra plumbing.
   const library = state.library || [];
@@ -4985,15 +5010,46 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
         )}
 
         {decorateSlots(slots).map((d) => (
-          <SlotCard key={d.sl.id} slot={d.sl} state={state} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
+          <React.Fragment key={d.sl.id}>
+          {spreadPlan && spreadPlan.fromEx === d.sl.ex && (
+            <div style={{ border: `1px solid ${tint(C.blue, 0.3)}`, background: tint(C.blue, 0.07),
+              borderRadius: R.ctrl, padding: "11px 13px", marginBottom: 2 }}>
+              <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+                Changed <b>{Object.keys(spreadPlan.patch).map((k) => k === "amrap" ? "AMRAP" : k === "ex" ? "the movement" : k).join(", ")}</b>
+                {" "}on {shortLift(spreadPlan.fromEx)}. {spreadPlan.n} later session{spreadPlan.n === 1 ? "" : "s"} use it too.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 9, flexWrap: "wrap" }}>
+                <Btn kind="primary" style={{ minHeight: 36, fontSize: 12, padding: "8px 14px" }}
+                  onClick={() => { spreadAhead(spreadPlan.date, spreadPlan.fromEx, spreadPlan.patch, false); setSpreadPlan(null); }}>
+                  Rest of the block
+                </Btn>
+                <Btn kind="ghost" style={{ minHeight: 36, fontSize: 12, padding: "8px 14px" }}
+                  onClick={() => setSpreadPlan(null)}>This day only</Btn>
+                {Object.keys(spreadPlan.patch).some((k) => PLAN_WAVE.indexOf(k) >= 0) && (
+                  <button onClick={() => { spreadAhead(spreadPlan.date, spreadPlan.fromEx, spreadPlan.patch, true); setSpreadPlan(null); }}
+                    style={{ background: "none", border: "none", color: C.faint, fontWeight: 700,
+                      fontSize: 11, cursor: "pointer", padding: "8px 0" }}>…numbers too</button>
+                )}
+              </div>
+            </div>
+          )}
+          <SlotCard slot={d.sl} state={state} tag={d.tag} grouped={d.grouped} groupFirst={d.first}
             onPickBoLift={(id) => setPicking({ mode: "bo", id })}
             groupLast={d.last} rounds={d.rounds}
             canUp={d.idx > 0} canDown={d.idx < slots.length - 1}
             onUp={() => moveSlot(d.idx, -1)} onDown={() => moveSlot(d.idx, 1)}
             canLink={d.idx > 0} onToggleLink={() => toggleLink(d.idx)}
-            onChange={(next) => setSlot(d.sl.id, next)}
+            onChange={(next) => {
+              const patch = {};
+              for (const k of Object.keys(next)) if (next[k] !== d.sl[k]) patch[k] = next[k];
+              setSlot(d.sl.id, next);
+              const later = Object.keys((program.days) || {}).filter((x) => x > sel)
+                .filter((x) => (program.days[x] || []).some((y) => y.ex === d.sl.ex)).length;
+              if (later > 0 && Object.keys(patch).length) setSpreadPlan({ date: sel, fromEx: d.sl.ex, patch, n: later });
+            }}
             onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
             onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
+          </React.Fragment>
         ))}
         {!slots.length && (
           <Card style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "22px 16px", lineHeight: 1.6 }}>
@@ -5709,7 +5765,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   /* An AMRAP is the LAST set of the movement, not every set: the earlier ones
      set the load, the last one spends it. Reps stay whatever you type; the
      effort pins to 0 RIR because that is what "as many as possible" means. */
-  const amrapSet = !!(activeSlot && activeSlot.amrap && setsIn + 1 >= setsAsked);
+  const amrapSet = !!(activeSlot && activeSlot.amrap
+    && (activeSlot.amrap === "all" || setsIn + 1 >= setsAsked));
   // Arriving on the AMRAP set, the effort box should already say what the set is.
   useEffect(() => { if (amrapSet) setActInt(inputMode === "rir" ? 0 : 10); }, [amrapSet, inputMode]);
   const curReps = onFirst ? tReps : boReps;
@@ -6056,12 +6113,16 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             </div>
             {activeSlot && !timedSel && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
-                <Chip sm active={!!activeSlot.amrap}
-                  onClick={() => patchSlotSpread(activeSlot.id, { amrap: !activeSlot.amrap || undefined }, activeSlot.ex)}>
-                  Last set AMRAP
-                </Chip>
-                <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.4, flex: "1 1 120px", minWidth: 0 }}>
-                  Load still comes from the reps above; the last set runs to 0 RIR.
+                {[["off", "No AMRAP"], ["last", "Last set"], ["all", "Every set"]].map(([v, t]) => (
+                  <Chip key={v} sm active={(activeSlot.amrap || "off") === v}
+                    onClick={() => patchSlotSpread(activeSlot.id, { amrap: v === "off" ? undefined : v }, activeSlot.ex)}>
+                    {t}
+                  </Chip>
+                ))}
+                <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.4, flex: "1 1 100%", minWidth: 0 }}>
+                  The reps and effort above still pick the weight — {curReps} @ {percentMode
+                    ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`}
+                  {" "}is a different set from 3 @ RPE 9.5. Only the reps you log are open.
                 </span>
               </div>
             )}
