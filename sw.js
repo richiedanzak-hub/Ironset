@@ -1,5 +1,5 @@
 /* IRONSET service worker — makes the app open and work with no connection. */
-const VERSION = "ironset-v1";
+const VERSION = "ironset-v2";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const KEEP = [SHELL, DEPS];
@@ -7,18 +7,19 @@ const KEEP = [SHELL, DEPS];
 /* Same-origin files the app is made of. */
 const SHELL_URLS = [
   "./ironset.html",
+  "./app.js",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
   "./icon-maskable-512.png",
 ];
 
-/* Third-party code the app cannot boot without: React, the in-browser JSX
-   compiler, and the fonts. Versioned URLs, so they never go stale. */
+/* Third-party code the app cannot boot without: React and the fonts. Versioned
+   URLs, so they never go stale. The JSX compiler used to live here too — 2.8MB
+   of it, on every cold start — until the compile moved to build time. */
 const DEP_URLS = [
   "https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js",
   "https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap",
 ];
 
