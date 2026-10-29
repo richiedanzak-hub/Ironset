@@ -1228,7 +1228,13 @@ function MoveStrip({ moves, current, onPick, onAdd, addLabel }) {
         return (
           <button key={m.id} onClick={() => onPick(m)} style={{ flex: "0 0 auto", cursor: "pointer",
             background: on ? tint(m.hue, 0.16) : "rgba(255,255,255,0.03)",
-            border: `1px solid ${on ? tint(m.hue, 0.5) : C.line}`, borderRadius: R.pill,
+            border: `1px solid ${on ? tint(m.hue, 0.5) : C.line}`,
+            /* A superset is one block of work, so its chips square up against each
+               other and round only on the outside — the pairing reads before the
+               tags do. */
+            borderRadius: m.tag ? (m.tagFirst ? `${R.pill}px 6px 6px ${R.pill}px`
+              : m.tagLast ? `6px ${R.pill}px ${R.pill}px 6px` : "6px") : R.pill,
+            marginLeft: m.tag && !m.tagFirst ? -5 : 0,
             padding: "8px 13px 7px", color: on ? C.text : C.muted, textAlign: "left",
             WebkitTapHighlightColor: "transparent", opacity: m.done && !on ? 0.55 : 1 }}>
             <span style={{ display: "block", fontFamily: SANS, fontWeight: 700, fontSize: 12.5,
@@ -1940,7 +1946,7 @@ function App() {
             <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
           )}
           {tab === "train" && (
-            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools, saveClip, dropClip }} />
+            <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, updateSet, deleteSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools, saveClip, dropClip }} />
           )}
           {tab === "plan" && (
             <ProgramTab {...{ state, setState, setTab, setSel, focusDay, onFocusDone: () => setFocusDay(null) }} />
@@ -2701,6 +2707,23 @@ const bwShareFor = (name) => { for (const [re, f] of BW_SHARE) if (re.test(Strin
 const loadLabel = (s, unit) => (s && s.bwBase != null)
   ? (s.added ? `BW+${fmt(s.added)}` : "BW")
   : `${fmt(s.weight)}${unit}`;
+
+/* How far a movement actually gets run from what it was asked for. Every logged
+   set already carries the target it was given (tRpe) beside what it cost you
+   (rpe) — the app has had this the whole time and never said it out loud. It is
+   worth saying, because a movement run two points over its written effort is
+   usually the real reason the loads around it are being trimmed. */
+function rpeDrift(state, name, days) {
+  const ex = (state.exercises || {})[name];
+  if (!ex || !ex.sets) return null;
+  const since = Date.now() - (days || 28) * 86400000;
+  const rows = ex.sets.filter((x) => x.ts >= since && x.secs == null
+    && typeof x.tRpe === "number" && typeof x.rpe === "number");
+  if (rows.length < 4) return null;
+  const errs = rows.map((x) => x.rpe - x.tRpe);
+  const bias = errs.reduce((a, b) => a + b, 0) / errs.length;
+  return { n: rows.length, bias, over: bias >= 0.75, under: bias <= -0.75 };
+}
 
 function isBodyweightMove(name, state) {
   const ex = ((state || {}).exercises || {})[name];
@@ -5143,6 +5166,68 @@ function ProgramTab({ state, setState, setTab, setSel, focusDay, onFocusDone }) 
 // the moment a real programme put twenty movements in the app, so this searches
 // what you already train first and falls through to the full library — picking a
 // library movement creates it, wired to its main lift, exactly as a slot does.
+// The whole day laid out. The strip is right to stay compact — six movements of
+// four sets is three phone screens — but "what is left" is a real question, and
+// one tap is the right price for it.
+function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, dateLabel, weekLabel }) {
+  if (!open) return null;
+  const deco = decorateSlots(slots || []);
+  const totals = (slots || []).reduce((a, sl) => {
+    const pr = doneSlots[sl.id] || { n: 0, total: slotSetCount(sl) };
+    return { done: a.done + Math.min(pr.n, pr.total), all: a.all + pr.total };
+  }, { done: 0, all: 0 });
+  return (
+    <Sheet open={open} onClose={onClose} title={weekLabel || "Today"}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+        <span style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>
+          {totals.all - totals.done}
+        </span>
+        <span style={{ ...label2, color: C.faint }}>
+          set{totals.all - totals.done === 1 ? "" : "s"} left of {totals.all} · {dateLabel}
+        </span>
+      </div>
+      {deco.map((d) => {
+        const pr = doneSlots[d.sl.id] || { n: 0, total: slotSetCount(d.sl), done: false };
+        const on = d.sl.ex === sel;
+        return (
+          <React.Fragment key={d.sl.id}>
+            {d.grouped && d.first && (
+              <div style={{ ...label, fontSize: 9, color: C.blue, margin: "6px 0 5px 2px" }}>
+                Superset {d.tag.charAt(0)}{d.rounds ? ` · ${d.rounds} rounds` : ""}
+              </div>
+            )}
+            <button onClick={() => { onPick(d.sl); onClose(); }} style={{ width: "100%", textAlign: "left",
+              display: "flex", alignItems: "center", gap: 11, marginBottom: 7, cursor: "pointer",
+              marginLeft: d.grouped ? 10 : 0, borderLeft: d.grouped ? `2px solid ${tint(C.blue, 0.5)}` : undefined,
+              background: on ? tint(hueFor(d.sl.ex, state), 0.12) : "rgba(255,255,255,0.025)",
+              border: `1px solid ${on ? tint(hueFor(d.sl.ex, state), 0.45) : C.line}`,
+              borderRadius: R.ctrl, padding: "11px 13px", color: C.text,
+              opacity: pr.done && !on ? 0.6 : 1, WebkitTapHighlightColor: "transparent" }}>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {d.grouped ? <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.blue, marginRight: 6 }}>{d.tag}</span> : null}
+                  {d.sl.ex}
+                </span>
+                <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 3 }}>
+                  {slotSummary(d.sl)}{d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : ""}
+                </span>
+              </span>
+              <span style={{ display: "inline-flex", gap: 3, flexShrink: 0 }}>
+                {Array.from({ length: Math.min(8, pr.total) }).map((_, i) => (
+                  <span key={i} style={{ width: 5, height: 5, borderRadius: 3,
+                    background: i < pr.n ? C.good : "rgba(255,255,255,0.16)" }} />
+                ))}
+              </span>
+              {pr.done && <Check size={14} style={{ color: C.good, flexShrink: 0 }} />}
+            </button>
+          </React.Fragment>
+        );
+      })}
+    </Sheet>
+  );
+}
+
 function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, todaySlots }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
@@ -5276,7 +5361,7 @@ function TimedLogger({ state, sel, logSet, logDate, setLogDate, unit, slot }) {
 }
 
 /* =============================== TRAIN TAB =============================== */
-function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab, openDayTools, saveClip, dropClip }) {
+function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, updateSet, deleteSet, settings, setSetting, denoms, meetDays, meetName, plan, onEditPlan, setTab, openDayTools, saveClip, dropClip }) {
   const { unit, round, bar } = settings;
   // A programmed slot carries its own intensity language, so the tab's mode is an
   // override on top of the global setting rather than the setting itself: the top
@@ -5562,6 +5647,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   const [bwEntry, setBwEntry] = useState("");
   const [dateOpen, setDateOpen] = useState(false);
   const [lastOpen, setLastOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [dayOpen, setDayOpen] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
   const [shareImg, setShareImg] = useState(null);
   // Everything logged on the day being viewed, which is what a recap is about.
@@ -5731,6 +5818,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       const d = slotTags[sl.id];
       return { id: sl.id, ex: sl.ex, short: shortLift(sl.ex), hue: hueFor(sl.ex, state),
         tag: d && d.grouped ? d.tag : null,
+        tagFirst: !!(d && d.grouped && d.first), tagLast: !!(d && d.grouped && d.last),
         n: pr.n, total: pr.total, done: pr.done, slot: sl };
     });
     if (sel && !out.some((m) => m.ex === sel)) {
@@ -5765,6 +5853,35 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   /* An AMRAP is the LAST set of the movement, not every set: the earlier ones
      set the load, the last one spends it. Reps stay whatever you type; the
      effort pins to 0 RIR because that is what "as many as possible" means. */
+  /* THE SET LEDGER. The card answers "what do I do now" and never answered
+     "where am I" — the strip tracks movements, not sets, so a session's shape
+     lived nowhere. One row per planned set, target beside actual.
+
+     Future rows show the prescription and NOT a weight, on purpose: the load
+     for set 4 depends on the fatigue sets 1 to 3 have not generated yet.
+     Printing a number there would be inventing one. */
+  const ledger = useMemo(() => {
+    const logged = [...(topToday ? [{ ...topToday, lift: sel }] : []), ...todayBos];
+    const rows = [];
+    for (let i = 0; i < Math.max(setsAsked, logged.length); i++) {
+      const got = logged[i] || null;
+      let tR, tI, lift = sel;
+      if (i === 0 || straightCount) { tR = tReps; tI = tRpe; }
+      else { const st = stepAt(i - 1); tR = st.reps; tI = st.rpe; lift = st.lift || sel; }
+      rows.push({ i, got, tReps: tR, tRpe: tI, lift,
+        amrap: !!(activeSlot && activeSlot.amrap
+          && (activeSlot.amrap === "all" || i + 1 >= setsAsked)),
+        extra: i >= setsAsked });
+    }
+    return rows;
+  }, [topToday, todayBos, setsAsked, straightCount, tReps, tRpe, boSteps, bo, sel, activeSlot]);
+
+  const drift = useMemo(() => (sel ? rpeDrift(state, sel, 28) : null), [state.exercises, sel]);
+  const setsLeftToday = useMemo(() => sessionSlots.reduce((a, sl) => {
+    const pr = doneSlots[sl.id] || { n: 0, total: slotSetCount(sl) };
+    return a + Math.max(0, pr.total - pr.n);
+  }, 0), [sessionSlots, doneSlots]);
+
   const amrapSet = !!(activeSlot && activeSlot.amrap
     && (activeSlot.amrap === "all" || setsIn + 1 >= setsAsked));
   // Arriving on the AMRAP set, the effort box should already say what the set is.
@@ -5922,6 +6039,17 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             <ChevronDown size={11} style={{ color: backdated ? C.gold : C.faint,
               transform: dateOpen ? "rotate(180deg)" : "none", transition: ".2s" }} />
           </button>
+          {/* The door to the whole day. It carries the number that makes you want to
+              open it, which is better than a label that only says "more". */}
+          {sessionSlots.length > 0 && setsLeftToday > 0 && (
+            <button onClick={() => setDayOpen(true)} aria-label="Show the whole day"
+              style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line}`,
+                borderRadius: R.pill, padding: "3px 9px", marginLeft: 10, cursor: "pointer",
+                color: C.muted, fontWeight: 800, fontSize: 10, fontFamily: MONO,
+                WebkitTapHighlightColor: "transparent" }}>
+              {setsLeftToday} left
+            </button>
+          )}
           {sessionSlots.length > 0 && (
             <button onClick={() => openDayTools && openDayTools(logDate)} style={{ background: "none",
               border: "none", color: C.faint, fontWeight: 800, fontSize: 11, cursor: "pointer", padding: 0 }}>Can't train this?</button>
@@ -6146,6 +6274,18 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
           </Callout>
         )}
 
+        {drift && (drift.over || drift.under) && (
+          <Callout tone={drift.over ? "warn" : "info"}>
+            {drift.over
+              ? <>You run this {fmt(Math.round(drift.bias * 10) / 10)} RPE above what it asks for</>
+              : <>You run this {fmt(Math.round(-drift.bias * 10) / 10)} RPE below what it asks for</>}
+            <span style={{ color: C.faint, fontWeight: 600 }}>
+              {" "}— across {drift.n} sets this month.
+              {drift.over ? " That effort is what gets trimmed off the lifts after it." : " There is room to add load."}
+            </span>
+          </Callout>
+        )}
+
         {inferred && (
           <Callout tone="warn">
             First time on this — {fmt(roundTo(e1rm || 0, round))} is your {inferred.parent} at {inferred.pct}%,
@@ -6313,6 +6453,48 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"}
         </Btn>
 
+        {/* The whole movement at a glance, under the set in front of you. A logged
+            row is tappable, which is also the first time a set you already did
+            has been editable from the screen you did it on. */}
+        {ledger.length > 1 && (
+          <div style={{ marginTop: 13, border: `1px solid ${C.line}`, borderRadius: R.ctrl, overflow: "hidden" }}>
+            {ledger.map((r) => {
+              const now = !r.got && r.i === setsIn;
+              const eff = (v) => percentMode ? `${fmt(v)}%` : inputMode === "rir" ? `${fmt(10 - v)} RIR` : `RPE ${fmt(v)}`;
+              const inner = (
+                <>
+                  <span style={{ ...label2, fontSize: 8.5, width: 16, flexShrink: 0,
+                    color: now ? selHue : r.got ? C.good : C.faint }}>{r.i + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: MONO, fontSize: 12.5, fontWeight: 700,
+                    color: r.got ? C.text : now ? C.text : C.faint, overflow: "hidden",
+                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.got
+                      ? <>{loadLabel(r.got, unit)} × {r.got.reps} <span style={{ color: C.muted, fontWeight: 600 }}>@ {eff(r.got.rpe)}</span></>
+                      /* No "×" on a set not yet done: the glyph promises a weight,
+                         and the weight for set 4 depends on fatigue sets 1-3 have
+                         not generated yet. Reps and effort only. */
+                      : <>{r.amrap ? <span style={{ color: now ? C.red : C.faint }}>AMRAP</span> : `${r.tReps} reps`}
+                        {" "}<span style={{ color: C.muted, fontWeight: 600 }}>@ {eff(r.tRpe)}</span></>}
+                  </span>
+                  {r.lift !== sel && (
+                    <span style={{ ...label2, color: C.faint, fontSize: 8, flexShrink: 0 }}>{shortLift(r.lift)}</span>
+                  )}
+                  {now && <span style={{ fontFamily: MONO, fontSize: 11.5, color: selHue, fontWeight: 700,
+                    flexShrink: 0 }}>{suggested != null ? fmt(suggested) : "now"}</span>}
+                  {r.got && <Check size={12} style={{ color: C.good, flexShrink: 0 }} />}
+                </>
+              );
+              const sty = { display: "flex", alignItems: "center", gap: 9, width: "100%",
+                padding: "8px 12px", borderTop: r.i ? `1px solid ${C.line}` : "none", textAlign: "left",
+                background: now ? tint(selHue, 0.1) : r.extra ? tint(C.gold, 0.05) : "none" };
+              return r.got
+                ? <button key={r.i} onClick={() => setEditing(r.got)} style={{ ...sty, border: "none",
+                    cursor: "pointer", color: C.text, WebkitTapHighlightColor: "transparent" }}>{inner}</button>
+                : <div key={r.i} style={sty}>{inner}</div>;
+            })}
+          </div>
+        )}
+
         {/* everything else about this set, one tap away */}
         <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
           {suggested != null && (
@@ -6463,6 +6645,19 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               detail: `${loadLabel(l.top, unit)} \u00d7 ${l.top.reps} @ ${inputMode === "rir" ? `${fmt(10 - l.top.rpe)} RIR` : `RPE ${fmt(l.top.rpe)}`}`,
               e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null })) }); }} />
       {shareImg && <ShareSheet data={shareImg} onClose={() => setShareImg(null)} />}
+
+      <DaySheet2 open={dayOpen} onClose={() => setDayOpen(false)} slots={sessionSlots}
+        doneSlots={doneSlots} state={state} sel={sel} unit={unit}
+        weekLabel={progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today"}
+        dateLabel={dayStart(logDate).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+        onPick={(sl) => loadSlot(sl)} />
+
+      {editing && (
+        <EditSetSheet set={editing} unit={unit} inputMode={inputMode}
+          onClose={() => setEditing(null)}
+          onSave={(patch) => { updateSet(editing.lift || sel, editing.id, patch); setEditing(null); }}
+          onDelete={() => { deleteSet(editing.lift || sel, editing.id); setEditing(null); }} />
+      )}
 
       <ClipSheet open={!!filming} onClose={() => setFilming(null)}
         setId={filming ? filming.id : null} ex={filming ? filming.ex : sel} set={filming} unit={unit} inputMode={inputMode}
