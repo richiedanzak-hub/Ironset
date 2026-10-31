@@ -3627,7 +3627,6 @@ function App() {
     onDoorDone: () => setPlanDoor(null)
   }), tab === "history" && /*#__PURE__*/React.createElement(HistoryTab, {
     state,
-    setState,
     sel,
     setSel,
     models,
@@ -3637,8 +3636,7 @@ function App() {
     unit,
     inputMode,
     saveClip,
-    dropClip,
-    analysis
+    dropClip
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
@@ -4813,6 +4811,29 @@ function copyDay(days, from, to, mode) {
 function swapDays(days, a, b) {
   if (a === b) return days;
   return putDay(putDay(days, a, days[b] || []), b, days[a] || []);
+}
+/* One movement, not the whole day. The commoner problem by far: the session was
+   fine, you ran out of time for the last thing on it, and moving the day would
+   drag the work you already did along with it. The slot lands at the end of the
+   target day with a fresh id and unpaired, since it is no longer beside whatever
+   it was supersetted with. Back on the day it left, the chain closes up: the slot
+   under it pairs with the one above instead, and if it was first, the new first
+   slot drops its link — a day cannot open on the second half of a superset. */
+function moveSlotToDay(days, from, to, id) {
+  if (from === to) return days;
+  const src = days[from] || [];
+  const sl = src.find(x => x.id === id);
+  if (!sl) return days;
+  const rest = src.filter(x => x.id !== id).map((x, i) => i === 0 ? {
+    ...x,
+    link: false
+  } : x);
+  const landed = [...(days[to] || []), {
+    ...sl,
+    id: uid(),
+    link: false
+  }];
+  return putDay(putDay(days, from, rest), to, landed);
 }
 // Sliding the rest of the block. Everything on or after `from` moves together, so
 // the shifted days can never collide with each other — but a backward shift can
@@ -6421,6 +6442,7 @@ function DashboardTab({
   const [why, setWhy] = useState(false);
   const [showTotal, setShowTotal] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
+  const [deep, setDeep] = useState(false);
   const now = Date.now();
   const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && !isAccessory(n, state));
   const fresh = mains.map(([name, ex]) => {
@@ -6923,7 +6945,68 @@ function DashboardTab({
     unit: unit,
     state: state,
     setState: setState
-  }), /*#__PURE__*/React.createElement(Btn, {
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDeep(true),
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      background: G.card,
+      border: `1px solid ${C.line2}`,
+      borderRadius: R.surface,
+      padding: "14px 15px",
+      cursor: "pointer",
+      color: C.text,
+      textAlign: "left",
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 3,
+      height: 26,
+      borderRadius: 2,
+      flexShrink: 0,
+      background: C.violet,
+      boxShadow: `0 0 10px ${tint(C.violet, 0.5)}`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontWeight: 800,
+      fontSize: 14
+    }
+  }, "Deeper reads"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11.5,
+      color: C.faint,
+      marginTop: 3
+    }
+  }, "Variations \xB7 accessories \xB7 strength profile \xB7 recent sessions")), /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 16,
+    style: {
+      color: C.faint,
+      flexShrink: 0,
+      transform: "rotate(-90deg)"
+    }
+  })), /*#__PURE__*/React.createElement(Sheet, {
+    open: deep,
+    onClose: () => setDeep(false),
+    title: "Deeper reads"
+  }, /*#__PURE__*/React.createElement(Analysis, {
+    view: "deep",
+    analysis: analysis,
+    unit: unit,
+    state: state,
+    setState: setState,
+    models: models
+  })), /*#__PURE__*/React.createElement(Btn, {
     kind: "primary",
     onClick: () => setTab("train"),
     style: {
@@ -7363,7 +7446,8 @@ function SlotCard({
   canLink,
   onToggleLink,
   state,
-  onPickBoLift
+  onPickBoLift,
+  onMoveDay
 }) {
   const [open, setOpen] = useState(false);
   // The slot wears the lift's colour, so a day of work is scannable by movement
@@ -7592,7 +7676,7 @@ function SlotCard({
       marginBottom: 6,
       fontWeight: 700
     }
-  }, "Run to failure"), /*#__PURE__*/React.createElement(Segmented, {
+  }, "Take sets to failure?"), /*#__PURE__*/React.createElement(Segmented, {
     value: slot.amrap === "all" ? "all" : slot.amrap ? "last" : "off",
     onChange: v => up({
       amrap: v === "off" ? undefined : v
@@ -7607,18 +7691,22 @@ function SlotCard({
       value: "all",
       label: "Every set"
     }]
-  }), slot.amrap && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.faint,
       marginTop: 7,
       lineHeight: 1.45
     }
-  }, "Load comes from ", /*#__PURE__*/React.createElement("b", {
+  }, slot.amrap ? /*#__PURE__*/React.createElement(React.Fragment, null, slot.amrap === "all" ? "Every set goes" : "The last set goes", " to 0 reps left. The bar still gets loaded from ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: C.muted
     }
-  }, slot.reps, " @ ", slotLabel(slot)), " \u2014 change those to move the weight. The reps you log are whatever you get.")), /*#__PURE__*/React.createElement("div", {
+  }, slot.reps, " @ ", slotLabel(slot)), " ", "\u2014 change those to pick how heavy you fail.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Sets stop at ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.muted
+    }
+  }, slot.reps, " @ ", slotLabel(slot)), ". Switch this on and that stays the load; you just keep going past the reps."))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 13
     }
@@ -7839,15 +7927,24 @@ function SlotCard({
       fontSize: 12.5
     },
     onClick: onRename
-  }, "Swap movement"), /*#__PURE__*/React.createElement(Btn, {
-    kind: "danger",
+  }, "Swap movement"), onMoveDay && /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
     style: {
       flex: 1,
       minHeight: 40,
       fontSize: 12.5
     },
+    onClick: onMoveDay
+  }, "Move to a day")), /*#__PURE__*/React.createElement(Btn, {
+    kind: "danger",
+    style: {
+      width: "100%",
+      marginTop: 8,
+      minHeight: 38,
+      fontSize: 12.5
+    },
     onClick: onDelete
-  }, "Remove")))));
+  }, "Remove from this day"))));
 }
 // Most weeks of a block are the previous week with the top sets nudged. Cloning is
 // therefore the primary way a week gets built, not a convenience bolted on after.
@@ -8039,52 +8136,66 @@ function MonthCalendar({
     // of this and you read your own split off the calendar without labels.
     const hues = slots.slice(0, 3).map(sl => hueFor(sl.ex, state));
     const did = loggedDays[ds] || 0;
-    return /*#__PURE__*/React.createElement("button", {
-      key: i,
-      onClick: () => onSel(ds),
-      style: {
-        aspectRatio: "1",
-        borderRadius: 10,
-        cursor: "pointer",
-        padding: 0,
-        position: "relative",
-        border: isToday && !isSel ? `1px solid ${C.red}` : `1px solid ${isSel ? "transparent" : "rgba(255,255,255,0.05)"}`,
-        background: isSel ? G.red : did ? "rgba(255,255,255,0.07)" : "transparent",
-        color: isSel ? "#fff" : did || planned ? C.text : C.faint,
-        fontFamily: MONO,
-        fontSize: 12.5,
-        fontWeight: isSel ? 700 : 500,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 2,
-        WebkitTapHighlightColor: "transparent",
-        transition: "background .12s ease"
-      }
-    }, /*#__PURE__*/React.createElement("span", null, d.getDate()), /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "flex",
-        gap: 2,
-        height: 4,
-        alignItems: "center"
-      }
-    }, did ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        width: 4,
-        height: 4,
-        borderRadius: 99,
-        background: isSel ? "#fff" : C.good
-      }
-    }) : null, !did && hues.map((h, k) => /*#__PURE__*/React.createElement("span", {
-      key: k,
-      style: {
-        width: 4,
-        height: 4,
-        borderRadius: 99,
-        background: isSel ? "#fff" : h
-      }
-    }))));
+    return (
+      /*#__PURE__*/
+      /* A calendar cell used to announce itself as the bare number "15", with no
+         month, no weekday and no word about what is on it — unusable by voice
+         or by screen reader, and unaddressable by anything but what it looks
+         like. The date it stands for is now on the element. */
+      React.createElement("button", {
+        key: i,
+        onClick: () => onSel(ds),
+        "data-date": ds,
+        "aria-current": isToday ? "date" : undefined,
+        "aria-label": d.toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric"
+        }) + (planned ? `, ${planned} planned` : "") + (did ? `, ${did} set${did === 1 ? "" : "s"} logged` : ""),
+        style: {
+          aspectRatio: "1",
+          borderRadius: 10,
+          cursor: "pointer",
+          padding: 0,
+          position: "relative",
+          border: isToday && !isSel ? `1px solid ${C.red}` : `1px solid ${isSel ? "transparent" : "rgba(255,255,255,0.05)"}`,
+          background: isSel ? G.red : did ? "rgba(255,255,255,0.07)" : "transparent",
+          color: isSel ? "#fff" : did || planned ? C.text : C.faint,
+          fontFamily: MONO,
+          fontSize: 12.5,
+          fontWeight: isSel ? 700 : 500,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 2,
+          WebkitTapHighlightColor: "transparent",
+          transition: "background .12s ease"
+        }
+      }, /*#__PURE__*/React.createElement("span", null, d.getDate()), /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "flex",
+          gap: 2,
+          height: 4,
+          alignItems: "center"
+        }
+      }, did ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 4,
+          height: 4,
+          borderRadius: 99,
+          background: isSel ? "#fff" : C.good
+        }
+      }) : null, !did && hues.map((h, k) => /*#__PURE__*/React.createElement("span", {
+        key: k,
+        style: {
+          width: 4,
+          height: 4,
+          borderRadius: 99,
+          background: isSel ? "#fff" : h
+        }
+      }))))
+    );
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -8882,6 +8993,693 @@ function ConflictSheet({
    the pre-picked answer. Asking a question you can already answer is how you
    teach someone the app is not paying attention.
 ---------------------------------------------------------------------------- */
+/* ====================== WEAK POINTS, AND WHAT FIXES THEM ===================
+   "My bench is weak" is not a diagnosis. A bench that stalls on the chest and
+   a bench that stalls two inches under lockout are two different lifts failing
+   for two different reasons, and the work that fixes one does nothing at all
+   for the other — which is how a lifter spends a year adding triceps work to a
+   press that dies at the bottom.
+
+   So the coach asks where the bar actually stops and prescribes against that
+   answer. Every movement named below is in the library under this exact name,
+   so what comes out is a block that opens in Train — not a list of suggestions
+   to go and type in yourself.                                               */
+const WEAK_POINTS = {
+  "Low-Bar Squat": [{
+    k: "hole",
+    t: "Out of the hole",
+    d: "The bottom is where it slows down or stops",
+    why: "Strength at depth, with no stretch left to spend. That is quads, plus the position that lets them work — and it is trained by starting from a dead stop down there.",
+    fix: [{
+      ex: "3ct Pause Squat",
+      sets: 3,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5,
+      note: "Sit in it. Nothing bounces."
+    }, {
+      ex: "Front Squat",
+      sets: 3,
+      reps: 5,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Leg Press",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "mid",
+    t: "A few inches above parallel",
+    d: "I come out of the bottom fine, then stall",
+    why: "The hand-off from quads to hips, where the stretch has run out and the leverage has not improved yet. You train it by starting the lift at the height it fails from.",
+    fix: [{
+      ex: "Pin Squat",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5,
+      note: "Pins set where it stalls."
+    }, {
+      ex: "Box Squat",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Tempo Squat",
+      sets: 3,
+      reps: 4,
+      mode: "rpe",
+      val: 7
+    }]
+  }, {
+    k: "fold",
+    t: "Chest caves, hips shoot up",
+    d: "It turns into a good morning on the way up",
+    why: "A back that cannot hold the bar's line, not legs that cannot push. More squatting does not fix this one; holding the bar where it belongs under load does.",
+    fix: [{
+      ex: "SSB Good Morning",
+      sets: 3,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Safety Bar Squat",
+      sets: 3,
+      reps: 5,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Barbell Row",
+      sets: 4,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "brace",
+    t: "I lose the brace",
+    d: "The air goes, or my low back rounds under",
+    why: "Trunk, not legs. A squat is only ever as heavy as what you can keep rigid between the bar and the floor, and nothing in a squat programme trains that by accident.",
+    fix: [{
+      ex: "Front Squat",
+      sets: 3,
+      reps: 5,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Ab Wheel",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Pallof Press",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 2
+    }]
+  }],
+  "Competition Bench": [{
+    k: "chest",
+    t: "Off the chest",
+    d: "It dies the moment it touches",
+    why: "Starting strength in the press — pecs, and turning a dead bar around with none of the bounce a touch-and-go gives you.",
+    fix: [{
+      ex: "3ct Pause Bench",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5,
+      note: "Three full counts, dead still."
+    }, {
+      ex: "Spoto Press",
+      sets: 3,
+      reps: 5,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Dumbbell Bench",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "mid",
+    t: "A few inches up",
+    d: "Off the chest fine, then it stops dead",
+    why: "Where the pec hands over to the triceps, and by a distance the commonest place a bench dies. Pressing from pins at that exact height is the direct fix and there is no substitute for it.",
+    fix: [{
+      ex: "Pin Press",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5,
+      note: "Pins at the sticking point."
+    }, {
+      ex: "2-Board Press",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "Close-Grip Bench",
+      sets: 3,
+      reps: 6,
+      mode: "rpe",
+      val: 7
+    }]
+  }, {
+    k: "lockout",
+    t: "The lockout",
+    d: "The last few inches are the grind",
+    why: "Triceps, and triceps trained heavy rather than triceps trained sore. The range you fail in is the range to overload.",
+    fix: [{
+      ex: "Close-Grip Bench",
+      sets: 4,
+      reps: 5,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "3-Board Press",
+      sets: 3,
+      reps: 4,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "JM Press",
+      sets: 3,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "path",
+    t: "The bar wanders",
+    d: "It drifts, or my shoulders give out first",
+    why: "Upper back. You press off a platform you build with your back, and when that platform moves the bar follows it. This is the one bench weak point you fix by pulling.",
+    fix: [{
+      ex: "Chest-Supported Row",
+      sets: 4,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Face Pull",
+      sets: 3,
+      reps: 15,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Dumbbell Bench",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }],
+  "Conventional Deadlift": [{
+    k: "floor",
+    t: "Off the floor",
+    d: "If it breaks the floor it is going to lock out",
+    why: "The first inch is legs and position — quads driving, lats holding the bar into you. Pulling from below the floor makes the start the hardest part of the lift instead of the easiest.",
+    fix: [{
+      ex: "Deficit Deadlift 2in",
+      sets: 3,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "Front Squat",
+      sets: 3,
+      reps: 5,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Snatch-Grip Deadlift",
+      sets: 3,
+      reps: 4,
+      mode: "rpe",
+      val: 7
+    }]
+  }, {
+    k: "knee",
+    t: "Mid-shin to the knee",
+    d: "It comes off the floor and stalls at the knee",
+    why: "The stretch is gone and the lockout has not arrived. Pausing in that window is the fix nothing else replaces, because nothing else makes you hold position there under load.",
+    fix: [{
+      ex: "Pause Below Knee",
+      sets: 3,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5,
+      note: "Two counts, then finish it."
+    }, {
+      ex: "Romanian Deadlift",
+      sets: 3,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Chest-Supported Row",
+      sets: 4,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "lockout",
+    t: "The lockout",
+    d: "It gets past my knees and I cannot finish it",
+    why: "Hips and upper back at the top. Pulling from above the sticking point lets you load the range that fails with weight you could never get off the floor.",
+    fix: [{
+      ex: "Rack Pull At Knee",
+      sets: 3,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "Hip Thrust",
+      sets: 3,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Barbell Shrug",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "round",
+    t: "My back rounds over",
+    d: "The bar moves and my spine moves with it",
+    why: "Not a strength problem in the legs. The extensors and the upper back have to hold a position the bar is actively taking away from you, and that is trained directly.",
+    fix: [{
+      ex: "Snatch-Grip Deadlift",
+      sets: 3,
+      reps: 4,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "45-Degree Back Extension",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Chest-Supported Row",
+      sets: 4,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "grip",
+    t: "My grip goes first",
+    d: "The pull is there, the bar is not",
+    why: "Everything above the bar is fine; it is leaving your hands. This is the fastest weak point in powerlifting to fix, and the one most lifters never bother to train.",
+    fix: [{
+      ex: "Fat Grip Hold",
+      sets: 3,
+      reps: 30
+    }, {
+      ex: "Farmer's Walk",
+      sets: 3,
+      reps: 40
+    }, {
+      ex: "Dead Hang",
+      sets: 3,
+      reps: 45
+    }]
+  }],
+  "Overhead Press": [{
+    k: "start",
+    t: "Off the shoulders",
+    d: "The first few inches are the hardest",
+    why: "Front delts out of a dead-stop position, with no leg drive and no stretch to borrow from.",
+    fix: [{
+      ex: "Pause Overhead Press",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "Z Press",
+      sets: 3,
+      reps: 6,
+      mode: "rpe",
+      val: 7
+    }, {
+      ex: "Seated Overhead Press",
+      sets: 3,
+      reps: 8,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "mid",
+    t: "At eye level",
+    d: "Past my face, then it stops",
+    why: "The worst leverage in the lift, where the bar is furthest from your midline. Pressing from pins at that height overloads it; side delts hold it there.",
+    fix: [{
+      ex: "Pin Press Overhead",
+      sets: 4,
+      reps: 3,
+      mode: "rpe",
+      val: 7.5
+    }, {
+      ex: "Dumbbell Shoulder Press",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Lateral Raise",
+      sets: 3,
+      reps: 15,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "lockout",
+    t: "Overhead",
+    d: "I get it up and cannot finish or hold it",
+    why: "Triceps to finish, upper back to keep it there. An overhead press you cannot lock is usually both at once.",
+    fix: [{
+      ex: "Push Press",
+      sets: 3,
+      reps: 3,
+      mode: "rpe",
+      val: 7,
+      note: "Leg drive past the sticking point, strict to lock it."
+    }, {
+      ex: "Overhead Triceps Extension",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Triceps Pushdown",
+      sets: 3,
+      reps: 15,
+      mode: "rir",
+      val: 2
+    }]
+  }, {
+    k: "shoulder",
+    t: "It drifts, or the shoulder complains",
+    d: "More a position problem than a strength one",
+    why: "Rear delts and external rotators keep the joint where the press needs it. Cheap work, and it is what keeps a presser pressing.",
+    fix: [{
+      ex: "Face Pull",
+      sets: 3,
+      reps: 15,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Rear Delt Fly",
+      sets: 3,
+      reps: 15,
+      mode: "rir",
+      val: 2
+    }, {
+      ex: "Half-Kneeling Landmine Press",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  }]
+};
+// Someone training for size has no sticking point to aim at, so the same slot in
+// the flow asks what they are actually chasing and fills it the same way.
+const SIZE_FOCUS = {
+  upper: {
+    t: "Chest, back and shoulders",
+    d: "The torso",
+    why: "Compound pressing and pulling at rep ranges the main lifts never visit, which is where most of the tissue gets added.",
+    fix: [{
+      ex: "Dumbbell Incline",
+      sets: 4,
+      reps: 10,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Chest-Supported Row",
+      sets: 4,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Lat Pulldown",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }]
+  },
+  lower: {
+    t: "Legs and glutes",
+    d: "Quads, hamstrings, glutes",
+    why: "Squats and pulls grow the pattern; they do not reliably grow every muscle in it. These cover what the big lifts under-train.",
+    fix: [{
+      ex: "Leg Press",
+      sets: 4,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Lying Leg Curl",
+      sets: 4,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Walking Lunge",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 2
+    }]
+  },
+  arms: {
+    t: "Arms and delts",
+    d: "The bits that never grow from the big three",
+    why: "Biceps and side delts take almost nothing from squat, bench and deadlift. If you want them, you train them directly or not at all.",
+    fix: [{
+      ex: "Barbell Curl",
+      sets: 4,
+      reps: 10,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Rope Pushdown",
+      sets: 4,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Lateral Raise",
+      sets: 4,
+      reps: 15,
+      mode: "rir",
+      val: 1
+    }]
+  },
+  all: {
+    t: "All of it",
+    d: "Everywhere, evenly",
+    why: "One push, one pull, one leg movement, every session you have room for — the shortest honest answer to wanting size everywhere.",
+    fix: [{
+      ex: "Dumbbell Incline",
+      sets: 3,
+      reps: 10,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Seated Cable Row",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }, {
+      ex: "Leg Press",
+      sets: 3,
+      reps: 12,
+      mode: "rir",
+      val: 1
+    }]
+  }
+};
+// Things that are already complaining, and what to keep off them. Matched on the
+// movement's name, which is blunt but auditable: you can read the list and know
+// exactly what it will and will not take out.
+const LIMITS = [{
+  k: "lowback",
+  t: "Low back",
+  d: "It is the thing that always goes"
+}, {
+  k: "knee",
+  t: "Knees"
+}, {
+  k: "shoulder",
+  t: "Shoulders"
+}, {
+  k: "elbow",
+  t: "Elbows or wrists"
+}, {
+  k: "hip",
+  t: "Hips or groin"
+}];
+const LIMIT_AVOID = {
+  lowback: /good morning|deficit|snatch-grip|stiff-leg|zercher|jefferson|ghd sit-up/i,
+  knee: /sissy|hack squat|pistol|jump|step-?up|lunge|split squat/i,
+  shoulder: /behind-neck|guillotine|wide-grip bench|dip|upright row|handstand|overhead squat/i,
+  elbow: /skullcrusher|jm press|french press|tate press|close-grip/i,
+  hip: /wide-stance|sumo|adduction|copenhagen|cossack|lunge|split squat/i
+};
+// Where the lifter runs out, when they run out. Each answer changes the
+// prescription in a different direction rather than just scaling it down.
+const WALLS = [{
+  v: "joints",
+  t: "My joints",
+  d: "Elbows, knees, shoulders — the bar is what hurts"
+}, {
+  v: "systemic",
+  t: "Recovery",
+  d: "Flat for days afterwards, nothing hurts in particular"
+}, {
+  v: "time",
+  t: "Time",
+  d: "I run out of session before I run out of energy"
+}];
+
+/* Turning answers into movements. Everything here narrows a list that is already
+   correct rather than inventing one: the sticking point picks the three, the
+   equipment and the sore joints take some back out, and what survives gets sized
+   to how much work the lifter said they can actually take. */
+function prescribe(ans) {
+  if (!ans) return null;
+  const src = ans.goal === "size" ? SIZE_FOCUS[ans.focus] || null : (WEAK_POINTS[ans.weak] || []).find(p => p.k === ans.wp) || null;
+  if (!src) return null;
+  const gear = COACH_GEAR[ans.gear || "full"];
+  const limits = ans.limits || [];
+  const fits = m => !gear.has || gear.has.indexOf(equipOf(m.ex) || "bb") >= 0;
+  const sore = m => limits.some(k => LIMIT_AVOID[k] && LIMIT_AVOID[k].test(m.ex));
+  let moves = src.fix.filter(fits);
+  const safe = moves.filter(m => !sore(m));
+  /* Taking out everything that brushes a sore joint can empty the prescription
+     entirely — a bench lockout with bad elbows has almost nothing left. Two
+     movements and an honest warning beats none and a shrug. */
+  const forced = safe.length < 2 && moves.length > safe.length;
+  if (!forced) moves = safe;
+  // "My joints go first" does not mean do less. It means train the same muscle
+  // with something that is not a barbell, so the machine work goes to the front.
+  if (ans.wall === "joints") {
+    const soft = {
+      mc: 0,
+      cb: 0,
+      db: 1,
+      kb: 1,
+      bw: 2,
+      sm: 2,
+      bd: 3,
+      sp: 3,
+      sl: 3,
+      bb: 4
+    };
+    const rank = m => {
+      const e = equipOf(m.ex);
+      return soft[e] == null ? 4 : soft[e];
+    };
+    moves = moves.slice().sort((a, b) => rank(a) - rank(b));
+  }
+  if (ans.wall === "time") moves = moves.slice(0, 2);
+  const shrink = (ans.wall === "systemic" ? 1 : 0) + (ans.bw === "cut" ? 1 : 0);
+  moves = moves.slice(0, 3).map(m => ({
+    ...m,
+    sets: Math.max(2, m.sets - shrink)
+  }));
+  if (!moves.length) return null;
+  return {
+    t: src.t,
+    why: src.why,
+    moves,
+    forced,
+    shrink,
+    lift: ans.goal === "size" ? null : ans.weak
+  };
+}
+const rxSlot = m => {
+  const timed = TIME_MOVES.has(m.ex);
+  const mode = m.mode || "rir";
+  return {
+    id: uid(),
+    ex: m.ex,
+    metric: timed ? "time" : "reps",
+    role: "accessory",
+    sets: Math.max(1, m.sets),
+    reps: Math.max(1, m.reps),
+    mode,
+    val: clampVal(mode, m.val),
+    // Marked as the coach's, so a plan can always say which movements it put
+    // there and which ones you did.
+    bo: null,
+    note: m.note || "",
+    rx: true
+  };
+};
+/* Which days the prescription would land on. Once a week — enough to move a weak
+   point, not enough to become the block — and only a day that already trains the
+   pattern, so the work that supports the lift sits behind the lift itself.
+
+   Never a day that has already been and gone: prescribing into last Tuesday is
+   rewriting a session you trained, which matters the moment this is pointed at a
+   block already underway rather than one being generated from scratch. */
+function rxTargetDays(days, rx) {
+  if (!rx || !rx.moves || !rx.moves.length) return [];
+  const cat = rx.lift ? (libFind(rx.lift) || {}).c || null : null;
+  const today = todayStr();
+  const keys = Object.keys(days).filter(k => k >= today).sort();
+  const out = [],
+    seen = new Set();
+  for (const k of keys) {
+    const slots = days[k] || [];
+    if (!slots.length) continue;
+    if (cat && !slots.some(sl => (libFind(sl.ex) || {}).c === cat)) continue;
+    const wk = Math.floor(Math.max(0, daysBetween(keys[0], k)) / 7);
+    if (seen.has(wk)) continue;
+    seen.add(wk);
+    if (!rxNewFor(slots, rx).length) continue; // it already runs all of this
+    out.push(k);
+  }
+  return out;
+}
+// What of the prescription this day does not already have. A block that already
+// front-squats on squat day does not want a second Front Squat line under it.
+function rxNewFor(slots, rx) {
+  const have = new Set((slots || []).map(sl => sl.ex));
+  return rx.moves.filter(m => !have.has(m.ex));
+}
+function applyPrescription(days, rx) {
+  const hit = rxTargetDays(days, rx);
+  if (!hit.length) return days;
+  const out = {
+    ...days
+  };
+  for (const k of hit) out[k] = [...(days[k] || []), ...rxNewFor(days[k], rx).map(rxSlot)];
+  return out;
+}
+// How a prescribed movement reads on a card: 3×8 @ 2 RIR, or 3×0:40 for the
+// things measured on a clock.
+const rxLine = m => TIME_MOVES.has(m.ex) ? `${m.sets}×${fmtDur(m.reps)}` : `${m.sets}×${m.reps} @ ${m.mode === "pct" ? fmt(m.val) + "%" : m.mode === "rir" ? fmt(m.val) + " RIR" : "RPE " + fmt(m.val)}`;
 const COACH_GEAR = {
   full: {
     t: "A full gym",
@@ -8991,6 +9789,14 @@ function recommendBlocks(ans, state, models) {
         why.push("it carries real volume");
       }
       if (ans.vol === "low" && perDay >= 22) score -= 20;
+      // A cut is not a volume preference, but it has the same consequence: there
+      // is less recovery to spend, so a template that spends less of it wins.
+      if (ans.bw === "cut" && perDay <= 14) {
+        score += 10;
+        why.push("it is not much work to recover from, which matters on a cut");
+      }
+      if (ans.bw === "cut" && perDay >= 22) score -= 12;
+      if (ans.wall === "time" && perDay <= 14) score += 8;
     }
     if (ans.weak && ans.weak !== "none") {
       const spec = /spec|press-spec|single-peak|hifreq/.test(t.id);
@@ -9029,23 +9835,35 @@ function recommendBlocks(ans, state, models) {
 
 // One question a screen, every one skippable. A skipped question takes a sane
 // default and the explanation says so, rather than silently guessing.
+/* The same questionnaire answers two different needs. Asked in full it picks a
+   programme and writes the lifter's weak point into it. Asked short — rxOnly —
+   it leaves the block alone and only prescribes, which is what you want when
+   there is nothing wrong with the plan except that it never addressed the one
+   thing that is actually holding a lift back. */
 function CoachSheet({
   open,
   onClose,
   state,
   models,
   onGenerate,
-  unit
+  unit,
+  rxOnly,
+  onPrescribe
 }) {
   const [ans, setAns] = useState({});
   const [step, setStep] = useState(0);
   useEffect(() => {
     if (open) {
-      setAns({});
+      setAns(rxOnly ? {
+        goal: "strength"
+      } : {});
       setStep(0);
     }
-  }, [open]);
+  }, [open, rxOnly]);
   const weak = useMemo(() => open ? weakestLift(models) : null, [open, models]);
+  // Which sticking points there are to choose between depends entirely on which
+  // lift they named, so this list is rebuilt from the answers on every render.
+  const wpList = ans.weak && WEAK_POINTS[ans.weak] || [];
   const QS = [{
     id: "goal",
     q: "What are you training for?",
@@ -9065,6 +9883,31 @@ function CoachSheet({
       v: "maintain",
       t: "Hold what I have",
       d: "In season, busy, or coming back"
+    }]
+  },
+  /* A peaking block is the only one whose length is not a preference — it is
+     however long there is. Asking turns "6 weeks by default" into the right
+     number of weeks, and it is a question nobody else in the flow needs. */
+  {
+    id: "meetin",
+    q: "How far out is it?",
+    skip: a => a.goal !== "peak",
+    opts: [{
+      v: 4,
+      t: "Four weeks",
+      d: "A sharpening block and nothing more"
+    }, {
+      v: 8,
+      t: "Eight weeks",
+      d: "Long enough to build and still peak"
+    }, {
+      v: 12,
+      t: "Twelve weeks",
+      d: "A full prep"
+    }, {
+      v: 16,
+      t: "Sixteen or more",
+      d: "Build first, peak at the end of it"
     }]
   }, {
     id: "days",
@@ -9111,9 +9954,47 @@ function CoachSheet({
       t: "They are all even",
       d: "Or I would rather not say"
     }]
+  },
+  /* The branch the whole thing is for. A lift being behind says almost nothing
+     about what to do; where the bar stops says nearly everything, and the two
+     answers lead to completely different accessory work. A beginner is skipped
+     past it — at that stage the sticking point is the lift itself. */
+  {
+    id: "wp",
+    q: `Where does your ${shortLift(ans.weak || "lift")} actually break down?`,
+    sub: "The place the bar stops is what decides which accessories are worth doing. Nothing else about a weak lift does.",
+    skip: a => !wpList.length || a.level === 1,
+    opts: wpList.map(p => ({
+      v: p.k,
+      t: p.t,
+      d: p.d
+    }))
+  },
+  // Same slot in the flow, different question, for someone who is not chasing a
+  // number on the platform at all.
+  {
+    id: "focus",
+    q: "What are you chasing size on?",
+    skip: a => a.goal !== "size",
+    opts: Object.keys(SIZE_FOCUS).map(v => ({
+      v,
+      t: SIZE_FOCUS[v].t,
+      d: SIZE_FOCUS[v].d
+    }))
+  }, {
+    id: "limits",
+    q: "Anything you are working around?",
+    multi: true,
+    sub: "Tap everything that applies. I keep the accessory work off it; say nothing and I will assume nothing.",
+    opts: LIMITS.map(l => ({
+      v: l.k,
+      t: l.t,
+      d: l.d
+    }))
   }, {
     id: "vol",
     q: "How do you handle volume?",
+    skip: a => a.level === 1,
     opts: [{
       v: "high",
       t: "I thrive on it",
@@ -9126,16 +10007,141 @@ function CoachSheet({
       t: "It beats me up",
       d: "I do better on less work, harder"
     }]
+  },
+  /* "It beats me up" is three different complaints wearing one coat, and they
+     want three different answers: softer implements, fewer sets, or fewer
+     movements. Worth the one extra tap to know which. */
+  {
+    id: "wall",
+    q: "When the work piles up, what goes first?",
+    skip: a => a.vol !== "low",
+    opts: WALLS
+  }, {
+    id: "bw",
+    q: "Which way is your bodyweight going?",
+    sub: "Recovery on the way down is not recovery on the way up, and the accessory volume should know that.",
+    opts: [{
+      v: "gain",
+      t: "Up",
+      d: "Eating to grow"
+    }, {
+      v: "hold",
+      t: "Holding steady"
+    }, {
+      v: "cut",
+      t: "Down",
+      d: "Cutting, or making weight"
+    }]
   }];
-  const live = QS.filter(x => !(x.skip && x.skip(ans)));
+  // Four of the questions are the ones the prescription actually reads. The rest
+  // only exist to choose a template, so the short flow drops them.
+  const RX_ONLY = ["gear", "weak", "wp", "limits"];
+  const live = QS.filter(x => !(x.skip && x.skip(ans)) && (!rxOnly || RX_ONLY.indexOf(x.id) >= 0));
   const cur = live[step];
   const done = step >= live.length;
-  const picks = useMemo(() => done ? recommendBlocks(ans, state, models) : [], [done, ans, state, models]);
+  // Scoring forty-five templates means building a week of each to count its sets.
+  // The short flow never shows a template, so it never pays for one.
+  const picks = useMemo(() => done && !rxOnly ? recommendBlocks(ans, state, models) : [], [done, rxOnly, ans, state, models]);
+  const rx = useMemo(() => done ? prescribe(ans) : null, [done, ans]);
+  const multi = !!(cur && cur.multi);
+  const chosen = multi ? ans[cur.id] || [] : null;
+  const toggle = v => setAns(a => {
+    const had = a[cur.id] || [];
+    return {
+      ...a,
+      [cur.id]: had.indexOf(v) >= 0 ? had.filter(x => x !== v) : had.concat([v])
+    };
+  });
+
+  // The prescription, as a card. Both ways out of the questionnaire show it.
+  const rxCard = rx ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: `1px solid ${tint(C.violet, 0.42)}`,
+      background: tint(C.violet, 0.07),
+      borderRadius: R.surface,
+      padding: 15,
+      marginBottom: 10,
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.violet,
+      marginBottom: 7
+    }
+  }, rx.lift ? `Weak point · ${shortLift(rx.lift)}` : "Size focus"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 15.5,
+      letterSpacing: "-0.02em"
+    }
+  }, rx.t), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: C.muted,
+      marginTop: 6,
+      lineHeight: 1.55
+    }
+  }, rx.why), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 13
+    }
+  }, rx.moves.map(m => /*#__PURE__*/React.createElement("div", {
+    key: m.ex,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 10,
+      alignItems: "baseline",
+      padding: "8px 0",
+      borderTop: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 12.5,
+      fontWeight: 700
+    }
+  }, m.ex), m.note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: C.faint,
+      marginTop: 2
+    }
+  }, m.note)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 11.5,
+      color: C.muted,
+      flexShrink: 0
+    }
+  }, rxLine(m))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      marginTop: 11,
+      lineHeight: 1.5
+    }
+  }, "These go into one session a week", rx.lift ? `, on a day that already trains your ${shortLift(rx.lift)}` : "", ".", rx.shrink > 0 ? " Sets are pulled back a notch for what you told me about recovery." : "", " ", "Every one of them is an ordinary movement in your plan \u2014 change it, move it or bin it in Plan."), rx.forced && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.gold,
+      marginTop: 9,
+      fontWeight: 600,
+      lineHeight: 1.45
+    }
+  }, "Fair warning: almost nothing that fixes this sticking point leaves that joint alone. Start light, and swap anything that bites.")) : null;
   if (!open) return null;
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
     onClose: onClose,
-    title: done ? "What I would run" : "Build me a block"
+    title: rxOnly ? done ? "What I would add" : "Fix a weak point" : done ? "What I would run" : "Build me a block"
   }, !done && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -9157,7 +10163,15 @@ function CoachSheet({
       letterSpacing: "-0.02em",
       marginBottom: 4
     }
-  }, cur.q), cur.id === "weak" && weak && /*#__PURE__*/React.createElement("div", {
+  }, cur.q), cur.sub && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      marginBottom: 2,
+      marginTop: 5,
+      lineHeight: 1.5
+    }
+  }, cur.sub), cur.id === "weak" && weak && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11.5,
       color: C.faint,
@@ -9170,9 +10184,15 @@ function CoachSheet({
     }
   }), cur.opts.map(o => {
     const suggested = cur.id === "weak" && weak && o.v === weak.name;
+    const on = multi ? chosen.indexOf(o.v) >= 0 : false;
+    const lit = on || suggested;
     return /*#__PURE__*/React.createElement("button", {
       key: o.v,
       onClick: () => {
+        if (multi) {
+          toggle(o.v);
+          return;
+        }
         setAns(a => ({
           ...a,
           [cur.id]: o.v
@@ -9182,17 +10202,42 @@ function CoachSheet({
       style: {
         width: "100%",
         textAlign: "left",
-        background: suggested ? tint(C.red, 0.1) : G.card,
-        border: `1px solid ${suggested ? tint(C.red, 0.4) : C.line2}`,
+        background: lit ? tint(C.red, 0.1) : G.card,
+        border: `1px solid ${lit ? tint(C.red, 0.45) : C.line2}`,
         borderRadius: R.surface,
         padding: "13px 15px",
         cursor: "pointer",
         color: C.text,
         marginBottom: 8,
+        display: "flex",
+        alignItems: "center",
+        gap: 11,
         WebkitTapHighlightColor: "transparent"
       }
-    }, /*#__PURE__*/React.createElement("div", {
+    }, multi && /*#__PURE__*/React.createElement("span", {
       style: {
+        width: 19,
+        height: 19,
+        borderRadius: 6,
+        flexShrink: 0,
+        display: "grid",
+        placeItems: "center",
+        border: `1px solid ${on ? "transparent" : C.line2}`,
+        background: on ? C.red : "rgba(255,255,255,0.03)"
+      }
+    }, on && /*#__PURE__*/React.createElement(Check, {
+      size: 13,
+      style: {
+        color: "#fff"
+      }
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        minWidth: 0,
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
         fontWeight: 800,
         fontSize: 14
       }
@@ -9202,15 +10247,24 @@ function CoachSheet({
         fontSize: 11,
         marginLeft: 8
       }
-    }, "your numbers") : null), o.d && /*#__PURE__*/React.createElement("div", {
+    }, "your numbers") : null), o.d && /*#__PURE__*/React.createElement("span", {
       style: {
+        display: "block",
         fontSize: 12,
         color: C.muted,
         marginTop: 3,
         lineHeight: 1.45
       }
-    }, o.d));
-  }), /*#__PURE__*/React.createElement("div", {
+    }, o.d)));
+  }), multi && /*#__PURE__*/React.createElement(Btn, {
+    kind: chosen.length ? "primary" : "solid",
+    style: {
+      width: "100%",
+      marginTop: 4,
+      minHeight: 44
+    },
+    onClick: () => setStep(st => st + 1)
+  }, chosen.length ? `Continue with ${chosen.length}` : "Nothing to work around"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 14,
@@ -9239,7 +10293,37 @@ function CoachSheet({
       padding: 0,
       marginLeft: "auto"
     }
-  }, "Skip this"))), done && /*#__PURE__*/React.createElement(React.Fragment, null, !picks.length && /*#__PURE__*/React.createElement("div", {
+  }, "Skip this"))), done && rxOnly && /*#__PURE__*/React.createElement(React.Fragment, null, rxCard, !rx && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.muted,
+      lineHeight: 1.6
+    }
+  }, "Nothing to prescribe from that \u2014 either no lift was named, or the equipment you have cannot do any of the work that fixes it. Go back and loosen one."), /*#__PURE__*/React.createElement(Btn, {
+    kind: "primary",
+    disabled: !rx,
+    style: {
+      width: "100%",
+      minHeight: 46,
+      marginTop: 4
+    },
+    onClick: () => {
+      onPrescribe && onPrescribe(rx);
+      onClose();
+    }
+  }, "Add this to my block"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setStep(0),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 800,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: "10px 0",
+      width: "100%"
+    }
+  }, "Change my answers")), done && !rxOnly && /*#__PURE__*/React.createElement(React.Fragment, null, !picks.length && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: C.muted,
@@ -9281,7 +10365,7 @@ function CoachSheet({
       marginTop: 11,
       lineHeight: 1.55
     }
-  }, /*#__PURE__*/React.createElement("b", null, "Because"), " ", r.why.slice(0, 3).join(", "), ".", ans.weak && ans.weak !== "none" && !/spec/.test(r.t.id) ? ` Your ${shortLift(ans.weak)} gets the accessory work inside it rather than its own block.` : ""), r.missing && r.missing.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, "Because"), " ", r.why.slice(0, 3).join(", "), ".", rx && rx.lift ? ` Your ${shortLift(rx.lift)} gets the work for ${rx.t.toLowerCase()} written into it, below.` : ans.weak && ans.weak !== "none" && !/spec/.test(r.t.id) ? ` Your ${shortLift(ans.weak)} gets the accessory work inside it rather than its own block.` : ""), r.missing && r.missing.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11.5,
       color: C.gold,
@@ -9308,16 +10392,16 @@ function CoachSheet({
     },
     onClick: () => {
       const d = r.t.days.indexOf(ans.days || 0) >= 0 ? ans.days : r.t.days[0];
-      const wks = Math.min(r.t.weeks[1], Math.max(r.t.weeks[0], 6));
+      const wks = Math.min(r.t.weeks[1], Math.max(r.t.weeks[0], ans.meetin || 6));
       onGenerate(r.t, {
         days: d,
         weeks: wks,
         level: ans.level || 2,
         startDate: todayStr()
-      });
+      }, rx);
       onClose();
     }
-  }, "Start ", r.t.name))), /*#__PURE__*/React.createElement("button", {
+  }, "Start ", r.t.name))), rxCard, /*#__PURE__*/React.createElement("button", {
     onClick: () => setStep(0),
     style: {
       background: "none",
@@ -9701,6 +10785,8 @@ function ProgramTab({
   const [resetting, setResetting] = useState(false);
   const [libOpen, setLibOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
+  const [rxOpen, setRxOpen] = useState(false);
+  const [rxNote, setRxNote] = useState(null);
   const [picking2, setPicking2] = useState(false);
   const [dayOpen, setDayOpen] = useState(false);
   // An armed move/copy/swap waiting for you to tap its destination on the calendar.
@@ -9793,6 +10879,11 @@ function ProgramTab({
     const t = setTimeout(() => setUndo(null), 7000);
     return () => clearTimeout(t);
   }, [undo]);
+  useEffect(() => {
+    if (!rxNote) return;
+    const t = setTimeout(() => setRxNote(null), 9000);
+    return () => clearTimeout(t);
+  }, [rxNote]);
   const loggedDays = useMemo(() => {
     const m = {};
     for (const ex of Object.values(state.exercises || {})) for (const st of ex.sets) {
@@ -9983,6 +11074,23 @@ function ProgramTab({
       from: sel
     });
   };
+  // Arming from a slot card, which lives below the calendar — so the calendar it
+  // wants you to tap is off the top of the screen unless we go and get it.
+  const armSlot = sl => {
+    setDayOpen(false);
+    setPending({
+      kind: "slot",
+      from: sel,
+      slotId: sl.id,
+      ex: sl.ex
+    });
+    try {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    } catch (e) {}
+  };
   const runOp = (kind, from, to, mode) => {
     const next = kind === "move" ? moveDay(days, from, to, mode) : kind === "copy" ? copyDay(days, from, to, mode) : swapDays(days, from, to);
     applyDays(next, (kind === "move" ? "Moved to " : kind === "copy" ? "Copied to " : "Swapped with ") + niceDay(to));
@@ -10001,6 +11109,11 @@ function ProgramTab({
     } = pending;
     setPending(null);
     if (ds === from) return;
+    if (kind === "slot") {
+      applyDays(moveSlotToDay(days, from, ds, pending.slotId), `Moved ${shortLift(pending.ex)} to ${niceDay(ds)}`);
+      setSelDate(ds);
+      return;
+    }
     // A swap is unambiguous whatever is on either day. Move and copy have to ask
     // before they land on work that is already there.
     if (kind !== "swap" && (days[ds] || []).length) {
@@ -10185,22 +11298,24 @@ function ProgramTab({
     }
   }, k))))), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
+      fontSize: 11.5,
+      color: C.faint,
       marginTop: 13
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, blockStats.span || "Nothing scheduled yet"), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11.5,
-      color: C.faint
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      marginTop: 9,
+      flexWrap: "wrap"
     }
-  }, blockStats.span || "Nothing scheduled yet"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
       display: "inline-flex",
       alignItems: "center",
       gap: 14,
-      marginLeft: "auto"
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setCoachOpen(true),
@@ -10214,6 +11329,17 @@ function ProgramTab({
       padding: 0
     }
   }, "Build me a block"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRxOpen(true),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.violet,
+      fontWeight: 800,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "Weak point"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setLibOpen(true),
     style: {
       background: "none",
@@ -10246,7 +11372,9 @@ function ProgramTab({
       cursor: "pointer",
       padding: 0
     }
-  }, "Reset")))), pending && /*#__PURE__*/React.createElement(Card, {
+  }, "Reset")))), rxNote && /*#__PURE__*/React.createElement(Callout, {
+    tone: "warn"
+  }, rxNote), pending && /*#__PURE__*/React.createElement(Card, {
     accent: C.blue,
     style: {
       padding: "12px 14px"
@@ -10270,12 +11398,12 @@ function ProgramTab({
       display: "block",
       marginBottom: 3
     }
-  }, pending.kind === "move" ? "Moving" : pending.kind === "copy" ? "Copying" : "Swapping", " ", niceDay(pending.from)), /*#__PURE__*/React.createElement("span", {
+  }, pending.kind === "slot" ? `Moving ${shortLift(pending.ex)}` : pending.kind === "move" ? "Moving" : pending.kind === "copy" ? "Copying" : "Swapping", pending.kind === "slot" ? ` off ${niceDay(pending.from)}` : ` ${niceDay(pending.from)}`), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 13,
       fontWeight: 600
     }
-  }, "Tap the day you want below.")), /*#__PURE__*/React.createElement(Btn, {
+  }, pending.kind === "slot" ? "Tap the day it should go to — the rest of this session stays put." : "Tap the day you want below.")), /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     style: {
       fontSize: 12
@@ -10451,6 +11579,7 @@ function ProgramTab({
       });
     },
     onDelete: () => writeSlots(slots.filter(x => x.id !== d.sl.id)),
+    onMoveDay: () => armSlot(d.sl),
     onRename: () => setPicking({
       mode: "swap",
       id: d.sl.id
@@ -10510,8 +11639,10 @@ function ProgramTab({
     state: state,
     models: models,
     unit: (state.settings || {}).unit,
-    onGenerate: (tpl, opts) => {
-      const built = generateProgram(tpl, opts);
+    onGenerate: (tpl, opts, rx) => {
+      // The template lays down the main work; the prescription writes the
+      // lifter's own weak point underneath it before any of it is saved.
+      const built = applyPrescription(generateProgram(tpl, opts), rx);
       applyDays({
         ...days,
         ...built
@@ -10528,6 +11659,23 @@ function ProgramTab({
         y: d.getFullYear(),
         m: d.getMonth()
       });
+    }
+  }), /*#__PURE__*/React.createElement(CoachSheet, {
+    open: rxOpen,
+    onClose: () => setRxOpen(false),
+    state: state,
+    models: models,
+    rxOnly: true,
+    unit: (state.settings || {}).unit,
+    onPrescribe: rx => {
+      const hit = rxTargetDays(days, rx);
+      if (!hit.length) {
+        // Nothing ahead of today trains that pattern, so there is nowhere to
+        // put the work. Saying so beats an undo bar for a change that is not there.
+        setRxNote(`Nothing left in this block trains your ${shortLift(rx && rx.lift || "lift")} — ` + "plan a session for it and run this again, and the work will go in beside it.");
+        return;
+      }
+      applyDays(applyPrescription(days, rx), `Added weak-point work to ${hit.length} session${hit.length === 1 ? "" : "s"}`);
     }
   }), /*#__PURE__*/React.createElement(ProgramPicker, {
     open: picking2,
@@ -11704,8 +12852,13 @@ function TrainTab({
   /* Opening a lift with no idea what you did last time is how people repeat a bad
      session. The best set of the last day you trained it — best meaning the one that
      implied the most, same rule the estimate uses — plus how many sets it took. */
+  /* This lift, and only this lift. It used to read the whole family, so a deadlift
+     day opened showing last week's pause deadlift as "last time" — a lighter bar on
+     a different movement, offered as the thing to beat. A variation is its own lift
+     with its own history; the family shares an estimate, it does not share a last
+     session. */
   const lastTime = useMemo(() => {
-    const fam = boFamily.length ? boFamily : sel ? [sel] : [];
+    const fam = sel ? [sel] : [];
     const byDay = new Map();
     for (const n of fam) {
       for (const x of (state.exercises[n] || {}).sets || []) {
@@ -11741,7 +12894,7 @@ function TrainTab({
     if (!days.length) return null;
     days[0].sets.sort((a, b) => a.ts - b.ts); // the order you actually did them
     return days[0];
-  }, [state.exercises, boFamily.join("|"), boDayStr, logDate, sel]);
+  }, [state.exercises, boDayStr, logDate, sel]);
 
   // The day as a row of chips: every programmed movement, plus whatever you are
   // actually on if you have wandered off the plan.
@@ -11865,13 +13018,24 @@ function TrainTab({
     return rows;
   }, [topToday, todayBos, setsAsked, straightCount, tReps, tRpe, boSteps, bo, sel, activeSlot]);
   const drift = useMemo(() => sel ? rpeDrift(state, sel, 28) : null, [state.exercises, sel]);
-  const setsLeftToday = useMemo(() => sessionSlots.reduce((a, sl) => {
-    const pr = doneSlots[sl.id] || {
-      n: 0,
-      total: slotSetCount(sl)
+  const dayProgress = useMemo(() => {
+    let done = 0,
+      total = 0;
+    for (const sl of sessionSlots) {
+      const pr = doneSlots[sl.id] || {
+        n: 0,
+        total: slotSetCount(sl)
+      };
+      total += pr.total;
+      done += Math.min(pr.n, pr.total);
+    }
+    return {
+      done,
+      total,
+      left: Math.max(0, total - done),
+      pct: total ? done / total : 0
     };
-    return a + Math.max(0, pr.total - pr.n);
-  }, 0), [sessionSlots, doneSlots]);
+  }, [sessionSlots, doneSlots]);
   const amrapSet = !!(activeSlot && activeSlot.amrap && (activeSlot.amrap === "all" || setsIn + 1 >= setsAsked));
   // Arriving on the AMRAP set, the effort box should already say what the set is.
   useEffect(() => {
@@ -12134,23 +13298,7 @@ function TrainTab({
       transform: dateOpen ? "rotate(180deg)" : "none",
       transition: ".2s"
     }
-  })), sessionSlots.length > 0 && setsLeftToday > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDayOpen(true),
-    "aria-label": "Show the whole day",
-    style: {
-      background: "rgba(255,255,255,0.04)",
-      border: `1px solid ${C.line}`,
-      borderRadius: R.pill,
-      padding: "3px 9px",
-      marginLeft: 10,
-      cursor: "pointer",
-      color: C.muted,
-      fontWeight: 800,
-      fontSize: 10,
-      fontFamily: MONO,
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, setsLeftToday, " left"), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
+  })), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => openDayTools && openDayTools(logDate),
     style: {
       background: "none",
@@ -12159,9 +13307,59 @@ function TrainTab({
       fontWeight: 800,
       fontSize: 11,
       cursor: "pointer",
-      padding: 0
+      padding: 0,
+      marginLeft: "auto",
+      WebkitTapHighlightColor: "transparent"
     }
-  }, "Can't train this?")), dateOpen && /*#__PURE__*/React.createElement("div", {
+  }, "Edit day")), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDayOpen(true),
+    "aria-label": "Show the whole session",
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      background: "none",
+      border: "none",
+      padding: "0 0 9px",
+      cursor: "pointer",
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      height: 3,
+      borderRadius: 2,
+      background: "rgba(255,255,255,0.08)",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      height: "100%",
+      borderRadius: 2,
+      width: `${Math.max(dayProgress.done ? 4 : 0, Math.round(dayProgress.pct * 100))}%`,
+      background: dayProgress.left === 0 ? C.good : G.red,
+      transition: "width .35s ease"
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 10,
+      fontWeight: 800,
+      flexShrink: 0,
+      letterSpacing: "0.03em",
+      color: dayProgress.left === 0 ? C.good : C.muted
+    }
+  }, dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} SETS`), /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 11,
+    style: {
+      color: C.faint,
+      flexShrink: 0,
+      transform: "rotate(-90deg)"
+    }
+  })), dateOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 7,
@@ -12587,28 +13785,48 @@ function TrainTab({
     }
   }))), activeSlot && !timedSel && /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      marginTop: 11,
-      flexWrap: "wrap"
+      marginTop: 13,
+      paddingTop: 12,
+      borderTop: `1px solid ${C.line}`
     }
-  }, [["off", "No AMRAP"], ["last", "Last set"], ["all", "Every set"]].map(([v, t]) => /*#__PURE__*/React.createElement(Chip, {
-    key: v,
-    sm: true,
-    active: (activeSlot.amrap || "off") === v,
-    onClick: () => patchSlotSpread(activeSlot.id, {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 7,
+      fontWeight: 700
+    }
+  }, "Take sets to failure?"), /*#__PURE__*/React.createElement(Segmented, {
+    value: activeSlot.amrap || "off",
+    onChange: v => patchSlotSpread(activeSlot.id, {
       amrap: v === "off" ? undefined : v
-    }, activeSlot.ex)
-  }, t)), /*#__PURE__*/React.createElement("span", {
+    }, activeSlot.ex),
+    options: [{
+      value: "off",
+      label: "No"
+    }, {
+      value: "last",
+      label: "Last set"
+    }, {
+      value: "all",
+      label: "Every set"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.faint,
-      lineHeight: 1.4,
-      flex: "1 1 100%",
-      minWidth: 0
+      lineHeight: 1.5,
+      marginTop: 8
     }
-  }, "The reps and effort above still pick the weight \u2014 ", curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, " ", "is a different set from 3 @ RPE 9.5. Only the reps you log are open.")), !onFirst && boFamily.length > 1 && /*#__PURE__*/React.createElement("div", {
+  }, activeSlot.amrap ? /*#__PURE__*/React.createElement(React.Fragment, null, activeSlot.amrap === "all" ? "Every set runs" : "The last set runs", " until the reps run out \u2014 nothing left in the tank. The", " ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.muted
+    }
+  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`), " ", "above is only how the bar gets loaded, and that choice is the whole session: failure on a 3-rep weight and failure on an 8-rep weight are two different workouts.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Sets stop at the ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.muted
+    }
+  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`), " ", "written above. Switch this on and that stays exactly how the bar gets loaded \u2014 you simply do not stop there."))), !onFirst && boFamily.length > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -12624,12 +13842,12 @@ function TrainTab({
     })
   }, n === sel ? shortLift(n) : `${shortLift(n)} · ${Math.round(ratioOf(n) * 100)}%`)))), amrapSet && /*#__PURE__*/React.createElement(Callout, {
     tone: "bad"
-  }, "Last set \u2014 take it to 0 RIR and log what you got.", /*#__PURE__*/React.createElement("span", {
+  }, "To failure \u2014 keep going until the reps stop.", /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.faint,
       fontWeight: 600
     }
-  }, " The load came from ", curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, "; the reps are yours.")), drift && (drift.over || drift.under) && /*#__PURE__*/React.createElement(Callout, {
+  }, " The bar was loaded for ", curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, "; how many you actually get is the point of the set. Log the real number.")), drift && (drift.over || drift.under) && /*#__PURE__*/React.createElement(Callout, {
     tone: drift.over ? "warn" : "info"
   }, drift.over ? /*#__PURE__*/React.createElement(React.Fragment, null, "You run this ", fmt(Math.round(drift.bias * 10) / 10), " RPE above what it asks for") : /*#__PURE__*/React.createElement(React.Fragment, null, "You run this ", fmt(Math.round(-drift.bias * 10) / 10), " RPE below what it asks for"), /*#__PURE__*/React.createElement("span", {
     style: {
@@ -12716,17 +13934,19 @@ function TrainTab({
     }
   }, /*#__PURE__*/React.createElement(Callout, {
     tone: "info"
-  }, "Last time ", loadLabel(lastTime.best, unit), " \xD7 ", lastTime.best.reps, " @ ", inputMode === "rir" ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
-      color: C.faint,
-      fontWeight: 600
+      display: "block"
     }
-  }, " \xB7 ", dshort(lastTime.ts)), lastTime.n > 1 && /*#__PURE__*/React.createElement("span", {
+  }, "Last time ", loadLabel(lastTime.best, unit), " \xD7 ", lastTime.best.reps, " @ ", inputMode === "rir" ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: "block",
       color: C.faint,
-      fontWeight: 600
+      fontWeight: 600,
+      fontSize: 11,
+      marginTop: 2
     }
-  }, ` · all ${lastTime.n}`, /*#__PURE__*/React.createElement(ChevronDown, {
+  }, dshort(lastTime.ts), lastTime.n > 1 && /*#__PURE__*/React.createElement(React.Fragment, null, ` · ${lastTime.n} sets that day`, /*#__PURE__*/React.createElement(ChevronDown, {
     size: 12,
     style: {
       marginLeft: 4,
@@ -12734,7 +13954,7 @@ function TrainTab({
       transform: lastOpen ? "rotate(180deg)" : "none",
       transition: ".2s"
     }
-  })))), lastOpen && lastTime.n > 1 && /*#__PURE__*/React.createElement("div", {
+  }))))), lastOpen && lastTime.n > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       border: `1px solid ${C.line}`,
       borderRadius: R.ctrl,
@@ -13778,9 +14998,15 @@ function FilmStrip({
     }
   }, dshort(s.ts))))));
 }
+
+/* One lift, and nothing but. This screen used to end with four cross-lift cards —
+   variations against their parents, accessory progress, the strength profile, the
+   last few sessions — which were good reads filed under whichever lift you happened
+   to have selected, where they belonged to nothing. They live on the Dashboard now,
+   one tap in. What is left here is the question the screen is actually for: where
+   is this lift going, and what have I done on it. */
 function HistoryTab({
   state,
-  setState,
   sel,
   setSel,
   models,
@@ -13790,9 +15016,15 @@ function HistoryTab({
   unit,
   inputMode,
   saveClip,
-  dropClip,
-  analysis
+  dropClip
 }) {
+  // Hooks first: this used to return early on an empty log and declare its state
+  // after, so adding a first lift changed the hook count between two renders.
+  const [armName, setArmName] = useState(null);
+  const [pickingLift, setPickingLift] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [filming, setFilming] = useState(null);
   const names = Object.keys(state.exercises);
   if (names.length === 0) return /*#__PURE__*/React.createElement(Card, {
     style: {
@@ -13803,11 +15035,6 @@ function HistoryTab({
     }
   }, "No lifts yet. Add one in the Train tab to start tracking strength over time.");
   const cur = sel && state.exercises[sel] ? sel : names[0];
-  const [armName, setArmName] = useState(null);
-  const [pickingLift, setPickingLift] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
-  const [editing, setEditing] = useState(null);
-  const [filming, setFilming] = useState(null);
   const iconBtn = {
     background: "none",
     border: "none",
@@ -13834,6 +15061,33 @@ function HistoryTab({
     ts: pt.ts,
     value: workingWeight(pt.value, accReps)
   })) : model.points;
+  /* The set log was every set you have ever done on this lift in one unbroken
+     reverse-chronological column, which is a ledger rather than a history: you
+     could not see where one session ended and the next began, so you could not
+     read progression off it at all. Same sets, cut into the days they happened
+     on, in the order you did them. */
+  const sessions = (() => {
+    const m = new Map();
+    for (const st of sets) {
+      const k = dateStrFromTs(st.ts);
+      if (!m.has(k)) m.set(k, {
+        key: k,
+        ts: st.ts,
+        sets: [],
+        best: null
+      });
+      const row = m.get(k);
+      row.ts = Math.max(row.ts, st.ts);
+      row.sets.push(st);
+      if (st.secs == null) {
+        const e = e1rmFromSet(st.weight, st.reps, st.rpe);
+        if (row.best == null || e > row.best) row.best = e;
+      }
+    }
+    const out = [...m.values()].sort((a, b) => b.ts - a.ts);
+    for (const r of out) r.sets.sort((a, b) => a.ts - b.ts);
+    return out;
+  })();
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -13994,22 +15248,49 @@ function HistoryTab({
     }
   }), /*#__PURE__*/React.createElement("span", {
     style: label
-  }, "Set log")), /*#__PURE__*/React.createElement("span", {
+  }, "Every set")), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11.5,
       color: C.faint
     }
-  }, sets.length, " total")), sets.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, sets.length, " set", sets.length === 1 ? "" : "s", " over ", sessions.length, " session", sessions.length === 1 ? "" : "s")), sets.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "8px 16px 18px",
       color: C.faint,
       fontSize: 13
     }
-  }, "No sets logged."), sets.map(s => /*#__PURE__*/React.createElement("div", {
+  }, "No sets logged."), sessions.map(d => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: d.key
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "8px 16px",
+      borderTop: `1px solid ${C.line}`,
+      background: "rgba(255,255,255,0.025)",
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...label2,
+      color: C.muted
+    }
+  }, dayStart(d.key).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 10.5,
+      color: C.faint
+    }
+  }, d.sets.length, " set", d.sets.length === 1 ? "" : "s", d.best != null ? ` · best e1RM ${fmt(roundTo(d.best, 1))}${unit}` : "")), d.sets.map((s, si) => /*#__PURE__*/React.createElement("div", {
     key: s.id,
     style: {
       padding: "11px 16px",
-      borderTop: `1px solid ${C.line}`,
+      borderTop: si ? `1px solid ${C.line}` : "none",
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
@@ -14052,7 +15333,7 @@ function HistoryTab({
       color: C.faint,
       marginTop: 2
     }
-  }, dshort(s.ts), s.secs != null ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`, s.cond != null && s.cond < 1 ? /*#__PURE__*/React.createElement("span", {
+  }, "Set ", si + 1, s.secs != null ? "" : ` · e1RM ${fmt(e1rmFromSet(s.weight, s.reps, s.rpe))}${unit}`, s.cond != null && s.cond < 1 ? /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.gold
     }
@@ -14096,14 +15377,7 @@ function HistoryTab({
     style: iconBtn
   }, /*#__PURE__*/React.createElement(Trash2, {
     size: 16
-  })))))), /*#__PURE__*/React.createElement(Analysis, {
-    view: "lift",
-    analysis: analysis,
-    unit: unit,
-    state: state,
-    setState: setState,
-    models: models
-  }), armName === cur ? /*#__PURE__*/React.createElement(Card, {
+  })))))))), armName === cur ? /*#__PURE__*/React.createElement(Card, {
     accent: C.red
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15784,14 +17058,14 @@ function Analysis({
       flexDirection: "column",
       gap: 14
     }
-  }, /*#__PURE__*/React.createElement(SessionCard, {
+  }, view === "today" && /*#__PURE__*/React.createElement(SessionCard, {
     session: analysis.session,
     unit: unit,
     inputMode: state.settings.inputMode
-  }), /*#__PURE__*/React.createElement(ProfileCard, {
+  }), view === "deep" && /*#__PURE__*/React.createElement(ProfileCard, {
     state: state,
     unit: unit
-  }), /*#__PURE__*/React.createElement(RecentCard, {
+  }), view === "deep" && /*#__PURE__*/React.createElement(RecentCard, {
     state: state,
     unit: unit,
     inputMode: state.settings.inputMode
@@ -15842,8 +17116,8 @@ function Analysis({
   /* Insights stopped being a place you go and became two things you already had
      open: what today looks like, on the Dashboard, and what a lift has been doing,
      on the screen where that lift is selected. Same analysis, no fifth tab. */
-  const today = view !== "lift",
-    lift = view !== "today";
+  const today = view === "today",
+    lift = view === "deep";
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
