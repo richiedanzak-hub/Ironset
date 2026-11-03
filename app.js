@@ -245,6 +245,35 @@ function pctForN(n) {
 }
 
 const repsToFailure = (reps, rpe) => reps + Math.max(0, 10 - rpe);
+/* ---------------------------- WHERE THE SCALE STOPS ------------------------
+   Between RPE 10 and about 4, a lifter can feel the difference half a point at
+   a time: two left and three left are genuinely different sets. Below that —
+   six or more reps in reserve — nobody can. Four in the tank and seven in the
+   tank feel the same, and a set rated down there extrapolates out to a one-rep
+   max that is pure invention.
+
+   So the bottom of the ladder is one rung rather than seven. Everything under
+   it is stored as light and reads as "RPE < 4", which is the honest thing to
+   write on a set you could not actually rate. Saying so costs nothing: the
+   estimator has always thrown away work under RPE 6, rpeConfidence scores it at
+   the floor anyway, and fatigueEffort reads anything under RPE 4 as zero. Light
+   work gets logged, charted and warmed up for; it just never votes on what goes
+   on the bar.                                                               */
+const RPE_FLOOR = 4; // the lightest effort worth naming
+const RPE_LIGHT = RPE_FLOOR - 1; // what the rung below it stores
+const isLightRpe = v => v != null && v < RPE_FLOOR;
+const RPE_RUNGS = (() => {
+  const out = [RPE_LIGHT];
+  for (let v = RPE_FLOOR; v <= 10.001; v += 0.5) out.push(Math.round(v * 2) / 2);
+  return out;
+})();
+const RIR_RUNGS = RPE_RUNGS.map(v => 10 - v).sort((a, b) => a - b);
+const effortRungs = inputMode => inputMode === "rir" ? RIR_RUNGS : RPE_RUNGS;
+const clampRpe = v => Math.max(RPE_LIGHT, Math.min(10, v));
+// The same clamp for a value held in the screen's own units.
+const clampShown = (v, inputMode) => inputMode === "rir" ? Math.max(0, Math.min(10 - RPE_LIGHT, v)) : clampRpe(v);
+// Is a value held in the screen's own units sitting on the bottom rung?
+const isLightShown = (v, inputMode) => inputMode === "rir" ? v > 10 - RPE_FLOOR : v < RPE_FLOOR;
 // Observed estimated 1RM from a completed set.
 function e1rmFromSet(weight, reps, rpe) {
   return weight / (pctForN(repsToFailure(reps, rpe)) / 100);
@@ -1014,6 +1043,18 @@ const isApple = () => {
   const ua = navigator.userAgent || "";
   return /iphone|ipad|ipod/i.test(ua) || /macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
 };
+/* An effort, in whichever language the screen is speaking, with the bottom rung
+   written as the range it actually is rather than as a number nobody chose. */
+function effortLabel(rpe, inputMode) {
+  if (rpe == null) return "";
+  if (isLightRpe(rpe)) return inputMode === "rir" ? `${fmt(10 - RPE_LIGHT)}+ RIR` : `RPE < ${fmt(RPE_FLOOR)}`;
+  return inputMode === "rir" ? `${fmt(10 - rpe)} RIR` : `RPE ${fmt(rpe)}`;
+}
+// The same, for a number already in the screen's units — what a stepper holds.
+const effortShown = (v, inputMode) => effortLabel(inputMode === "rir" ? 10 - v : v, inputMode);
+// And the bare glyphs for the middle of a stepper, where the unit is the label
+// above it and there is no room to repeat it.
+const effortDigits = (v, inputMode) => isLightShown(v, inputMode) ? inputMode === "rir" ? `${fmt(10 - RPE_LIGHT)}+` : `<${fmt(RPE_FLOOR)}` : fmt(v);
 const fmtBytes = b => {
   if (b == null || isNaN(b)) return "—";
   if (b < 1024) return `${Math.round(b)} B`;
@@ -1633,6 +1674,21 @@ function Segmented({
     }, o.label);
   }));
 }
+/* Most scales are an even ladder and a step size describes them. Effort is not:
+   it runs in half points from 10 down to 4 and then stops being a measurement,
+   so the rung under 4 is "below 4" rather than 3.5. A list of the rungs says
+   that; a step size cannot. */
+function hopRung(rungs, value, d) {
+  let i = rungs.indexOf(value);
+  if (i < 0) {
+    // Not on a rung — older data, or a prescription written before the ladder.
+    i = 0;
+    for (let k = 1; k < rungs.length; k++) if (Math.abs(rungs[k] - value) < Math.abs(rungs[i] - value)) i = k;
+    if (d > 0 && rungs[i] > value) return rungs[i];
+    if (d < 0 && rungs[i] < value) return rungs[i];
+  }
+  return rungs[Math.min(rungs.length - 1, Math.max(0, i + d))];
+}
 function Stepper({
   value,
   onChange,
@@ -1640,9 +1696,12 @@ function Stepper({
   min = -Infinity,
   max = Infinity,
   suffix,
-  compact
+  compact,
+  rungs,
+  format
 }) {
   const set = v => onChange(Math.min(max, Math.max(min, Math.round(v / step) * step)));
+  const bump = d => rungs && rungs.length ? onChange(hopRung(rungs, value, d)) : set(value + d * step);
   const btn = {
     width: compact ? 30 : 36,
     height: compact ? 32 : 40,
@@ -1664,7 +1723,7 @@ function Stepper({
     }
   }, /*#__PURE__*/React.createElement("button", {
     style: btn,
-    onClick: () => set(value - step)
+    onClick: () => bump(-1)
   }, "\u2212"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: MONO,
@@ -1677,7 +1736,7 @@ function Stepper({
       letterSpacing: "-0.035em",
       textShadow: "0 0 26px rgba(255,255,255,0.14)"
     }
-  }, fmt(value), suffix ? /*#__PURE__*/React.createElement("span", {
+  }, format ? format(value) : fmt(value), suffix ? /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: SANS,
       fontSize: 12,
@@ -1687,7 +1746,7 @@ function Stepper({
     }
   }, suffix) : null), /*#__PURE__*/React.createElement("button", {
     style: btn,
-    onClick: () => set(value + step)
+    onClick: () => bump(1)
   }, "+"));
 }
 function NumField({
@@ -1906,12 +1965,15 @@ function StatChip({
   tone,
   input,
   onInput,
-  wide
+  wide,
+  rungs,
+  format
 }) {
   const col = tone || C.text;
   const bump = d => {
     if (!onStep) return;
     const base = typeof value === "number" ? value : parseFloat(value) || 0;
+    if (rungs && rungs.length) return onStep(hopRung(rungs, base, d));
     onStep(Math.min(max, Math.max(min, Math.round((base + d * step) / step) * step)));
   };
   return /*#__PURE__*/React.createElement("div", {
@@ -1959,7 +2021,7 @@ function StatChip({
       letterSpacing: "-0.03em",
       fontVariantNumeric: "tabular-nums"
     }
-  }, value, suffix ? /*#__PURE__*/React.createElement("span", {
+  }, format ? format(value) : value, suffix ? /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.faint,
@@ -4502,7 +4564,7 @@ const fmtDur = sec => {
 function setLine(st, state) {
   const u = state && state.settings && state.settings.unit || "lb";
   if (st.secs != null) return (st.weight ? fmt(st.weight) + u + " · " : "") + fmtDur(st.secs);
-  return `${fmt(st.weight)}${u} × ${st.reps} @ ${fmt(st.rpe)}`;
+  return `${fmt(st.weight)}${u} × ${st.reps} @ ${effortLabel(st.rpe, state && state.settings && state.settings.inputMode || "rpe")}`;
 }
 const libFind = name => LIB.find(x => x.n === name) || null;
 // A movement is "strength-tracked" when it rolls up to one of the big lifts; the
@@ -4562,7 +4624,10 @@ function rpeDrift(state, name, days) {
   const ex = (state.exercises || {})[name];
   if (!ex || !ex.sets) return null;
   const since = Date.now() - (days || 28) * 86400000;
-  const rows = ex.sets.filter(x => x.ts >= since && x.secs == null && typeof x.tRpe === "number" && typeof x.rpe === "number");
+  /* A set rated at the bottom of the scale is a lifter saying "I could not tell",
+     and a deliberately light day is not a calibration error. Neither belongs in a
+     reading of how well you rate effort, so neither votes. */
+  const rows = ex.sets.filter(x => x.ts >= since && x.secs == null && typeof x.tRpe === "number" && typeof x.rpe === "number" && !isLightRpe(x.rpe) && !isLightRpe(x.tRpe));
   if (rows.length < 4) return null;
   const errs = rows.map(x => x.rpe - x.tRpe);
   const bias = errs.reduce((a, b) => a + b, 0) / errs.length;
@@ -4897,8 +4962,8 @@ function decorateSlots(slots) {
   }
   return out;
 }
-const slotRpe = slot => slot.mode === "rir" ? Math.max(5, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
-const slotLabel = slot => slot.mode === "pct" ? `${fmt(slot.val)}%` : slot.mode === "rir" ? `${fmt(slot.val)} RIR` : `RPE ${fmt(slot.val)}`;
+const slotRpe = slot => slot.mode === "rir" ? Math.max(RPE_LIGHT, Math.min(10, 10 - slot.val)) : slot.mode === "rpe" ? slot.val : 8;
+const slotLabel = slot => slot.mode === "pct" ? `${fmt(slot.val)}%` : effortShown(slot.val, slot.mode === "rir" ? "rir" : "rpe");
 /* ------------------------------- programmes ------------------------------- */
 // A library of training structures rather than a library of training numbers.
 //
@@ -5745,7 +5810,7 @@ const PROGRAMS = [{
 // A deload week subtracts from an already low target, and a back-off subtracts again.
 // Rather than ask every template to remember the floors, they are enforced once here —
 // which also means a template added later cannot emit an impossible prescription.
-const clampVal = (mode, v) => mode === "pct" ? Math.max(30, Math.min(105, v)) : mode === "rir" ? Math.max(0, Math.min(6, v)) : Math.max(5, Math.min(10, v));
+const clampVal = (mode, v) => mode === "pct" ? Math.max(30, Math.min(105, v)) : mode === "rir" ? Math.max(0, Math.min(10 - RPE_LIGHT, v)) : Math.max(RPE_LIGHT, Math.min(10, v));
 // Lay a template onto real dates. Day one is the day you chose, so starting on a
 // Wednesday gives you a Wednesday block rather than silently dropping half of week one.
 function generateProgram(tpl, opts) {
@@ -5933,9 +5998,7 @@ function Onboarding({
   };
   const rir = chosen.inputMode === "rir",
     effLabel = rir ? "RIR" : "RPE",
-    effDef = rir ? 2 : 8,
-    effMin = rir ? 0 : 5,
-    effMax = rir ? 5 : 10;
+    effDef = rir ? 2 : 8;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
@@ -6107,9 +6170,8 @@ function Onboarding({
     onChange: v => setRow(name, i, {
       int: v
     }),
-    step: 0.5,
-    min: effMin,
-    max: effMax
+    rungs: effortRungs(rir ? "rir" : "rpe"),
+    format: v => effortDigits(v, rir ? "rir" : "rpe")
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => delRow(name, i),
     style: {
@@ -7458,16 +7520,6 @@ function SlotCard({
     ...patch
   });
   const modeVal = {
-    rpe: {
-      step: 0.5,
-      min: 5,
-      max: 10
-    },
-    rir: {
-      step: 0.5,
-      min: 0,
-      max: 6
-    },
     pct: {
       step: 2.5,
       min: 30,
@@ -7478,6 +7530,8 @@ function SlotCard({
     min: 1,
     max: 10
   };
+  // Effort is a ladder with an uneven bottom rung; percent and reps are not.
+  const effRungs = slot.mode === "rpe" || slot.mode === "rir" ? effortRungs(slot.mode) : null;
   const timed = slotTimed(slot);
   const mvBtn = enabled => ({
     width: 28,
@@ -7662,6 +7716,8 @@ function SlotCard({
     step: modeVal.step,
     min: modeVal.min,
     max: modeVal.max,
+    rungs: effRungs,
+    format: effRungs ? v => effortDigits(v, slot.mode) : null,
     onChange: v => up({
       val: v
     })
@@ -7824,9 +7880,11 @@ function SlotCard({
   }, slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()), /*#__PURE__*/React.createElement(Stepper, {
     compact: true,
     value: slot.bo.val,
-    step: slot.bo.mode === "pct" ? 2.5 : 0.5,
-    min: slot.bo.mode === "pct" ? 30 : slot.bo.mode === "rir" ? 0 : 5,
-    max: slot.bo.mode === "pct" ? 105 : slot.bo.mode === "rir" ? 6 : 10,
+    step: 2.5,
+    min: 30,
+    max: 105,
+    rungs: slot.bo.mode === "pct" ? null : effortRungs(slot.bo.mode),
+    format: slot.bo.mode === "pct" ? null : v => effortDigits(v, slot.bo.mode),
     onChange: v => up({
       bo: {
         ...slot.bo,
@@ -8275,7 +8333,7 @@ function RecapSheet({
     backoffs,
     anyUp
   } = session;
-  const eff = x => inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`;
+  const eff = x => effortLabel(x.rpe, inputMode);
   const tonnage = lifts.reduce((a, l) => a + l.vol, 0);
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
@@ -12539,7 +12597,7 @@ function TrainTab({
         ...(settings.backoff || {}),
         sets: b.sets,
         reps: b.reps,
-        rpe: b.mode === "rir" ? Math.max(5, 10 - b.val) : b.mode === "rpe" ? b.val : 7,
+        rpe: b.mode === "rir" ? clampRpe(10 - b.val) : b.mode === "rpe" ? b.val : 7,
         pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct,
         steps
       });
@@ -12549,7 +12607,7 @@ function TrainTab({
         ...(settings.backoff || {}),
         sets: sl.sets - 1,
         reps: sl.reps,
-        rpe: sl.mode === "rir" ? Math.max(5, 10 - sl.val) : sl.mode === "rpe" ? sl.val : 7,
+        rpe: sl.mode === "rir" ? clampRpe(10 - sl.val) : sl.mode === "rpe" ? sl.val : 7,
         pct: sl.mode === "pct" ? sl.val : (settings.backoff || {}).pct,
         steps: []
       });
@@ -13060,7 +13118,7 @@ function TrainTab({
       });
       return;
     }
-    const n = inputMode === "rir" ? Math.max(0, Math.min(5, v)) : Math.max(5, Math.min(10, v));
+    const n = clampShown(v, inputMode);
     if (onFirst) setTInt(n);else setStep(doneCount, {
       rpe: inputMode === "rir" ? 10 - n : n
     });
@@ -13082,7 +13140,7 @@ function TrainTab({
   // percentage — you cannot come back from a set having "done 85%".
   const prescribedInt = percentMode ? inputMode === "rir" ? Math.max(0, Math.round((10 - curBaseRpe) * 2) / 2) : Math.round(curBaseRpe * 2) / 2 : curIntVal;
   const actIntVal = boDraft && boDraft.int != null ? boDraft.int : prescribedInt;
-  const curRpe = Math.max(5, Math.min(10, inputMode === "rir" ? 10 - actIntVal : actIntVal));
+  const curRpe = clampRpe(inputMode === "rir" ? 10 - actIntVal : actIntVal);
   const curWeight = boDraft && boDraft.weight != null ? boDraft.weight : suggested != null ? String(suggested) : "";
   const weightDirty = !!(boDraft && boDraft.weight != null);
   const actDirty = !!(boDraft && (boDraft.weight != null || boDraft.reps != null || boDraft.int != null));
@@ -13097,7 +13155,7 @@ function TrainTab({
   });
   const setActInt = v => setBoDraft({
     ...(boDraft || {}),
-    int: inputMode === "rir" ? Math.max(0, Math.min(5, v)) : Math.max(5, Math.min(10, v))
+    int: clampShown(v, inputMode)
   });
   const backToTarget = () => setBoDraft(null);
   const logCurrent = () => {
@@ -13641,7 +13699,7 @@ function TrainTab({
       color: C.muted,
       fontWeight: 600
     }
-  }, "from") : null, curReps, " rep", curReps > 1 ? "s" : "", " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, setsAsked > 1 ? /*#__PURE__*/React.createElement("span", {
+  }, "from") : null, curReps, " rep", curReps > 1 ? "s" : "", " @ ", percentMode ? `${fmt(curIntVal)}%` : effortShown(curIntVal, inputMode), setsAsked > 1 ? /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.muted,
       fontWeight: 600
@@ -13682,7 +13740,7 @@ function TrainTab({
       gap: 6,
       WebkitTapHighlightColor: "transparent"
     }
-  }, curReps, " rep", curReps > 1 ? "s" : "", " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, /*#__PURE__*/React.createElement(ChevronDown, {
+  }, curReps, " rep", curReps > 1 ? "s" : "", " @ ", percentMode ? `${fmt(curIntVal)}%` : effortShown(curIntVal, inputMode), /*#__PURE__*/React.createElement(ChevronDown, {
     size: 12,
     style: {
       color: C.faint,
@@ -13748,9 +13806,8 @@ function TrainTab({
     compact: true,
     value: curIntVal,
     onChange: setCurInt,
-    step: 0.5,
-    min: inputMode === "rir" ? 0 : 5,
-    max: inputMode === "rir" ? 5 : 10
+    rungs: effortRungs(inputMode),
+    format: v => effortDigits(v, inputMode)
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       minWidth: 0
@@ -13783,7 +13840,14 @@ function TrainTab({
         }, activeSlot.ex);
       }
     }
-  }))), activeSlot && !timedSel && /*#__PURE__*/React.createElement("div", {
+  }))), !percentMode && isLightShown(curIntVal, inputMode) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginTop: 9
+    }
+  }, "The bottom of the scale is a range, not a rating \u2014 it loads the bar for genuinely light work and leaves it there."), activeSlot && !timedSel && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 13,
       paddingTop: 12,
@@ -13822,11 +13886,11 @@ function TrainTab({
     style: {
       color: C.muted
     }
-  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`), " ", "above is only how the bar gets loaded, and that choice is the whole session: failure on a 3-rep weight and failure on an 8-rep weight are two different workouts.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Sets stop at the ", /*#__PURE__*/React.createElement("b", {
+  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : effortShown(curIntVal, inputMode)), " ", "above is only how the bar gets loaded, and that choice is the whole session: failure on a 3-rep weight and failure on an 8-rep weight are two different workouts.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Sets stop at the ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: C.muted
     }
-  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`), " ", "written above. Switch this on and that stays exactly how the bar gets loaded \u2014 you simply do not stop there."))), !onFirst && boFamily.length > 1 && /*#__PURE__*/React.createElement("div", {
+  }, curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : effortShown(curIntVal, inputMode)), " ", "written above. Switch this on and that stays exactly how the bar gets loaded \u2014 you simply do not stop there."))), !onFirst && boFamily.length > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -13840,14 +13904,19 @@ function TrainTab({
     onClick: () => setStep(doneCount, {
       lift: n === sel ? null : n
     })
-  }, n === sel ? shortLift(n) : `${shortLift(n)} · ${Math.round(ratioOf(n) * 100)}%`)))), amrapSet && /*#__PURE__*/React.createElement(Callout, {
+  }, n === sel ? shortLift(n) : `${shortLift(n)} · ${Math.round(ratioOf(n) * 100)}%`)))), isLightRpe(curRpe) && !amrapSet && /*#__PURE__*/React.createElement(Callout, null, "Rated light \u2014 under ", fmt(RPE_FLOOR), " is a range, not a number.", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.faint,
+      fontWeight: 600
+    }
+  }, " It logs, charts and counts as work done; it just does not vote on your max, because nobody can tell six reps left from nine.")), amrapSet && /*#__PURE__*/React.createElement(Callout, {
     tone: "bad"
   }, "To failure \u2014 keep going until the reps stop.", /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.faint,
       fontWeight: 600
     }
-  }, " The bar was loaded for ", curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(curIntVal)} RIR` : `RPE ${fmt(curIntVal)}`, "; how many you actually get is the point of the set. Log the real number.")), drift && (drift.over || drift.under) && /*#__PURE__*/React.createElement(Callout, {
+  }, " The bar was loaded for ", curReps, " @ ", percentMode ? `${fmt(curIntVal)}%` : effortShown(curIntVal, inputMode), "; how many you actually get is the point of the set. Log the real number.")), drift && (drift.over || drift.under) && /*#__PURE__*/React.createElement(Callout, {
     tone: drift.over ? "warn" : "info"
   }, drift.over ? /*#__PURE__*/React.createElement(React.Fragment, null, "You run this ", fmt(Math.round(drift.bias * 10) / 10), " RPE above what it asks for") : /*#__PURE__*/React.createElement(React.Fragment, null, "You run this ", fmt(Math.round(-drift.bias * 10) / 10), " RPE below what it asks for"), /*#__PURE__*/React.createElement("span", {
     style: {
@@ -13938,7 +14007,7 @@ function TrainTab({
     style: {
       display: "block"
     }
-  }, "Last time ", loadLabel(lastTime.best, unit), " \xD7 ", lastTime.best.reps, " @ ", inputMode === "rir" ? `${fmt(10 - lastTime.best.rpe)} RIR` : `RPE ${fmt(lastTime.best.rpe)}`), /*#__PURE__*/React.createElement("span", {
+  }, "Last time ", loadLabel(lastTime.best, unit), " \xD7 ", lastTime.best.reps, " @ ", effortLabel(lastTime.best.rpe, inputMode)), /*#__PURE__*/React.createElement("span", {
     style: {
       display: "block",
       color: C.faint,
@@ -13991,14 +14060,14 @@ function TrainTab({
       color: C.muted,
       fontWeight: 600
     }
-  }, " @ ", inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`)), /*#__PURE__*/React.createElement("span", {
+  }, " @ ", effortLabel(x.rpe, inputMode))), /*#__PURE__*/React.createElement("span", {
     style: {
       ...label2,
       color: C.faint,
       fontSize: 8.5,
       flexShrink: 0
     }
-  }, x.lift !== sel ? shortLift(x.lift) : x.backoff ? "back-off" : "top"))))), !onFirst && prevForBo && !percentMode && /*#__PURE__*/React.createElement(Callout, null, "Off your ", inputMode === "rir" ? `${fmt(10 - prevForBo.rpe)} RIR` : `RPE ${fmt(prevForBo.rpe)}`, " set", /*#__PURE__*/React.createElement("span", {
+  }, x.lift !== sel ? shortLift(x.lift) : x.backoff ? "back-off" : "top"))))), !onFirst && prevForBo && !percentMode && /*#__PURE__*/React.createElement(Callout, null, "Off your ", effortLabel(prevForBo.rpe, inputMode), " set", /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.faint,
       fontWeight: 600
@@ -14137,9 +14206,8 @@ function TrainTab({
     label: inputMode === "rir" ? "RIR" : "RPE",
     value: actIntVal,
     onStep: setActInt,
-    step: 0.5,
-    min: inputMode === "rir" ? 0 : 5,
-    max: inputMode === "rir" ? 5 : 10
+    rungs: effortRungs(inputMode),
+    format: v => effortDigits(v, inputMode)
   })), offTarget && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -14155,7 +14223,7 @@ function TrainTab({
       color: C.gold,
       fontWeight: 700
     }
-  }, "off target \u2014 asked ", curReps, " \xD7 ", percentMode ? `${fmt(curIntVal)}%` : inputMode === "rir" ? `${fmt(prescribedInt)} RIR` : `RPE ${fmt(prescribedInt)}`), /*#__PURE__*/React.createElement("button", {
+  }, "off target \u2014 asked ", curReps, " \xD7 ", percentMode ? `${fmt(curIntVal)}%` : effortShown(prescribedInt, inputMode)), /*#__PURE__*/React.createElement("button", {
     onClick: backToTarget,
     style: {
       background: "none",
@@ -14187,7 +14255,7 @@ function TrainTab({
     }
   }, ledger.map(r => {
     const now = !r.got && r.i === setsIn;
-    const eff = v => percentMode ? `${fmt(v)}%` : inputMode === "rir" ? `${fmt(10 - v)} RIR` : `RPE ${fmt(v)}`;
+    const eff = v => percentMode ? `${fmt(v)}%` : effortLabel(v, inputMode);
     const inner = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       style: {
         ...label2,
@@ -14526,7 +14594,7 @@ function TrainTab({
       style: {
         color: C.muted
       }
-    }, "@ ", inputMode === "rir" ? `${fmt(10 - x.rpe)} RIR` : `RPE ${fmt(x.rpe)}`))), /*#__PURE__*/React.createElement("div", {
+    }, "@ ", effortLabel(x.rpe, inputMode)))), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10.5,
         color: C.faint,
@@ -14612,7 +14680,7 @@ function TrainTab({
         lifts: S.lifts.map(l => ({
           name: l.name,
           up: l.up,
-          detail: `${loadLabel(l.top, unit)} \u00d7 ${l.top.reps} @ ${inputMode === "rir" ? `${fmt(10 - l.top.rpe)} RIR` : `RPE ${fmt(l.top.rpe)}`}`,
+          detail: `${loadLabel(l.top, unit)} \u00d7 ${l.top.reps} @ ${effortLabel(l.top.rpe, inputMode)}`,
           e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null
         }))
       });
@@ -15314,7 +15382,7 @@ function HistoryTab({
     style: {
       color: C.muted
     }
-  }, "@ ", inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`)), s.backoff && /*#__PURE__*/React.createElement("span", {
+  }, "@ ", effortLabel(s.rpe, inputMode))), s.backoff && /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: SANS,
       fontSize: 10,
@@ -15349,7 +15417,7 @@ function HistoryTab({
     style: {
       color: Math.abs(s.rpe - s.tRpe) < 0.25 ? C.good : C.red
     }
-  }, "  ·  target " + (inputMode === "rir" ? `${fmt(10 - s.tRpe)} RIR` : `RPE ${fmt(s.tRpe)}`) + (Math.abs(s.rpe - s.tRpe) < 0.25 ? " ✓" : ` → felt ${inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`}`)), s.note ? `  ·  ${s.note}` : "")), /*#__PURE__*/React.createElement("div", {
+  }, "  ·  target " + effortLabel(s.tRpe, inputMode) + (Math.abs(s.rpe - s.tRpe) < 0.25 ? " ✓" : ` → felt ${effortLabel(s.rpe, inputMode)}`)), s.note ? `  ·  ${s.note}` : "")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 2,
@@ -16158,9 +16226,8 @@ function BlockSheet({
     }
   }, rir ? "RIR" : "RPE"), /*#__PURE__*/React.createElement(Stepper, {
     value: rir ? 10 - it.rpe : it.rpe,
-    step: 0.5,
-    min: rir ? 0 : 5,
-    max: rir ? 5 : 10,
+    rungs: effortRungs(rir ? "rir" : "rpe"),
+    format: v => effortDigits(v, rir ? "rir" : "rpe"),
     onChange: v => upd(items.map((x, j) => j === i ? {
       ...x,
       rpe: rir ? 10 - v : v
@@ -16258,9 +16325,8 @@ function BlockSheet({
     }
   }, rir ? "RIR" : "RPE"), /*#__PURE__*/React.createElement(Stepper, {
     value: rir ? 10 - it.bo.rpe : it.bo.rpe,
-    step: 0.5,
-    min: rir ? 0 : 5,
-    max: rir ? 5 : 10,
+    rungs: effortRungs(rir ? "rir" : "rpe"),
+    format: v => effortDigits(v, rir ? "rir" : "rpe"),
     onChange: v => upd(items.map((x, j) => j === i ? {
       ...x,
       bo: {
@@ -16452,7 +16518,7 @@ function SessionCard({
     backoffs,
     anyUp
   } = session;
-  const eff = s => inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`;
+  const eff = s => effortLabel(s.rpe, inputMode);
   const dateStr = new Date().toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -16724,7 +16790,7 @@ function RecentCard({
   }
   const days = Object.keys(byDay).sort((a, b) => new Date(b) - new Date(a)).slice(0, 5);
   if (!days.length) return null;
-  const eff = s => inputMode === "rir" ? `${fmt(10 - s.rpe)} RIR` : `RPE ${fmt(s.rpe)}`;
+  const eff = s => effortLabel(s.rpe, inputMode);
   return /*#__PURE__*/React.createElement(Card, {
     accent: C.blue
   }, /*#__PURE__*/React.createElement(SectionHead, {
@@ -17799,9 +17865,8 @@ function EditSetSheet({
   }, inputMode === "rir" ? "RIR" : "RPE"), /*#__PURE__*/React.createElement(Stepper, {
     value: int,
     onChange: setInt,
-    step: 0.5,
-    min: inputMode === "rir" ? 0 : 5,
-    max: inputMode === "rir" ? 6 : 10
+    rungs: effortRungs(inputMode),
+    format: v => effortDigits(v, inputMode)
   }))), /*#__PURE__*/React.createElement("input", {
     value: note,
     onChange: e => setNote(e.target.value),
@@ -18097,7 +18162,7 @@ function ClipSheet({
     onDelete();
     setArmDel(false);
   };
-  const setLine = set ? set.secs != null ? fmtDur(set.secs) : `${fmt(set.weight)}${unit} × ${set.reps} @ ${inputMode === "rir" ? `${fmt(10 - set.rpe)} RIR` : `RPE ${fmt(set.rpe)}`}` : "";
+  const setLine = set ? set.secs != null ? fmtDur(set.secs) : `${fmt(set.weight)}${unit} × ${set.reps} @ ${effortLabel(set.rpe, inputMode)}` : "";
   const frame = {
     width: "100%",
     borderRadius: R.ctrl,
