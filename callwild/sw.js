@@ -3,7 +3,7 @@
    It lives in its own folder so its scope is callwild/ only: a worker at the
    repo root would fight IRONSET's for the same scope and one would replace the
    other. */
-const VERSION = "callwild-v2";
+const VERSION = "callwild-v3";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const SOUNDS = VERSION + "-sounds";
@@ -21,12 +21,16 @@ const SHELL_URLS = [
   "./icons/apple-touch-icon.png",
 ];
 
-/* Every reference recording, so lessons can be heard offline. ~800 KB in all. */
+/* Every reference recording, so lessons can be heard offline. About 2.5 MB in all. */
 const SOUND_URLS = [
-  "mallard-hen-quacks", "mallard-hen-series", "mallard-hen-series-2", "mallard-hen-lonesome", "mallard-hen-long",
-  "mallard-feeding", "mallard-drake", "pintail-drake", "goose-honks", "goose-clucks", "goose-pairs",
-  "turkey-yelps", "turkey-clucks", "turkey-cutts", "elk-bugle", "elk-calf-mew", "deer-bleat", "coyote-howl",
-  "barred-owl", "crow-caws",
+  "barred-owl", "blackduck-hen", "bwteal-hen", "bwteal-peeps", "coyote-howl", "coyote-lone", "crow-caws",
+  "deer-blow", "deer-fawn", "dove-coo", "elk-bugle", "elk-calf-mew", "elk-chuckle", "elk-cow-mew",
+  "elk-location", "fox-gray", "fox-red", "gadwall-calls", "goose-clucks", "goose-honks", "goose-murmur",
+  "goose-pairs", "gwteal-peeps", "horned-owl", "mallard-drake", "mallard-feeding", "mallard-hen-lonesome",
+  "mallard-hen-quacks", "mallard-hen-series", "moose-cow", "mottled-hen", "pintail-drake", "quail-bobwhite",
+  "quail-covey", "redhead-meows", "ringneck-hen", "scaup-growls", "turkey-cluckpurr", "turkey-clucks",
+  "turkey-cutts", "turkey-gobble", "turkey-keekee", "turkey-purr", "turkey-tree", "turkey-yelps",
+  "wigeon-whistles", "woodduck-squeals",
 ].map((id) => "./sounds/" + id + ".mp3");
 
 /* Third-party code the app cannot boot without: React and the fonts. Versioned, so they never go stale. */

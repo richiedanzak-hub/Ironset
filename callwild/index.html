@@ -244,6 +244,10 @@ var R = React, h = R.createElement, html = htm.bind(h);
 var useState = R.useState, useEffect = R.useEffect, useRef = R.useRef, useMemo = R.useMemo, useCallback = R.useCallback, useLayoutEffect = R.useLayoutEffect;
 var DATA = window.CALLWILD, CA = window.CallAnalysis;
 var SPECIES = {}; DATA.species.forEach(function (s) { SPECIES[s.id] = s; });
+var GROUPS = DATA.groups || [{ id: "all", name: "Animals" }];
+// a call is only listed when there is a real recording of it to hear
+function listed(c) { return !!(c && c.listen && c.listen.length); }
+function callsOf(s) { return s.calls.filter(function (id) { return listed(DATA.calls[id]); }); }
 var LEVELS = { 1: "Start here", 2: "Next step", 3: "Advanced", 4: "Expert" };
 
 /* ------------------------------------------------------------------ */
@@ -294,11 +298,16 @@ var IDB = (function () {
 /* ------------------------------------------------------------------ */
 var AC = window.AudioContext || window.webkitAudioContext;
 var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+/* Playback only. Recording gets its own context, closed the moment it stops:
+   on iPhone, a context that has touched the microphone keeps the phone in
+   call mode, and anything played through it comes out of the earpiece —
+   quietly enough to sound like nothing at all. */
 var Sound = {
   _ctx: null,
   ctx: function () { if (!this._ctx && AC) this._ctx = new AC(); return this._ctx; },
-  // iOS only lets audio start inside the tap that asked for it: call this first thing in a click handler
-  unlock: function () { var c = this.ctx(); if (c && c.state === "suspended") { try { c.resume(); } catch (e) {} } return c; }
+  // iOS only lets audio start inside the tap that asked for it: call this first thing in a click handler.
+  // "interrupted" (iOS, after a call or the mic) needs a resume just as "suspended" does.
+  unlock: function () { var c = this.ctx(); if (c && c.state !== "running") { try { c.resume(); } catch (e) {} } return c; }
 };
 
 var WORKLET = "class CwCapture extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}" +
@@ -308,9 +317,12 @@ var WORKLET = "class CwCapture extends AudioWorkletProcessor{constructor(){super
 var Capture = {
   workletOn: null,
   start: function () {
-    var ctx = Sound.unlock();
+    // a fresh context per recording, created inside the tap so iOS lets it run
+    var ctx = AC ? new AC() : null;
     if (!ctx) return Promise.reject({ code: "unsupported" });
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject({ code: location.protocol === "https:" || location.hostname === "localhost" ? "unsupported" : "insecure" });
+    try { ctx.resume(); } catch (e) {}
+    var drop = function (err) { try { ctx.close(); } catch (e) {} throw err; };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject({ code: location.protocol === "https:" || location.hostname === "localhost" ? "unsupported" : "insecure" }).catch(drop);
     return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } })
       .then(function (stream) {
         // phone call-processing would treat a duck call as noise and scrub it out, so it is all switched off above
@@ -328,7 +340,8 @@ var Capture = {
         }
         var ready;
         if (ctx.audioWorklet && window.AudioWorkletNode && Capture.workletOn !== false) {
-          var mod = Capture.workletOn ? Promise.resolve() : ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+          // the module belongs to the context, and every recording has a new one
+          var mod = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
           ready = mod.then(function () {
             Capture.workletOn = true;
             node = new AudioWorkletNode(ctx, "cw-capture");
@@ -343,6 +356,8 @@ var Capture = {
             try { node && node.disconnect(); } catch (e) {}
             try { sink.disconnect(); } catch (e) {}
             stream.getTracks().forEach(function (t) { t.stop(); });
+            // closing it is what hands the phone's audio back from call mode to the speaker
+            try { ctx.close(); } catch (e) {}
           }
           return {
             rate: ctx.sampleRate,
@@ -357,7 +372,7 @@ var Capture = {
             cancel: finish
           };
         });
-      });
+      }, drop);
   }
 };
 
@@ -411,7 +426,7 @@ var Player = {
     var a = new Audio(url), self = this;
     a.onended = function () { self.ended(id); };
     a.onerror = function () { self.ended(id); };
-    this.cur = { id: id, t0: performance.now(), dur: 0, halt: function () { a.pause(); } };
+    this.cur = { id: id, t0: performance.now(), dur: 0, el: a, halt: function () { a.pause(); } };
     a.onloadedmetadata = function () { if (self.cur && self.cur.id === id) { self.cur.dur = a.duration; self.emit(); } };
     var p = a.play(); if (p && p.catch) p.catch(function () { self.ended(id); });
     this.emit();
@@ -528,9 +543,13 @@ function Critter(p) {
     elk: html`<g ...${k}><path d="M20 23c-1 7.5 1 14 4 18.5 3-4.5 5-11 4-18.5-1.6-2-6.4-2-8 0z"/><path d="M20.2 24l-6.5-2.6M27.8 24l6.5-2.6"/><path d="M21.6 21.4C18 15 14 9.5 7 5.6M17.4 14.8L10.5 15M14.2 10.6l-5 .8M18.6 17.2l-3.4-7.6"/><path d="M26.4 21.4C30 15 34 9.5 41 5.6M30.6 14.8l6.9.2M33.8 10.6l5 .8M29.4 17.2l3.4-7.6"/></g>`,
     deer: html`<g ...${k}><path d="M20 25c-1 6.8 1 12.4 4 16.5 3-4.1 5-9.7 4-16.5-1.6-1.9-6.4-1.9-8 0z"/><path d="M20.3 26.2c-4.8.6-8.6-1.4-10.3-4.1 4.2-1.6 8.2-.6 10.4 1.6M27.7 26.2c4.8.6 8.6-1.4 10.3-4.1-4.2-1.6-8.2-.6-10.4 1.6"/><path d="M21.7 23C20.5 17 17.3 13.4 12.6 12.7M18.4 15.8l.4-6.2M15.3 13.4l-1.2-5"/><path d="M26.3 23c1.2-6 4.4-9.6 9.1-10.3M29.6 15.8l-.4-6.2M32.7 13.4l1.2-5"/></g>`,
     predator: html`<g ...${k}><path d="M24 26c6 0 10.5 6.8 8.6 10.6-1.7 3.2-5.6 1.9-8.6 1.9s-6.9 1.3-8.6-1.9C13.5 32.8 18 26 24 26z"/><ellipse cx="13.2" cy="20.5" rx="3.1" ry="4.3" transform="rotate(-22 13.2 20.5)"/><ellipse cx="20" cy="13.5" rx="3.1" ry="4.3" transform="rotate(-8 20 13.5)"/><ellipse cx="28" cy="13.5" rx="3.1" ry="4.3" transform="rotate(8 28 13.5)"/><ellipse cx="34.8" cy="20.5" rx="3.1" ry="4.3" transform="rotate(22 34.8 20.5)"/></g>`,
+    moose: html`<g ...${k}><path d="M19.5 23.5c-.6 7.4 1.3 12.6 4.5 16.5 3.2-3.9 5.1-9.1 4.5-16.5-1.7-2.2-7.3-2.2-9 0z"/><path d="M24 40.2v3.6M20 24.6l-5.4-1.3M28 24.6l5.4-1.3"/><path d="M20.4 22.3c-3.8-4.1-9.7-4.9-14.7-3.3.2 3.6 3.2 6.3 7.2 6.5M5.9 19.1l-1.4-4.2M8.9 18.1l-.6-4.6M12 17.6l.6-4.3M15.2 18.2l1.6-3.9"/><path d="M27.6 22.3c3.8-4.1 9.7-4.9 14.7-3.3-.2 3.6-3.2 6.3-7.2 6.5M42.1 19.1l1.4-4.2M39.1 18.1l.6-4.6M36 17.6l-.6-4.3M32.8 18.2l-1.6-3.9"/></g>`,
+    quail: html`<g ...${k}><path d="M11 30.5c0-7.4 6.6-12 14-12 7.3 0 12.4 4.7 13 10.7-2.9 5.5-9.7 8.6-17.2 8-6-.5-9.8-3.2-9.8-6.7z"/><circle cx="15" cy="19.5" r="5"/><path d="M10.2 19.7l-3.9 1.6 4.2.6M12.2 17.6c2.4-1.3 5-1.2 7.2.3M20 37.2l-1.4 5.6M25.6 37.4l1.2 5.4"/></g><circle cx="14.2" cy="19.6" r="1.1" fill="currentColor"/>`,
+    dove: html`<g ...${k}><path d="M7.5 27.5c3-4.5 8.5-6.4 14.3-5.8L39.5 14l-4.4 8.4c-.4 6.6-6.9 10.6-14.8 10.6-6.4 0-11.2-2.4-12.8-5.5z"/><circle cx="13.6" cy="22.3" r="3.6"/><path d="M10.1 22.6l-3.6 1.2 3.7.4M19 33l-1.3 6.5M24.5 33l.8 6.3"/></g><circle cx="13.1" cy="21.8" r="1" fill="currentColor"/>`,
     locator: html`<g ...${k}><path d="M14 20c0-7.5 4.5-11 10-11s10 3.5 10 11v9c0 7.5-4.5 11-10 11s-10-3.5-10-11z"/><circle cx="19.3" cy="19.5" r="3.9"/><circle cx="28.7" cy="19.5" r="3.9"/><path d="M24 22.5l-1.4 3.2h2.8z"/><path d="M17.5 30c2 2.2 4.2 3.2 6.5 3.2s4.5-1 6.5-3.2M19 35c1.6 1 3.2 1.4 5 1.4s3.4-.4 5-1.4"/></g><circle cx="19.3" cy="19.5" r="1.3" fill="currentColor"/><circle cx="28.7" cy="19.5" r="1.3" fill="currentColor"/>`
   };
-  return html`<svg width=${s} height=${s} viewBox="0 0 48 48" aria-hidden="true">${art[p.id]}</svg>`;
+  var sp = SPECIES[p.id], key = (sp && sp.icon) || p.id;
+  return html`<svg width=${s} height=${s} viewBox="0 0 48 48" aria-hidden="true">${art[key] || art.duck}</svg>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -696,6 +715,24 @@ function GuidePlayer(p) {
   </button>`;
 }
 
+/* Did that sound more like a different call of the same animal? Every other
+   call's own targets score the same recording. A clear winner gets named, and
+   the call being practiced can't come out "close" when it plainly wasn't it. */
+function likeOther(call, got, res) {
+  if (!res.ok) return;
+  var best = null;
+  callsOf(SPECIES[call.species]).forEach(function (id) {
+    if (id === call.id) return;
+    var r2;
+    try { r2 = CA.analyze(got.samples, got.rate, DATA.calls[id].spec); } catch (e) { return; }
+    if (r2.ok && (!best || r2.score > best.score)) best = { id: id, score: r2.score };
+  });
+  if (best && best.score >= 75 && best.score >= res.score + 15) {
+    res.likeOther = { id: best.id, name: DATA.calls[best.id].name, score: best.score };
+    if (res.score > 60) { res.score = 60; res.verdict = CA.verdict(60); }
+  }
+}
+
 function isShaped(call) {
   return (call.spec.score || []).some(function (r) { return ["breakUp", "breakDown", "riseFall", "waver"].indexOf(r[0]) >= 0; });
 }
@@ -750,7 +787,7 @@ function Recorder(p) {
     // let the "listening" screen paint before the analysis takes the main thread
     setTimeout(function () {
       var res;
-      try { res = CA.analyze(got.samples, got.rate, call.spec); }
+      try { res = CA.analyze(got.samples, got.rate, call.spec); likeOther(call, got, res); }
       catch (e) { res = { ok: false, problem: "error", warnings: [] }; }
       p.onResult(res, got.samples, got.rate);
     }, 60);
@@ -834,17 +871,22 @@ function Home(p) {
         <span className="small muted">Last ${last.score} · best ${best(lastCall.id)}</span></span>
       <${Icon} name="chev" size="20"/>
     </button>` : null}
-    <section className="stack-s" aria-label="Animals">
-      <div className="eyebrow">Pick an animal</div>
-      <div className="grid2">
-        ${DATA.species.map(function (s) {
-          return html`<button key=${s.id} className="tile" onClick=${function () { go("/s/" + s.id); }}>
-            <span className="badge"><${Critter} id=${s.id}/></span>
-            <b>${s.name}</b><span>${s.calls.length} calls · ${s.tag.split(":")[0].split(" — ")[0]}</span>
-          </button>`;
-        })}
-      </div>
-    </section>
+    ${GROUPS.map(function (g) {
+      var list = DATA.species.filter(function (s) { return (s.group || "all") === g.id && callsOf(s).length; });
+      if (!list.length) return null;
+      return html`<section key=${g.id} className="stack-s" aria-label=${g.name}>
+        <div className="eyebrow">${g.name}</div>
+        <div className="grid2">
+          ${list.map(function (s) {
+            var n = callsOf(s).length;
+            return html`<button key=${s.id} className="tile" onClick=${function () { go("/s/" + s.id); }}>
+              <span className="badge"><${Critter} id=${s.id}/></span>
+              <b>${s.name}</b><span>${n} ${n === 1 ? "call" : "calls"} · ${s.tag.split(":")[0].split(" — ")[0]}</span>
+            </button>`;
+          })}
+        </div>
+      </section>`;
+    })}
   </div>`;
 }
 
@@ -863,19 +905,26 @@ function SpeciesPage(p) {
       <div className="grow stack-s" style=${{ gap: "0.3rem" }}><h1 style=${{ fontSize: "2.1rem" }}>${s.name}</h1><p className="muted">${s.tag}</p></div>
     </header>
     <p>${s.intro}</p>
-    <section className="card divide" style=${{ padding: "0.2rem 0.9rem" }} aria-label="Calls">
-      ${s.calls.map(function (id) {
+    ${(function () {
+      var ids = callsOf(s), out = [], cur = null, rows = [];
+      var flush = function () { if (rows.length) out.push(html`<section key=${"sec" + out.length} className="stack-s" aria-label=${cur || "Calls"}>
+        ${cur ? html`<div className="eyebrow">${cur}</div>` : null}
+        <div className="card divide" style=${{ padding: "0.2rem 0.9rem" }}>${rows}</div></section>`); rows = []; };
+      ids.forEach(function (id) {
         var c = DATA.calls[id], st = stat(id);
-        return html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
+        if ((c.section || null) !== cur) { flush(); cur = c.section || null; }
+        rows.push(html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
           <span className="grow stack-s" style=${{ gap: "0.2rem" }}>
             <span className="row" style=${{ gap: "0.5rem", flexWrap: "wrap" }}><span className="nm">${c.name}</span><span className=${"chip chip-l" + c.level}>${LEVELS[c.level]}</span></span>
             <span className="small muted">${c.what}</span>
           </span>
           ${st.n ? html`<span className="score-pill" style=${{ color: "var(--ink)" }} aria-label=${"Best score " + st.best}>${st.best}</span>` : null}
           <span className="chev"><${Icon} name="chev" size="18"/></span>
-        </button>`;
-      })}
-    </section>
+        </button>`);
+      });
+      flush();
+      return out;
+    })()}
     <section className="stack-s">
       <div className="eyebrow">What you need</div>
       <p>${s.gear}</p>
@@ -959,15 +1008,18 @@ function ResultPage(p) {
   useEffect(function () {
     if (audio || !a || !a.id || a.id === "tmp" || a.audio === false) return;
     var live = true;
-    IDB.get(a.id).then(function (blob) { if (blob && live) fromWav(blob).then(function (x) { if (live) aud[1](x); }); });
+    IDB.get(a.id).then(function (blob) { if (blob && live) fromWav(blob).then(function (x) { if (live) aud[1](Object.assign(x, { blob: blob })); }); });
     return function () { live = false; };
   }, [a && a.id]);
+  // your call plays back as an ordinary audio file, the same way the reference clips do
+  var audioUrl = useMemo(function () { return audio ? URL.createObjectURL(audio.blob || toWav(audio.samples, audio.rate)) : null; }, [audio]);
+  useEffect(function () { return function () { if (audioUrl) URL.revokeObjectURL(audioUrl); }; }, [audioUrl]);
   useEffect(function () { return function () { Player.stop(); }; }, []);
   if (!a || !c) return html`<${NotFound}/>`;
   var s = SPECIES[c.species], myId = "mine:" + a.id;
   var problem = a.problem ? PROBLEMS[a.problem] || PROBLEMS.error : null;
   var again = html`<button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22"/> Try again</button>`;
-  var playMine = audio ? html`<button className="play" onClick=${function () { if (playing === myId) Player.stop(); else Player.samples(myId, audio.samples, audio.rate); }} aria-pressed=${playing === myId}>
+  var playMine = audio ? html`<button className="play" onClick=${function () { if (playing === myId) Player.stop(); else Player.url(myId, audioUrl); }} aria-pressed=${playing === myId}>
       <span className="disc" style=${{ background: "var(--data)", color: "#fff" }}><${Icon} name=${playing === myId ? "stop" : "play"} size="18"/></span>
       <span className="grow"><b>Play your call</b><br/><span className="small muted">${secs(audio.samples.length / audio.rate)} recorded</span></span></button>` : null;
   var recorder = rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null;
@@ -994,6 +1046,9 @@ function ResultPage(p) {
       </div>
       <${Meter} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
       ${a.groups > 1 ? html`<p className="small muted">You blew ${a.groups} separate calls; this scores the best one (marked in orange on the picture below).</p>` : null}
+      ${a.likeOther && DATA.calls[a.likeOther.id] ? html`<div className="note-box stack-s" style=${{ borderColor: "var(--blaze)" }}>
+        <p><b>That sounded more like a ${a.likeOther.name.toLowerCase()}</b> (it would score ${a.likeOther.score} as one). This lesson is the ${c.name.toLowerCase()}: ${c.what.charAt(0).toLowerCase() + c.what.slice(1)}</p>
+        <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${function () { go("/c/" + a.likeOther.id); }}>Open the ${a.likeOther.name.toLowerCase()} lesson</button></div>` : null}
       ${(a.warnings || []).indexOf("clipped") >= 0 ? html`<p className="small st-warn">Your recording distorted — it was too loud for the mic. Hold the phone farther away next time.</p>` : null}
     </section>
 
@@ -1044,19 +1099,65 @@ function ResultPage(p) {
   </div>`;
 }
 
+/* Scores for bragging rights. An animal's score is the average of your best
+   score on every call it has, untried calls counting zero, so the only way up
+   is to learn all of them. The caller score averages the animals. */
+function scoreBoard(attempts) {
+  var best = {};
+  attempts.forEach(function (a) { if (DATA.calls[a.call] && (best[a.call] === undefined || a.score > best[a.call])) best[a.call] = a.score; });
+  var animals = DATA.species.map(function (s) {
+    var ids = callsOf(s), tried = ids.filter(function (id) { return best[id] !== undefined; });
+    var sum = ids.reduce(function (t, id) { return t + (best[id] || 0); }, 0);
+    return { id: s.id, name: s.name, n: ids.length, tried: tried.length, score: ids.length ? Math.round(sum / ids.length) : 0 };
+  }).filter(function (x) { return x.n; });
+  var overall = animals.length ? Math.round(animals.reduce(function (t, x) { return t + x.score; }, 0) / animals.length) : 0;
+  return { best: best, animals: animals, overall: overall };
+}
+var RANKS = [[90, "Legend"], [75, "Pro caller"], [55, "Seasoned"], [35, "Woods-wise"], [15, "Apprentice"], [0, "Greenhorn"]];
+function rankOf(n) { for (var i = 0; i < RANKS.length; i++) if (n >= RANKS[i][0]) return RANKS[i][1]; return "Greenhorn"; }
+
+function shareScores(board, flash) {
+  var tried = board.animals.filter(function (x) { return x.tried; });
+  var lines = ["Call of the Wild — my caller score: " + board.overall + " (" + rankOf(board.overall) + ")"];
+  (tried.length ? tried : board.animals.slice(0, 4)).forEach(function (x) { lines.push(x.name + " " + x.score + " (" + x.tried + "/" + x.n + " calls)"); });
+  lines.push("Think you can call better? " + location.href.split("#")[0]);
+  var text = lines.join("\n");
+  if (navigator.share) { navigator.share({ title: "My Call of the Wild scores", text: text }).catch(function () {}); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(function () { flash("Scores copied — paste them to a friend."); }, function () { flash("Couldn't copy on this browser."); }); return; }
+  flash("Sharing isn't available on this browser.");
+}
+
 function ProgressPage(p) {
   var at = p.store.attempts;
   var byCall = {};
   at.forEach(function (a) { (byCall[a.call] = byCall[a.call] || []).push(a); });
-  var ids = Object.keys(byCall).sort(function (x, y) { return byCall[y][byCall[y].length - 1].at - byCall[x][byCall[x].length - 1].at; });
-  var best = at.reduce(function (b, a) { return Math.max(b, a.score); }, 0);
+  var ids = Object.keys(byCall).filter(function (id) { return DATA.calls[id]; }).sort(function (x, y) { return byCall[y][byCall[y].length - 1].at - byCall[x][byCall[x].length - 1].at; });
+  var board = scoreBoard(at), total = board.animals.reduce(function (t, x) { return t + x.n; }, 0);
   return html`<div className="wrap stack">
     <header className="stack-s"><div className="eyebrow">Progress</div><h1 style=${{ fontSize: "2.2rem" }}>Your calling</h1></header>
-    <div className="stats">
-      <div className="stat"><div className="l">Attempts</div><div className="v">${at.length}</div></div>
-      <div className="stat"><div className="l">Calls tried</div><div className="v">${ids.length}<span className="hero-of" style=${{ fontSize: "0.95rem" }}> /${Object.keys(DATA.calls).length}</span></div></div>
-      <div className="stat"><div className="l">Best score</div><div className="v">${at.length ? best : "—"}</div></div>
-    </div>
+    <section className="card stack-s" aria-label="Caller score">
+      <div className="eyebrow">Caller score</div>
+      <div className="row" style=${{ alignItems: "flex-end", gap: "0.9rem" }}>
+        <div><span className="hero-num">${board.overall}</span><span className="hero-of"> /100</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.35rem" }}><b style=${{ fontSize: "1.3rem" }}>${rankOf(board.overall)}</b><br/>
+          <span className="small muted">${ids.length} of ${total} calls tried · ${at.length} ${at.length === 1 ? "attempt" : "attempts"}</span></div>
+      </div>
+      <${Meter} value=${board.overall} band=${band(board.overall)} label=${"Caller score " + board.overall + " out of 100"}/>
+      <button className="btn btn-moss" style=${{ marginTop: "0.4rem" }} onClick=${function () { shareScores(board, p.flash); }}>Share my scores</button>
+    </section>
+    <section className="card stack-s" aria-label="Scores by animal">
+      <b>By animal</b>
+      <div className="divide">
+        ${board.animals.map(function (x) {
+          return html`<button key=${x.id} className="part" style=${{ width: "100%", background: "none", border: 0, textAlign: "left", color: "var(--ink)" }} onClick=${function () { go("/s/" + x.id); }}>
+            <span className="st-good" aria-hidden="true" style=${{ color: "var(--moss)" }}><${Critter} id=${x.id} size="22"/></span>
+            <div className="lab"><b>${x.name}</b><span className="val">${x.score} · ${x.tried}/${x.n} calls</span></div>
+            <${Meter} small=${true} value=${x.score} band=${band(x.score)} label=${x.name + ": " + x.score + " out of 100"}/>
+          </button>`;
+        })}
+      </div>
+      <p className="small muted">An animal's score is the average of your best score on each of its calls; calls you haven't tried count as zero. The caller score averages the animals.</p>
+    </section>
     ${ids.length ? html`<section className="card divide" style=${{ padding: "0.1rem 0.9rem" }} aria-label="Calls you have practiced">
       ${ids.map(function (id) {
         var list = byCall[id], c = DATA.calls[id]; if (!c) return null;
@@ -1084,8 +1185,10 @@ function AboutPage(p) {
 
     <section className="stack-s"><h2>How the scoring works</h2>
       <p>Your phone splits the recording into notes and measures what a caller controls: how many notes, how long each one is, how evenly they're spaced, which way the pitch and volume move, whether each note stops clean, and the shape inside a note — a goose honk's break, a turkey yelp's drop, a bugle's climb.</p>
-      <p>Those measurements are scored against the pattern each call is supposed to have. The biggest misses become the tips.</p>
+      <p>Those measurements are scored against the pattern each call is supposed to have. For calls that copy an animal closely — teal peeps, a bobwhite's whistle, a cow moose — the targets are measured from the real recording you can hear in the lesson. For calls that are a caller's craft, like the greeting call or a goose's honk, they come from calling instruction. The biggest misses become the tips.</p>
+      <p>A total miss on any one part costs a lot: a greeting call that climbs instead of falling can't score "close." And if what you blew sounds more like a different call of the same animal, the result says so.</p>
       <p className="note-box">The score is a pattern match, not a promise that a duck will land. Nobody has the data to score "would an animal answer this." And the targets are a first draft — a good caller should check them.</p>
+      <p className="muted small">Only calls with a real recording to hear are listed. Some favorites — the hail and comeback calls, buck grunts, rattling — aren't here yet because no free recording of them could be found.</p>
       <p className="muted small">Everything happens on this phone. Nothing is uploaded.</p>
     </section>
 
@@ -1155,7 +1258,7 @@ function App() {
   function onResult(call, res, x, rate) {
     if (!res.ok) {
       tmpAttempt = { id: "tmp", call: call.id, at: Date.now(), problem: res.problem || "error" };
-      memAudio.tmp = { samples: x, rate: rate };
+      memAudio.tmp = { samples: x, rate: rate, blob: toWav(x, rate) };
       if (location.hash === "#/r/tmp") rs[1]({ name: "r", arg: "tmp", k: Date.now() }); else go("/r/tmp");
       return;
     }
@@ -1167,10 +1270,11 @@ function App() {
       // pitch paths are only drawn for calls whose shape is scored; dropping the rest keeps history small
       tips: res.tips, good: res.good, groups: res.groups.length, span: span, warnings: res.warnings,
       view: res.view.map(function (q) { return isShaped(call) ? q : { t: q.t, d: q.d, lev: q.lev, path: null }; }),
-      dur: x.length / rate
+      dur: x.length / rate, likeOther: res.likeOther || null
     };
-    memAudio[id] = { samples: x, rate: rate };
-    IDB.put(id, toWav(x, rate));
+    var wav = toWav(x, rate);
+    memAudio[id] = { samples: x, rate: rate, blob: wav };
+    IDB.put(id, wav);
     update(function (s) {
       var attempts = s.attempts.concat([a]);
       // keep recordings for the last 6 tries of each call plus its best; the scores themselves are kept regardless
@@ -1192,7 +1296,7 @@ function App() {
     var att = route.arg === "tmp" ? tmpAttempt : store.attempts.filter(function (q) { return q.id === route.arg; })[0];
     page = html`<${ResultPage} key=${route.arg + (route.k || "")} attempt=${att} audio=${memAudio[route.arg]} onResult=${onResult}/>`;
   }
-  else if (route.name === "progress") page = html`<${ProgressPage} store=${store}/>`;
+  else if (route.name === "progress") page = html`<${ProgressPage} store=${store} flash=${flash}/>`;
   else if (route.name === "about") page = html`<${AboutPage} store=${store}
       setSettings=${function (st) { update(function (s) { return Object.assign({}, s, { settings: st }); }); }}
       wipe=${function () { IDB.clear(); memAudio = {}; update(function (s) { return Object.assign({}, s, { attempts: [] }); }); flash("Deleted."); }}/>`;
@@ -1209,6 +1313,7 @@ function App() {
   <//>`;
 }
 
+window.CallWildDebug = { Player: Player };
 ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
 })();
 </script>

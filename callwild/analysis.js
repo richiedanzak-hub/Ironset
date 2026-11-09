@@ -128,13 +128,16 @@
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function round(v, d) { var k = Math.pow(10, d || 0); return Math.round(v * k) / k; }
 
-  /* 1 inside [lo, hi]; outside it falls smoothly, to 0.5 at `soft` away. */
+  /* 1 inside [lo, hi]; outside it falls to 0.5 at `soft` away and is near
+     nothing by twice that. (It used to fall off gently enough that a call
+     well outside its range still collected most of the credit — too generous,
+     by the account of the first hunters to try it.) */
   function band(x, lo, hi, soft) {
     if (!(x === x)) return 0;
     var d = x < lo ? lo - x : x > hi ? x - hi : 0;
     if (!d) return 1;
     var r = d / (soft || 1);
-    return 1 / (1 + r * r);
+    return Math.exp(-0.6931 * r * r);
   }
 
   /* ------------------------------------------------------------------ */
@@ -503,7 +506,7 @@
     count: function (m, p, say) {
       var r = p.range, n = m.n;
       return {
-        label: "Notes", score: band(n, r[0], r[1], p.soft || 1.4),
+        label: "Notes", score: band(n, r[0], r[1], p.soft || 1),
         value: String(n), target: range(r),
         tip: n < r[0] ? "You blew " + plural(n, "note") + ". This call wants " + range(r) + " — keep going until you get there." :
           n > r[1] ? "You blew " + plural(n, "note") + ". This call is " + range(r) + " — stop sooner. Too many notes is how ducks learn something is off." : null
@@ -513,7 +516,7 @@
       var r = p.range, v = m.rate;
       if (m.n < 2) return { label: "Speed", score: 0, value: "—", target: range(r, "/s"), tip: "I only heard one note, so there is no speed to measure yet." };
       return {
-        label: "Speed", score: band(v, r[0], r[1], p.soft || r[0] * 0.35),
+        label: "Speed", score: band(v, r[0], r[1], p.soft || r[0] * 0.25),
         value: round(v, 1) + "/s", target: range(r, "/s"),
         tip: v < r[0] ? "Too slow: " + round(v, 1) + " notes a second. Aim for " + range(r) + " — pick it up so the notes run into each other a little less." :
           v > r[1] ? "Too fast: " + round(v, 1) + " notes a second. Aim for " + range(r) + ". Slow down and finish each '" + say + "' before the next." : null
@@ -566,11 +569,11 @@
       };
     },
     pitch: function (m, p, say) {
-      var v = m.pitchChange, r = p.range || [1, 8], s, tip = null, value = v < -0.75 ? "falls " + steps(v) : v > 0.75 ? "rises " + steps(v) : "level";
+      var v = m.pitchChange, r = p.range || [1, 8], soft = p.soft || 1.5, s, tip = null, value = v < -0.75 ? "falls " + steps(v) : v > 0.75 ? "rises " + steps(v) : "level";
       var by = m.pitchBy === "pitch" ? "" : " (judged by tone — your notes were too rough for a clean pitch)";
       if (m.n < 2) return { label: "Pitch", score: 0, value: "—", target: "", tip: null };
       if (p.dir === "down") {
-        s = band(-v, r[0], r[1], 1.5);
+        s = band(-v, r[0], r[1], soft);
         if (s < 0.75) tip = -v < r[0] ? (v > 0.75 ? "Your pitch climbed across the call" : "Your pitch stayed flat") + by + ". Start high and let each note step a little lower." :
           "Your pitch fell off a cliff — it dropped " + steps(v) + ". Step down gradually instead of all at once.";
         return { label: "Pitch", score: s, value: value, target: "falls " + range(r), tip: tip };
@@ -780,17 +783,17 @@
       var r = fn(m, p, spec.say || "quack", notes);
       r.key = key; r.weight = w; r.score = clamp(r.score, 0, 1);
       if (spec.tips && spec.tips[key] && r.tip) r.tip = spec.tips[key];
-      parts.push(r); tw += w; ts += w * r.score;
+      parts.push(r); tw += w; ts += w * Math.log(Math.max(0.05, r.score));
     });
-    // A weighted average lets a call with its core shape wrong (a greeting call
-    // that climbs instead of falling) still average out to "close". A miss that
-    // bad on a part that matters costs extra, so the verdict tells the truth.
-    var dealbreakers = parts.filter(function (r) { return r.weight >= 1 && r.score < 0.35; }).length;
-    return { parts: parts, score: tw ? Math.max(0, Math.round(100 * ts / tw) - 12 * dealbreakers) : 0 };
+    // A weighted geometric mean, not an average. Averaged, a call that is right
+    // in five ways and flatly wrong in a sixth (too fast, climbing instead of
+    // falling) still came out "close"; multiplied, one total miss on any part
+    // that matters costs a third or more of the score, and two sink it.
+    return { parts: parts, score: tw ? Math.round(100 * Math.exp(ts / tw)) : 0 };
   }
 
   function verdict(score) {
-    return score >= 85 ? "Sounds right" : score >= 70 ? "Close" : score >= 50 ? "Getting there" : "Keep at it";
+    return score >= 90 ? "Sounds right" : score >= 75 ? "Close" : score >= 55 ? "Getting there" : "Keep at it";
   }
 
   /* ------------------------------------------------------------------ */
