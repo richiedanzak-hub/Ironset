@@ -3,7 +3,7 @@
    It lives in its own folder so its scope is callwild/ only: a worker at the
    repo root would fight IRONSET's for the same scope and one would replace the
    other. */
-const VERSION = "callwild-v3";
+const VERSION = "callwild-v4";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const SOUNDS = VERSION + "-sounds";

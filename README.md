@@ -19,15 +19,23 @@ Three web apps with no server, no account and no sign-in. Open the file in a bro
   common mistakes and a practice drill, plus the recording and a rhythm guide. Tap record and blow
   your call at the phone. `analysis.js` splits the recording into notes and measures note count,
   speed, rhythm, pitch and volume shape, note length, clean stops, and the shape inside each note
-  (a honk's break, a yelp's drop, a bugle's climb). It scores those with a weighted geometric
-  mean, so a total miss on one part sinks the score, and it names a different call of the same
-  animal when the recording matches that one better. Everything runs on the phone; nothing is
-  uploaded.
+  (a honk's break, a yelp's drop, a bugle's climb). It also checks how the call *sounds* against
+  its real recording: where its pitch sits (or how bright it is, for a raspy call), and whether it
+  is a clean note, a raspy one, or just air. Timing parts and sound parts are each a weighted
+  geometric mean, and the score is the two multiplied, so a total miss on one part sinks the
+  score and the right rhythm on the wrong sound (a whistle in a quack's rhythm, clapping) can't
+  score well. When a low score is clearly a different call of the same group (a goose honk in a
+  duck lesson), the result names it, but never a close cousin whose real recordings the scorer
+  can't tell apart either. Everything runs on the phone; nothing is uploaded.
 
-  Targets come from two places. For calls that are a caller's craft, they are set by hand in
-  `calls.js` from calling instruction. For calls that copy an animal closely, they are measured
-  from the call's own recording: `node callwild/tools/learn.cjs` (needs ffmpeg) rewrites the
-  LEARNED block in `calls.js`. The clips in `callwild/sounds/` come from xeno-canto, the National
+  Targets come from two places. For calls that are a caller's craft, timing targets are set by
+  hand in `calls.js` from calling instruction. For calls that copy an animal closely, they are
+  measured from the call's own recording. `node callwild/tools/learn.cjs` (needs ffmpeg) rewrites
+  the LEARNED block in `calls.js`: those timing targets, the sound targets for every call, and each
+  call's cousins. `node callwild/tools/check.cjs` then grades the scoring: every real recording on
+  its own lesson and on every other lesson, decoys (whistling, humming, talking, clapping,
+  blowing) on every lesson, and each recording altered the way a person's call differs (pitch,
+  tempo, room echo, a bassy or tinny phone, noise). The clips in `callwild/sounds/` come from xeno-canto, the National
   Park Service (Yellowstone and Rocky Mountain) and SoundBible, including Fish and Wildlife Service
   recordings. They are trimmed, lightly de-noised and level-matched, and credited on the About
   screen. Most are licensed non-commercial only. The app has its own folder so its service worker

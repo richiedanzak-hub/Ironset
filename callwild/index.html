@@ -706,31 +706,53 @@ function ClipPlayer(p) {
   </div>`;
 }
 
+/* Where the real animal's call sits, in Hz, when it holds a clear pitch —
+   measured from its recording (the call's "level" target). */
+function realPitch(call) {
+  var row = (call.spec.score || []).filter(function (r) { return r[0] === "level"; })[0];
+  return row && row[2] && row[2].f0 ? row[2].f0 : 0;
+}
+
 function GuidePlayer(p) {
   var playing = usePlaying(), id = "guide:" + p.call.id, on = playing === id;
-  var base = p.call.tone || SPECIES[p.call.species].tone || 600;
+  // at the real call's own pitch where it has one, so the guide sits where you
+  // should. That pitch is the call's typical note; the guide's notes are laid
+  // out from its first, so step back from the middle note to the first.
+  var real = realPitch(p.call), g = (p.call.ghost || []).map(function (q) { return q.s || 0; }).sort(function (a, b) { return a - b; });
+  var mid = g.length ? g[(g.length - 1) >> 1] : 0;
+  var base = real ? real / Math.pow(2, mid / 12) : (p.call.tone || SPECIES[p.call.species].tone || 600);
   return html`<button className="play ghosty" onClick=${function () { if (on) Player.stop(); else Player.pattern(id, p.call.ghost, base); }} aria-pressed=${on}>
     <span className="disc"><${Icon} name=${on ? "stop" : "play"} size="18"/></span>
     <span className="grow"><b>Rhythm guide</b><br/><span className="small muted">The timing and pitch shape to aim for — played as tones, not an animal.</span></span>
   </button>`;
 }
 
-/* Did that sound more like a different call of the same animal? Every other
-   call's own targets score the same recording. A clear winner gets named, and
-   the call being practiced can't come out "close" when it plainly wasn't it. */
+/* "the honk" for a call of the lesson's own animal, "Canada geese: the honk"
+   for another's, so a goose cluck is never mistaken for a turkey's */
+function otherName(lesson, id) {
+  var o = DATA.calls[id];
+  if (!o) return "another call";
+  return (o.species === lesson.species ? "the " : SPECIES[o.species].name + ": the ") + o.name.toLowerCase();
+}
+
+/* Did the caller blow a different call than the lesson's? Checked only when
+   the lesson's own score is low, against every call in the same group (a goose
+   honk blown in a duck lesson should be named as a goose honk) — but never a
+   cousin: calls whose real recordings the scorer itself cannot tell apart
+   (a mallard hen's greeting and a black duck hen's call). And only on a clear
+   margin, so the app never guesses out loud. */
 function likeOther(call, got, res) {
-  if (!res.ok) return;
-  var best = null;
-  callsOf(SPECIES[call.species]).forEach(function (id) {
-    if (id === call.id) return;
+  if (!res.ok || res.score >= 60) return;
+  var group = SPECIES[call.species].group, near = call.near || [], best = null;
+  Object.keys(DATA.calls).forEach(function (id) {
+    var c = DATA.calls[id];
+    if (id === call.id || !listed(c) || SPECIES[c.species].group !== group || near.indexOf(id) >= 0) return;
     var r2;
-    try { r2 = CA.analyze(got.samples, got.rate, DATA.calls[id].spec); } catch (e) { return; }
+    try { r2 = CA.analyze(got.samples, got.rate, c.spec); } catch (e) { return; }
     if (r2.ok && (!best || r2.score > best.score)) best = { id: id, score: r2.score };
   });
-  if (best && best.score >= 75 && best.score >= res.score + 15) {
+  if (best && best.score >= 85 && best.score >= res.score + 25)
     res.likeOther = { id: best.id, name: DATA.calls[best.id].name, score: best.score };
-    if (res.score > 60) { res.score = 60; res.verdict = CA.verdict(60); }
-  }
 }
 
 function isShaped(call) {
@@ -1035,6 +1057,16 @@ function ResultPage(p) {
   }
 
   var sc = a.score, b = band(sc), parts = a.parts || [];
+  // attempts saved before the sound check have no `sound` flags: one plain list
+  var soundParts = parts.filter(function (pt) { return pt.sound; }), shapeParts = parts.filter(function (pt) { return !pt.sound; });
+  function partRow(pt) {
+    var pb = partBand(pt.score);
+    return html`<div key=${pt.key} className="part">
+      <span className=${"st-" + pb} aria-hidden="true"><${Icon} name=${pb === "good" ? "check" : pb === "warn" ? "bang" : "cross"} size="18" w="2.6"/></span>
+      <div className="lab"><b>${pt.label}</b><span className="val">${pt.value}${pt.target ? html` <span style=${{ color: "var(--ink-3)" }}>· aim ${pt.target}</span>` : null}</span></div>
+      <${Meter} small=${true} value=${pt.score * 100} band=${pb} label=${pt.label + ": " + Math.round(pt.score * 100) + " out of 100"}/>
+    </div>`;
+  }
   var shaped = isShaped(c), mark = audio && a.span ? [a.span[0], a.span[1]] : null;
   return html`<div className="wrap stack">
     <div><button className="back" onClick=${function () { go("/c/" + c.id); }}><${Icon} name="back" size="20"/> ${c.name}</button></div>
@@ -1047,8 +1079,8 @@ function ResultPage(p) {
       <${Meter} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
       ${a.groups > 1 ? html`<p className="small muted">You blew ${a.groups} separate calls; this scores the best one (marked in orange on the picture below).</p>` : null}
       ${a.likeOther && DATA.calls[a.likeOther.id] ? html`<div className="note-box stack-s" style=${{ borderColor: "var(--blaze)" }}>
-        <p><b>That sounded more like a ${a.likeOther.name.toLowerCase()}</b> (it would score ${a.likeOther.score} as one). This lesson is the ${c.name.toLowerCase()}: ${c.what.charAt(0).toLowerCase() + c.what.slice(1)}</p>
-        <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${function () { go("/c/" + a.likeOther.id); }}>Open the ${a.likeOther.name.toLowerCase()} lesson</button></div>` : null}
+        <p><b>That sounded more like ${otherName(c, a.likeOther.id)}</b> (it would score ${a.likeOther.score} as that). This lesson is the ${c.name.toLowerCase()}: ${c.what.charAt(0).toLowerCase() + c.what.slice(1)}</p>
+        <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${function () { go("/c/" + a.likeOther.id); }}>Open that lesson</button></div>` : null}
       ${(a.warnings || []).indexOf("clipped") >= 0 ? html`<p className="small st-warn">Your recording distorted — it was too loud for the mic. Hold the phone farther away next time.</p>` : null}
     </section>
 
@@ -1073,16 +1105,13 @@ function ResultPage(p) {
 
     <section className="card stack-s" aria-label="Breakdown">
       <b>Breakdown</b>
-      <div className="divide">
-        ${parts.map(function (pt) {
-          var pb = partBand(pt.score);
-          return html`<div key=${pt.key} className="part">
-            <span className=${"st-" + pb} aria-hidden="true"><${Icon} name=${pb === "good" ? "check" : pb === "warn" ? "bang" : "cross"} size="18" w="2.6"/></span>
-            <div className="lab"><b>${pt.label}</b><span className="val">${pt.value}${pt.target ? html` <span style=${{ color: "var(--ink-3)" }}>· aim ${pt.target}</span>` : null}</span></div>
-            <${Meter} small=${true} value=${pt.score * 100} band=${pb} label=${pt.label + ": " + Math.round(pt.score * 100) + " out of 100"}/>
-          </div>`;
-        })}
-      </div>
+      ${soundParts.length ? html`
+        <div className="eyebrow" style=${{ marginTop: ".25rem" }}>How it sounds</div>
+        <div className="divide">${soundParts.map(partRow)}</div>
+        <p className="small muted">Compared with the real recording. The score is the timing below times this, so the right rhythm on the wrong sound can't score well.</p>
+        <div className="eyebrow" style=${{ marginTop: ".25rem" }}>Timing and shape</div>
+        <div className="divide">${shapeParts.map(partRow)}</div>` :
+        html`<div className="divide">${parts.map(partRow)}</div>`}
     </section>
 
     <section className="card stack" aria-label="Listen back">
@@ -1186,7 +1215,8 @@ function AboutPage(p) {
     <section className="stack-s"><h2>How the scoring works</h2>
       <p>Your phone splits the recording into notes and measures what a caller controls: how many notes, how long each one is, how evenly they're spaced, which way the pitch and volume move, whether each note stops clean, and the shape inside a note — a goose honk's break, a turkey yelp's drop, a bugle's climb.</p>
       <p>Those measurements are scored against the pattern each call is supposed to have. For calls that copy an animal closely — teal peeps, a bobwhite's whistle, a cow moose — the targets are measured from the real recording you can hear in the lesson. For calls that are a caller's craft, like the greeting call or a goose's honk, they come from calling instruction. The biggest misses become the tips.</p>
-      <p>A total miss on any one part costs a lot: a greeting call that climbs instead of falling can't score "close." And if what you blew sounds more like a different call of the same animal, the result says so.</p>
+      <p>Every call is also checked for how it sounds, against its real recording: where its pitch sits, and whether it's a clean note, a raspy one, or just air. That part multiplies the score rather than averaging into it, so the right rhythm on the wrong sound — a whistle in a quack's rhythm, or clapping — can't score well.</p>
+      <p>A total miss on any one part costs a lot: a greeting call that climbs instead of falling can't score "close." And when what you blew is clearly a different call — a goose honk in a duck lesson — the result says so. It stays quiet about close cousins (a mallard hen and a black duck hen) that even the real recordings can't tell apart.</p>
       <p className="note-box">The score is a pattern match, not a promise that a duck will land. Nobody has the data to score "would an animal answer this." And the targets are a first draft — a good caller should check them.</p>
       <p className="muted small">Only calls with a real recording to hear are listed. Some favorites — the hail and comeback calls, buck grunts, rattling — aren't here yet because no free recording of them could be found.</p>
       <p className="muted small">Everything happens on this phone. Nothing is uploaded.</p>
@@ -1266,7 +1296,7 @@ function App() {
     var span = res.groups && res.groups[res.best] ? [res.groups[res.best].t0, res.groups[res.best].t1] : null;
     var a = {
       id: id, call: call.id, at: Date.now(), score: res.score, verdict: res.verdict,
-      parts: res.parts.map(function (q) { return { key: q.key, label: q.label, score: Math.round(q.score * 100) / 100, value: q.value, target: q.target }; }),
+      parts: res.parts.map(function (q) { return { key: q.key, label: q.label, score: Math.round(q.score * 100) / 100, value: q.value, target: q.target, sound: !!q.sound }; }),
       // pitch paths are only drawn for calls whose shape is scored; dropping the rest keeps history small
       tips: res.tips, good: res.good, groups: res.groups.length, span: span, warnings: res.warnings,
       view: res.view.map(function (q) { return isShaped(call) ? q : { t: q.t, d: q.d, lev: q.lev, path: null }; }),
