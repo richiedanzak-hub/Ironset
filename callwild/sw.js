@@ -3,7 +3,7 @@
    It lives in its own folder so its scope is callwild/ only: a worker at the
    repo root would fight IRONSET's for the same scope and one would replace the
    other. */
-const VERSION = "callwild-v1";
+const VERSION = "callwild-v2";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const SOUNDS = VERSION + "-sounds";
@@ -21,11 +21,12 @@ const SHELL_URLS = [
   "./icons/apple-touch-icon.png",
 ];
 
-/* Every reference recording, so lessons can be heard offline. ~700 KB in all. */
+/* Every reference recording, so lessons can be heard offline. ~800 KB in all. */
 const SOUND_URLS = [
-  "mallard-hen-quacks", "mallard-hen-series", "mallard-hen-series-2", "mallard-hen-lonesome",
-  "mallard-feeding", "mallard-drake", "pintail-drake", "canada-goose", "turkey-yelps",
-  "turkey-clucks", "elk-bugle", "elk-calf-mew", "deer-bleat", "coyote-howl", "barred-owl", "crow-caws",
+  "mallard-hen-quacks", "mallard-hen-series", "mallard-hen-series-2", "mallard-hen-lonesome", "mallard-hen-long",
+  "mallard-feeding", "mallard-drake", "pintail-drake", "goose-honks", "goose-clucks", "goose-pairs",
+  "turkey-yelps", "turkey-clucks", "turkey-cutts", "elk-bugle", "elk-calf-mew", "deer-bleat", "coyote-howl",
+  "barred-owl", "crow-caws",
 ].map((id) => "./sounds/" + id + ".mp3");
 
 /* Third-party code the app cannot boot without: React and the fonts. Versioned, so they never go stale. */

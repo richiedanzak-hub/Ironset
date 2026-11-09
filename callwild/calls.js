@@ -195,7 +195,7 @@
         "Soft first note: the attention-grabber gets lost."
       ],
       drill: "Say “KANC-kanc-kanc-kanc-kanc” out loud (no call) as fast as you can keep it clean, then do it on the call.",
-      listen: [{ clip: "mallard-hen-series-2", label: "Real hen: loud first note" }],
+      listen: [{ clip: "mallard-hen-series-2", label: "Real hen: loud first note, then quicker, softer ones" }],
       spec: {
         kind: "series", maxSec: 8, pitch: [150, 1800], hp: 150, groupGap: 0.6,
         score: [
@@ -227,7 +227,7 @@
         "Squealing on the first notes from too much air."
       ],
       drill: "Breathe in for four counts, then blow: three long notes, then let the rest roll down and out.",
-      listen: [{ clip: "mallard-hen-series-2", label: "Real hen: long first note, then tapering" }],
+      listen: [{ clip: "mallard-hen-long", label: "Real hen: a long, loud run of quacks" }],
       spec: {
         kind: "series", maxSec: 12, pitch: [150, 1800], hp: 150, groupGap: 0.8,
         score: [
@@ -348,7 +348,7 @@
         "Notes that trail off instead of ending."
       ],
       drill: "Five honks, slow, a second apart. Listen for the snap from low to high in every one.",
-      listen: [{ clip: "canada-goose", label: "Real Canada geese" }],
+      listen: [{ clip: "goose-honks", label: "Real Canada goose honks" }],
       spec: {
         kind: "single", maxSec: 10, pitch: [150, 2500], hp: 150, split: 8,
         score: [
@@ -376,7 +376,7 @@
         "Running them together into a mush."
       ],
       drill: "Eight clucks in a steady beat, about four a second.",
-      listen: [{ clip: "canada-goose", label: "Real Canada geese" }],
+      listen: [{ clip: "goose-clucks", label: "Real Canada geese: quick, short clucks" }],
       spec: {
         kind: "series", maxSec: 8, pitch: [150, 2500], hp: 150, groupGap: 0.6,
         score: [
@@ -404,7 +404,8 @@
         "Wavering air that makes the tone shake."
       ],
       drill: "Three moans, each a full second, with a breath between.",
-      listen: [{ clip: "canada-goose", label: "Real Canada geese" }],
+      listen: [],
+      noClip: "No clean recording of a real moan yet: geese tuck it into the flock's talk. The rhythm guide plays its long, unbroken shape.",
       spec: {
         kind: "single", maxSec: 10, pitch: [120, 2000], hp: 120, split: 9, bridge: 0.08,
         score: [
@@ -431,7 +432,7 @@
         "Losing the rhythm as you speed up."
       ],
       drill: "Say “ga-whit ga-whit ga-whit” out loud in a steady rhythm, then on the call.",
-      listen: [{ clip: "canada-goose", label: "Real Canada geese" }],
+      listen: [{ clip: "goose-pairs", label: "Real Canada geese calling in quick pairs" }],
       spec: {
         kind: "series", maxSec: 8, pitch: [150, 2500], hp: 150, groupGap: 0.5, split: 5,
         score: [
@@ -495,7 +496,7 @@
         "Too fast. Spaced clucks sound content; rapid ones sound alarmed."
       ],
       drill: "Five clucks, a second or two apart. Sharp start, sharp stop.",
-      listen: [{ clip: "turkey-clucks", label: "Real hen: purr, then clucks" }],
+      listen: [{ clip: "turkey-clucks", label: "Real hen clucking" }],
       spec: {
         kind: "single", maxSec: 10, pitch: [250, 3500], hp: 250,
         score: [
@@ -522,7 +523,8 @@
         "Too loud: a purr is meant for a bird nearby."
       ],
       drill: "Three purrs, each about two seconds long, with a pause between.",
-      listen: [{ clip: "turkey-clucks", label: "Real hen: soft purr at the start" }],
+      listen: [],
+      noClip: "No clean recording of a real purr yet: it is soft and gets lost under other turkey talk. The rhythm guide plays the roll.",
       spec: {
         kind: "single", maxSec: 10, pitch: [250, 3500], hp: 250, split: 0, minNote: 0.2,
         score: [
@@ -548,7 +550,7 @@
         "Notes that blur into yelps."
       ],
       drill: "Say “puk, puk-puka, puk, puk-puk” out loud with an uneven rhythm, then copy it.",
-      listen: [{ clip: "turkey-clucks", label: "Real hen: sharp clucks" }],
+      listen: [{ clip: "turkey-cutts", label: "Real agitated turkeys: sharp clucks in an uneven rhythm" }],
       spec: {
         kind: "series", maxSec: 8, pitch: [250, 3500], hp: 250, groupGap: 0.7,
         score: [
@@ -636,6 +638,7 @@
       ],
       drill: "Three short grunts, a second apart, as deep as you can make them.",
       listen: [],
+      noClip: "No free recording of a real buck grunt yet. The rhythm guide plays the timing.",
       spec: {
         kind: "single", maxSec: 10, pitch: [60, 900], hp: 60,
         score: [
@@ -663,6 +666,7 @@
       ],
       drill: "Walk across the room grunting once per step.",
       listen: [],
+      noClip: "No free recording of a real tending buck yet. The rhythm guide plays the walking rhythm.",
       spec: {
         kind: "series", maxSec: 10, pitch: [60, 900], hp: 60, groupGap: 1.0,
         score: [
@@ -721,6 +725,7 @@
       ],
       drill: "Six cries, each about half a second, letting the pitch crack and waver.",
       listen: [],
+      noClip: "No free recording of a real rabbit in distress yet. The rhythm guide plays the timing of a sequence.",
       spec: {
         kind: "series", maxSec: 12, pitch: [300, 3500], hp: 250, groupGap: 1.6, split: 8,
         score: [
@@ -827,12 +832,16 @@
     "mallard-hen-series": { what: "A hen mallard's descending series — the “decrescendo” that greeting and hail calls copy", by: "Patrik Åberg", ref: "XC110314", url: "https://xeno-canto.org/110314", license: "CC BY-NC-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/3.0/", where: "Sweden, 2012" },
     "mallard-hen-series-2": { what: "Another hen series: one long, loud quack, then shorter and softer ones", by: "Patrik Åberg", ref: "XC110314", url: "https://xeno-canto.org/110314", license: "CC BY-NC-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/3.0/", where: "Sweden, 2012" },
     "mallard-hen-lonesome": { what: "A hen calling now and then: single quacks with long pauses", by: "Patrik Åberg", ref: "XC110314", url: "https://xeno-canto.org/110314", license: "CC BY-NC-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/3.0/", where: "Sweden, 2012" },
+    "mallard-hen-long": { what: "A hen mallard's long, loud run of quacks", by: "Sonothèque ADVL (Corentin Rivière)", ref: "XC730554", url: "https://xeno-canto.org/730554", license: "CC0 (public domain)", licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/", where: "France, 2022" },
     "mallard-feeding": { what: "Mallards feeding at the edge of a pond", by: "Andrew Harrop", ref: "XC1189375", url: "https://xeno-canto.org/1189375", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United Kingdom, 2026" },
     "mallard-drake": { what: "A drake mallard's raspy call", by: "Patrik Åberg", ref: "XC26967", url: "https://xeno-canto.org/26967", license: "CC BY-NC-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/3.0/", where: "Sweden, 2007" },
     "pintail-drake": { what: "A drake pintail's rolling whistle", by: "David Darrell-Lambert", ref: "XC1082420", url: "https://xeno-canto.org/1082420", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United Kingdom, 2026" },
-    "canada-goose": { what: "Canada geese honking", by: "Doug Hynes", ref: "XC934272", url: "https://xeno-canto.org/934272", license: "CC BY-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/", where: "Canada, 2010" },
+    "goose-honks": { what: "A Canada goose honking: low-to-high honks with clean gaps", by: "Richard E. Webster", ref: "XC816269", url: "https://xeno-canto.org/816269", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2023" },
+    "goose-clucks": { what: "Canada geese clucking: quick, short honks", by: "Doug Hynes", ref: "XC934272", url: "https://xeno-canto.org/934272", license: "CC BY-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/", where: "Canada, 2010" },
+    "goose-pairs": { what: "Canada geese calling in quick pairs", by: "Michael Hurben", ref: "XC844837", url: "https://xeno-canto.org/844837", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2023" },
     "turkey-yelps": { what: "Wild turkeys yelping", by: "Richard E. Webster", ref: "XC779658", url: "https://xeno-canto.org/779658", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2022" },
-    "turkey-clucks": { what: "A wild turkey hen with poults: a purr, then clucks", by: "Paul Driver", ref: "XC770958", url: "https://xeno-canto.org/770958", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2013" },
+    "turkey-clucks": { what: "A wild turkey hen with poults, clucking", by: "Paul Driver", ref: "XC770958", url: "https://xeno-canto.org/770958", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2013" },
+    "turkey-cutts": { what: "Agitated young turkeys: sharp clucks in an uneven rhythm", by: "Jonathon Jongsma", ref: "XC104533", url: "https://xeno-canto.org/104533", license: "CC BY-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/", where: "United States, 2012" },
     "elk-bugle": { what: "A bull elk bugling at Mammoth Hot Springs", by: "U.S. National Park Service, Yellowstone", ref: "Elk Bugle One", url: "https://www.nps.gov/yell/learn/photosmultimedia/sounds-elk.htm", license: "Public domain", licenseUrl: "https://www.nps.gov/yell/learn/photosmultimedia/sounds-elk.htm", where: "Yellowstone National Park" },
     "elk-calf-mew": { what: "An elk calf mewing", by: "U.S. National Park Service, Yellowstone", ref: "Elk Calf", url: "https://www.nps.gov/yell/learn/photosmultimedia/sounds-elk.htm", license: "Public domain", licenseUrl: "https://www.nps.gov/yell/learn/photosmultimedia/sounds-elk.htm", where: "Yellowstone National Park" },
     "deer-bleat": { what: "Whitetail deer bleats (Coues subspecies, identified by call)", by: "Paul Marvin", ref: "XC975498", url: "https://xeno-canto.org/975498", license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/", where: "United States, 2022" },
