@@ -903,7 +903,7 @@ function CallPage(p) {
     <section className="card stack" aria-label="Listen">
       <div className="eyebrow">Hear it</div>
       ${c.listen.length ? c.listen.map(function (l) { return html`<${ClipPlayer} key=${l.clip} clip=${l.clip} label=${l.label}/>`; }) :
-        html`<p className="small muted">No free recording of a real one yet. Call makers' sites have plenty — or record a good caller and add it here.</p>`}
+        html`<p className="small muted">${c.noClip || "No free recording of a real one yet."} A good caller's recording can be added here later.</p>`}
       <${GuidePlayer} call=${c}/>
       <div className="stack-s">
         <div className="row" style=${{ justifyContent: "space-between" }}><b>The pattern</b><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span></div>
