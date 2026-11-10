@@ -26,7 +26,9 @@ Three web apps with no server, no account and no sign-in. Open the file in a bro
   score and the right rhythm on the wrong sound (a whistle in a quack's rhythm, clapping) can't
   score well. When a low score is clearly a different call of the same group (a goose honk in a
   duck lesson), the result names it, but never a close cousin whose real recordings the scorer
-  can't tell apart either. Everything runs on the phone; nothing is uploaded.
+  can't tell apart either. Everything runs on the phone; nothing is uploaded. The look is a dark
+  field theme: a topo-map texture, blaze orange for the one thing to do next, and the sound
+  pictures drawn like a thermal scope's view. A Daylight theme is there for bright sun.
 
   Targets come from two places. For calls that are a caller's craft, timing targets are set by
   hand in `calls.js` from calling instruction. For calls that copy an animal closely, they are

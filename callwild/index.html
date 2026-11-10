@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Call Wild"/>
-<meta name="theme-color" content="#F3F0E6" media="(prefers-color-scheme: light)"/>
-<meta name="theme-color" content="#11140E" media="(prefers-color-scheme: dark)"/>
+<meta name="theme-color" content="#0E100D"/>
 <meta name="description" content="Learn duck, goose, turkey, elk, deer and predator calls. Record yourself and get scored, with tips."/>
 <title>Call of the Wild</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -18,200 +17,263 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap"/>
 <style>
-  /* Layout: one phone-width column (max 34rem) that scrolls above a fixed
-     three-tab bar. The recorder takes the whole screen. Field colours: bone,
-     moss and blaze orange in light; the same steps, darkened, for dawn in a
-     blind. Data on the charts is one validated blue (your call) against a
-     gray ghost (the target). */
+  /* Call of the Wild — field theme.
+     Built like the gear: dark, low-glare surfaces for a blind before first
+     light; blaze orange only for the one thing to do next; olive drab for the
+     rest; a topo sheet underneath. Square-shouldered cards with hairline
+     edges, condensed uppercase labels, numbers set like instrument readouts.
+     "Daylight" is the same system, light, for reading in the sun. */
   :root {
-    --bg: #F3F0E6;
-    --surface: #FFFDF8;
-    --tint: #ECE8DB;
-    --ink: #1C2117;
-    --ink-2: #4F5647;
-    --ink-3: #676D5D;
-    --line: #DAD4C3;
-    --moss: #3B5530;
-    --on-moss: #FBF9F2;
-    --blaze: #C2410C;
-    --on-blaze: #FFFFFF;
-    --data: #2a78d6;
-    --data-soft: rgba(42, 120, 214, 0.14);
-    --ghost: #C9C3B2;
-    --spec-hi: #0d366b;
-    --good: #0ca30c; --warn: #fab219; --bad: #d03b3b;
-    --good-ink: #1E6E1E; --warn-ink: #855600; --bad-ink: #A8251F;
-    --shade: rgba(16, 20, 12, 0.5);
+    --bg: #0E100D;
+    --surface: #161914;
+    --surface-2: #1C2019;
+    --tint: #252A21;
+    --line: #2A2F26;
+    --line-2: #3B4236;
+    --ink: #EDEFE7;
+    --ink-2: #A6AD9D;
+    --ink-3: #808878;
+    --olive: #56643A;
+    --olive-ink: #B8C48E;
+    --on-olive: #F4F6EC;
+    --blaze: #F26A1B;
+    --blaze-ink: #FF8B4A;
+    --on-blaze: #160A02;
+    --data: #4FB0EC;
+    --data-soft: rgba(79, 176, 236, 0.18);
+    --ghost: #3B4236;
+    --good: #79B65A; --warn: #E3B23C; --bad: #E2533F;
+    --good-ink: #8FD06D; --warn-ink: #F1C35A; --bad-ink: #FF8873;
+    --topo: rgba(214, 226, 196, 0.085);
+    --spec-stops: #0E100D 0, #23123B .3, #7A1C55 .52, #D6452B .72, #F4A532 .87, #FFF2C8 1;
+    --shade: rgba(0, 0, 0, 0.62);
     --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
     --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    color-scheme: light;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #11140E; --surface: #1A1F16; --tint: #252C20; --ink: #ECE9DD; --ink-2: #B4B9A8; --ink-3: #959B8A; --line: #313A2A;
-      --moss: #A3C47F; --on-moss: #10150B; --blaze: #FF7B36; --on-blaze: #1A0A00;
-      --data: #3987e5; --data-soft: rgba(57, 135, 229, 0.2); --ghost: #4A5242; --spec-hi: #cde2fb;
-      --good-ink: #6ED46E; --warn-ink: #FAB219; --bad-ink: #FF8C84; --shade: rgba(0, 0, 0, 0.6);
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #11140E; --surface: #1A1F16; --tint: #252C20; --ink: #ECE9DD; --ink-2: #B4B9A8; --ink-3: #959B8A; --line: #313A2A;
-    --moss: #A3C47F; --on-moss: #10150B; --blaze: #FF7B36; --on-blaze: #1A0A00;
-    --data: #3987e5; --data-soft: rgba(57, 135, 229, 0.2); --ghost: #4A5242; --spec-hi: #cde2fb;
-    --good-ink: #6ED46E; --warn-ink: #FAB219; --bad-ink: #FF8C84; --shade: rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
+  :root[data-theme="day"] {
+    --bg: #E9E7DE; --surface: #F8F7F2; --surface-2: #F0EEE6; --tint: #E0DDD1; --line: #D2CEC0; --line-2: #B9B4A2;
+    --ink: #151912; --ink-2: #4A5142; --ink-3: #676E5F; --olive: #4C5A2B; --olive-ink: #44522A; --on-olive: #FFFFFF;
+    --blaze: #E85A0E; --blaze-ink: #B5440A; --on-blaze: #160A02; --data: #1F6FC4; --data-soft: rgba(31, 111, 196, 0.14);
+    --ghost: #CBC6B6; --good-ink: #2E6E1E; --warn-ink: #855600; --bad-ink: #AE2A1E;
+    --topo: rgba(58, 70, 38, 0.11); --spec-stops: #F8F7F2 0, #CDD1BA .3, #7F8C56 .56, #3D4825 .8, #151912 1;
+    --shade: rgba(20, 24, 14, 0.45); color-scheme: light;
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-theme="phone"] {
+      --bg: #E9E7DE; --surface: #F8F7F2; --surface-2: #F0EEE6; --tint: #E0DDD1; --line: #D2CEC0; --line-2: #B9B4A2;
+      --ink: #151912; --ink-2: #4A5142; --ink-3: #676E5F; --olive: #4C5A2B; --olive-ink: #44522A; --on-olive: #FFFFFF;
+      --blaze: #E85A0E; --blaze-ink: #B5440A; --on-blaze: #160A02; --data: #1F6FC4; --data-soft: rgba(31, 111, 196, 0.14);
+      --ghost: #CBC6B6; --good-ink: #2E6E1E; --warn-ink: #855600; --bad-ink: #AE2A1E;
+      --topo: rgba(58, 70, 38, 0.11); --spec-stops: #F8F7F2 0, #CDD1BA .3, #7F8C56 .56, #3D4825 .8, #151912 1;
+      --shade: rgba(20, 24, 14, 0.45); color-scheme: light;
+    }
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html { font-size: 16.5px; -webkit-text-size-adjust: 100%; }
+  html { font-size: 16.5px; -webkit-text-size-adjust: 100%; background: var(--bg); }
   body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.45; }
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; }
   a { color: inherit; }
-  :focus-visible { outline: 3px solid var(--blaze); outline-offset: 2px; border-radius: 6px; }
-  .boot { min-height: 80vh; display: grid; place-items: center; color: var(--ink-2); }
+  :focus-visible { outline: 2px solid var(--blaze); outline-offset: 2px; border-radius: 3px; }
+  .boot { min-height: 80vh; display: grid; place-items: center; color: var(--ink-2); font-family: var(--display); letter-spacing: .1em; text-transform: uppercase; }
 
-  h1, h2, h3 { margin: 0; font-family: var(--display); line-height: 1.05; letter-spacing: 0.005em; text-wrap: balance; }
-  h1 { font-size: 2.3rem; font-weight: 800; text-transform: uppercase; }
-  h2 { font-size: 1.6rem; font-weight: 700; }
-  h3 { font-size: 1.2rem; font-weight: 700; }
+  /* Type */
+  h1, h2, h3 { margin: 0; font-family: var(--display); line-height: 1; text-transform: uppercase; text-wrap: balance; }
+  h1 { font-size: 2.45rem; font-weight: 800; letter-spacing: 0.015em; }
+  h2 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.04em; }
+  h3 { font-size: 1.12rem; font-weight: 700; letter-spacing: 0.05em; }
   p { margin: 0; }
   .muted { color: var(--ink-2); }
-  .small { font-size: 0.9rem; }
-  .eyebrow { font-family: var(--display); font-size: 0.85rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); }
+  .small { font-size: 0.88rem; }
+  .lead { font-size: 1.08rem; color: var(--ink); }
+  .eyebrow { font-family: var(--display); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); }
+  .eyebrow.hot { color: var(--blaze-ink); }
+  .num { font-family: var(--display); font-variant-numeric: tabular-nums; }
   .stack { display: flex; flex-direction: column; gap: 1rem; }
   .stack-s { display: flex; flex-direction: column; gap: 0.55rem; }
   .row { display: flex; align-items: center; gap: 0.7rem; }
   .row-top { display: flex; align-items: flex-start; gap: 0.7rem; }
+  .between { justify-content: space-between; }
   .grow { flex: 1; min-width: 0; }
-  .wrap { max-width: 34rem; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 1rem) 16px 7rem; }
+  .wrap { max-width: 34rem; margin: 0 auto; padding: 1rem 14px 7.5rem; }
+
+  /* Section heads: a label, a hairline, and a count */
+  .sec-head { display: flex; align-items: center; gap: 0.6rem; }
+  .sec-head h2 { font-size: 1.05rem; letter-spacing: 0.12em; color: var(--ink-2); }
+  .sec-head::after { content: ""; flex: 1; height: 1px; background: var(--line); order: 2; }
+  .sec-head .eyebrow { order: 3; }
+
+  /* Top bar */
+  .topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 90%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+  .topbar-in { max-width: 34rem; margin: 0 auto; height: 3.3rem; display: flex; align-items: center; gap: 0.5rem; padding: 0 10px 0 6px; }
+  .tb-back { display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; flex: none; background: none; border: 0; color: var(--ink); border-radius: 4px; }
+  .tb-title { flex: 1; min-width: 0; font-family: var(--display); font-weight: 700; font-size: 1.1rem; letter-spacing: 0.08em; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.55rem; padding-left: 6px; color: var(--ink); text-decoration: none; }
+  .wordmark { font-family: var(--display); font-weight: 800; font-size: 1.28rem; letter-spacing: 0.07em; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+  .wordmark small { font-size: 0.72em; letter-spacing: 0.1em; color: var(--ink-2); margin: 0 0.1em; }
+  .tb-score { display: inline-flex; align-items: center; gap: 0.45rem; background: none; border: 1px solid var(--line-2); border-radius: 4px; padding: 0.2rem 0.55rem 0.2rem 0.45rem; color: var(--ink); }
+  .tb-score b { font-family: var(--display); font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tb-score span { font-family: var(--display); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+
+  /* Topo sheet behind a block */
+  .topo { position: relative; isolation: isolate; overflow: hidden; }
+  .topo::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--topo);
+    -webkit-mask: url(img/topo.svg) 0 0 / 560px repeat; mask: url(img/topo.svg) 0 0 / 560px repeat; }
 
   /* Buttons */
-  .btn { display: flex; align-items: center; justify-content: center; gap: 0.55rem; width: 100%; min-height: 3.3rem; border: 0;
-    border-radius: 14px; padding: 0.7rem 1.1rem; font-weight: 700; font-size: 1.08rem; text-decoration: none; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 0.55rem; width: 100%; min-height: 3.4rem; border: 0; border-radius: 5px; padding: 0.7rem 1.1rem;
+    font-family: var(--display); font-weight: 800; font-size: 1.2rem; letter-spacing: 0.07em; text-transform: uppercase; text-decoration: none; }
   .btn svg { flex: none; }
-  .btn-moss { background: var(--moss); color: var(--on-moss); }
   .btn-blaze { background: var(--blaze); color: var(--on-blaze); }
+  .btn-olive { background: var(--olive); color: var(--on-olive); }
   .btn-tint { background: var(--tint); color: var(--ink); }
-  .btn-line { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+  .btn-line { background: transparent; color: var(--ink); border: 1px solid var(--line-2); }
   .btn:disabled { opacity: 0.5; cursor: default; }
-  .btn-small { min-height: 2.6rem; font-size: 0.98rem; border-radius: 12px; width: auto; padding: 0.45rem 0.9rem; }
-  .icon-btn { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--tint); color: var(--ink); }
-  .link { background: none; border: 0; padding: 0.3rem 0; color: var(--moss); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  .btn-small { min-height: 2.6rem; font-size: 1rem; width: auto; padding: 0.4rem 0.9rem; }
+  .icon-btn { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 5px; background: none; color: var(--ink); }
+  .link { background: none; border: 0; padding: 0.3rem 0; color: var(--blaze-ink); font-family: var(--display); font-weight: 700; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
   .back { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 0; padding: 0.4rem 0.2rem 0.4rem 0; color: var(--ink-2); font-weight: 600; }
 
-  /* Cards */
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 1rem; }
+  /* Cards and lists */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1rem; }
   .card-tight { padding: 0.75rem 0.9rem; }
   .divide > * + * { border-top: 1px solid var(--line); }
+  .list { padding: 0 0.85rem; }
 
-  /* Chips & pills */
-  .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700;
-    background: var(--tint); color: var(--ink-2); white-space: nowrap; }
-  .chip-l1 { background: color-mix(in srgb, var(--moss) 16%, transparent); color: var(--ink); }
-  .chip-l3, .chip-l4 { background: color-mix(in srgb, var(--blaze) 14%, transparent); color: var(--ink); }
-  .score-pill { min-width: 2.6rem; text-align: center; padding: 0.2rem 0.5rem; border-radius: 10px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--tint); }
+  /* Chips and readouts */
+  .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.5rem 0.16rem; border-radius: 3px; font-family: var(--display); font-size: 0.8rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; background: var(--tint); color: var(--ink-2); white-space: nowrap; line-height: 1.2; }
+  .chip-hot { background: color-mix(in srgb, var(--blaze) 16%, transparent); color: var(--blaze-ink); }
+  .chip-olive { background: color-mix(in srgb, var(--olive) 34%, transparent); color: var(--olive-ink); }
+  .score-pill { min-width: 2.7rem; text-align: center; padding: 0.15rem 0.45rem; border-radius: 3px; font-family: var(--display); font-size: 1.1rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; background: var(--tint); color: var(--ink); line-height: 1.3; }
+  .pips { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .pips i { width: 4px; background: var(--line-2); border-radius: 1px; }
+  .pips i.on { background: var(--blaze); }
+  .lvl { display: inline-flex; align-items: center; gap: 0.45rem; font-family: var(--display); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; }
+  .stat { border: 1px solid var(--line-2); border-radius: 4px; padding: 0.42rem 0.55rem; background: color-mix(in srgb, var(--bg) 45%, transparent); min-width: 0; }
+  .stat .v { display: block; font-family: var(--display); font-weight: 700; font-size: 1.3rem; line-height: 1.05; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .l { display: block; font-family: var(--display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* Masthead */
-  .mast { position: relative; padding: 0.4rem 0 0.2rem; }
-  .mast h1 { font-size: 2.6rem; letter-spacing: 0.01em; }
-  .mast .rule { height: 3px; width: 3.2rem; background: var(--blaze); border-radius: 2px; margin: 0.6rem 0 0.7rem; }
-  .contours { position: absolute; right: -8px; top: -6px; width: 150px; height: 120px; color: var(--line); pointer-events: none; }
+  /* Dashboard */
+  .hero { padding: 1rem 1rem 0.9rem; background: linear-gradient(160deg, color-mix(in srgb, var(--olive) 30%, var(--surface)) 0%, var(--surface) 62%); border-color: var(--line-2); }
+  .big { font-family: var(--display); font-size: 4.4rem; font-weight: 600; line-height: 0.82; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .big-of { font-family: var(--display); font-size: 1.15rem; font-weight: 600; color: var(--ink-3); margin-left: 0.15rem; }
+  .rank { font-family: var(--display); font-size: 1.5rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; }
+  .tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.4rem; }
+  .tool { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; padding: 0.55rem 0.1rem 0.45rem; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; color: var(--olive-ink); }
+  .tool span { font-family: var(--display); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
+  .banner { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid var(--line-2);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--blaze) 12%, var(--surface)) 0%, var(--surface) 70%); color: var(--ink); }
+  .banner .ic { width: 2.9rem; height: 2.9rem; flex: none; display: grid; place-items: center; border-radius: 4px; background: color-mix(in srgb, var(--blaze) 14%, transparent); color: var(--blaze-ink); }
+  .banner b { display: block; font-family: var(--display); font-size: 1.32rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.05; }
+  .banner.plain { background: var(--surface); }
+  .banner.plain .ic { background: var(--tint); color: var(--olive-ink); }
 
-  /* Species grid */
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
-  .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; text-align: left; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 18px; padding: 0.85rem; color: var(--ink); min-height: 8.6rem; }
-  .tile .badge { width: 3.1rem; height: 3.1rem; border-radius: 14px; display: grid; place-items: center; background: var(--tint); color: var(--moss); }
-  .tile b { font-family: var(--display); font-size: 1.3rem; font-weight: 700; line-height: 1; }
-  .tile span { font-size: 0.86rem; color: var(--ink-2); line-height: 1.3; }
-
-  /* Call list */
-  .call-row { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.85rem 0.1rem; color: var(--ink); }
-  .call-row .nm { font-weight: 700; font-size: 1.08rem; }
+  /* Animal rows (home) and call rows (an animal's page) */
+  .tile { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.7rem 0; color: var(--ink); }
+  .tile .badge { width: 3rem; height: 3rem; flex: none; border-radius: 4px; display: grid; place-items: center; background: var(--tint); color: var(--olive-ink); }
+  .tile b { display: block; font-family: var(--display); font-size: 1.22rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
+  .tile .sub { display: block; font-size: 0.86rem; color: var(--ink-2); line-height: 1.3; margin-top: 0.1rem; }
+  .call-row { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.8rem 0; color: var(--ink); }
+  .call-row .nm { font-family: var(--display); font-size: 1.22rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
   .chev { color: var(--ink-3); flex: none; }
 
   /* Lesson */
-  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 0.7rem; }
-  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 1.9rem 1fr; gap: 0.55rem; align-items: start; }
-  ol.steps li::before { content: counter(s); font-family: var(--display); font-weight: 800; font-size: 1.05rem; width: 1.9rem; height: 1.9rem; border-radius: 50%;
-    display: grid; place-items: center; background: var(--tint); color: var(--moss); }
+  .lesson-head { padding: 1.1rem 1rem 1rem; margin: -1rem -14px 0; border-bottom: 1px solid var(--line); }
+  .kv { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.5rem; align-items: start; }
+  .kv svg { margin-top: 0.15rem; color: var(--olive-ink); }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.5rem; align-items: baseline; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+  ol.steps li:first-child { border-top: 0; padding-top: 0.2rem; }
+  ol.steps li::before { content: counter(s, decimal-leading-zero); font-family: var(--display); font-weight: 800; font-size: 1.3rem; letter-spacing: 0.02em; color: var(--blaze-ink); font-variant-numeric: tabular-nums; }
   ul.dots { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.4rem; }
-  .say { font-family: var(--display); font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; color: var(--blaze); }
-  .note-box { border-left: 3px solid var(--moss); padding: 0.1rem 0 0.1rem 0.8rem; }
-  .sticky-cta { position: fixed; left: 0; right: 0; bottom: calc(4.1rem + env(safe-area-inset-bottom, 0px)); padding: 0.6rem 16px; z-index: 5;
-    background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  ul.miss { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+  ul.miss li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.45rem; align-items: start; }
+  ul.miss svg { color: var(--bad-ink); margin-top: 0.15rem; }
+  .say { font-family: var(--display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blaze-ink); }
+  .note-box { border-left: 3px solid var(--olive); padding: 0.15rem 0 0.15rem 0.8rem; }
+  .note-box.hot { border-left-color: var(--blaze); }
+  .drill { border-left: 3px solid var(--blaze); background: var(--surface-2); }
+  .sticky-cta { position: fixed; left: 0; right: 0; bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px)); padding: 0.6rem 14px 0.55rem; z-index: 5;
+    background: linear-gradient(to top, var(--bg) 72%, transparent); }
   .sticky-cta > div { max-width: 34rem; margin: 0 auto; }
 
   /* Players */
-  .play { display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.35rem 0; color: var(--ink); }
-  .play .disc { width: 2.6rem; height: 2.6rem; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--moss); color: var(--on-moss); }
+  .play { display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.3rem 0; color: var(--ink); }
+  .play .disc { width: 2.7rem; height: 2.7rem; border-radius: 4px; display: grid; place-items: center; flex: none; background: var(--blaze); color: var(--on-blaze); }
   .play.ghosty .disc { background: var(--tint); color: var(--ink); }
+  .play b { font-weight: 600; }
 
   /* Charts */
   .chart { position: relative; }
   .chart svg, .chart canvas { display: block; width: 100%; }
-  .legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.85rem; color: var(--ink-2); }
-  .legend i { display: inline-block; vertical-align: middle; margin-right: 0.35rem; border-radius: 3px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.82rem; color: var(--ink-2); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .legend i { display: inline-block; vertical-align: middle; margin-right: 0.35rem; border-radius: 2px; }
   .readout { min-height: 1.3rem; font-size: 0.85rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-  .scale { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: var(--ink-3); justify-content: flex-end; }
-  .scale i { width: 3.5rem; height: 0.5rem; border-radius: 4px; background: linear-gradient(to right, var(--surface), var(--spec-hi)); border: 1px solid var(--line); }
   table.notes { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
   table.notes th, table.notes td { text-align: left; padding: 0.35rem 0.3rem; border-bottom: 1px solid var(--line); }
-  table.notes th { color: var(--ink-2); font-weight: 600; }
-  details > summary { cursor: pointer; color: var(--ink-2); font-weight: 600; font-size: 0.92rem; }
+  table.notes th { color: var(--ink-3); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.78rem; }
+  details > summary { cursor: pointer; color: var(--ink-2); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.85rem; }
 
   /* Score */
-  .hero-num { font-family: var(--body); font-size: 4.2rem; font-weight: 600; line-height: 0.9; letter-spacing: -0.02em; }
-  .hero-of { font-size: 1.1rem; color: var(--ink-3); font-weight: 600; }
-  .meter { height: 8px; border-radius: 999px; background: var(--tint); overflow: hidden; }
-  .meter > i { display: block; height: 100%; border-radius: 999px; }
-  .meter-s { height: 6px; }
-  .part { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.25rem 0.55rem; align-items: center; padding: 0.55rem 0; }
-  .part .lab { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.95rem; }
-  .part .lab b { font-weight: 600; }
+  .hero-num { font-family: var(--display); font-size: 5rem; font-weight: 600; line-height: 0.8; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .hero-of { font-family: var(--display); font-size: 1.15rem; color: var(--ink-3); font-weight: 600; }
+  .verdict { font-family: var(--display); font-size: 1.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; }
+  .meter { position: relative; height: 6px; border-radius: 1px; background: var(--tint); overflow: hidden; }
+  .meter > i { display: block; height: 100%; }
+  .meter-s { height: 4px; }
+  .meter-seg { height: 10px; }
+  .meter-seg::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0 calc(10% - 3px), var(--surface) calc(10% - 3px) 10%); }
+  .part { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.3rem 0.55rem; align-items: center; padding: 0.6rem 0; }
+  .part .lab { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; font-size: 0.95rem; }
+  .part .lab b { font-family: var(--display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.05em; text-transform: uppercase; }
   .part .val { color: var(--ink-2); font-size: 0.86rem; text-align: right; font-variant-numeric: tabular-nums; }
   .part .meter { grid-column: 2; }
   .st-good { color: var(--good-ink); } .st-warn { color: var(--warn-ink); } .st-bad { color: var(--bad-ink); }
-  .tip { display: grid; grid-template-columns: 2rem 1fr; gap: 0.6rem; align-items: start; }
-  .tip .n { width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-weight: 800; background: var(--blaze); color: var(--on-blaze); }
-  .good-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-  .good-chips .chip { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--ink); }
-
-  /* Stat tiles */
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
-  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 0.7rem 0.75rem; }
-  .stat .v { font-size: 1.9rem; font-weight: 600; line-height: 1; margin-top: 0.25rem; }
-  .stat .l { font-size: 0.8rem; color: var(--ink-2); }
+  .tip { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.5rem; align-items: start; padding: 0.75rem 0.85rem; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--blaze); border-radius: 4px; }
+  .tip .n { font-family: var(--display); font-weight: 800; font-size: 1.5rem; line-height: 1; color: var(--blaze-ink); font-variant-numeric: tabular-nums; }
+  .good-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .good-chips .chip { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good-ink); }
 
   /* Tab bar */
-  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--surface); border-top: 1px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 94%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .tabs nav { max-width: 34rem; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); }
-  .tabs button { background: none; border: 0; display: flex; flex-direction: column; align-items: center; gap: 0.15rem; padding: 0.55rem 0 0.5rem;
-    font-size: 0.78rem; font-weight: 700; color: var(--ink-3); letter-spacing: 0.02em; }
-  .tabs button[aria-current="page"] { color: var(--moss); }
+  .tabs button { position: relative; background: none; border: 0; display: flex; flex-direction: column; align-items: center; gap: 0.12rem; padding: 0.55rem 0 0.5rem;
+    font-family: var(--display); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  .tabs button[aria-current="page"] { color: var(--blaze-ink); }
+  .tabs button[aria-current="page"]::before { content: ""; position: absolute; top: -1px; left: 30%; right: 30%; height: 2px; background: var(--blaze); }
 
   /* Recorder */
-  .sheet { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column; overflow-y: auto; }
-  .sheet-in { max-width: 34rem; width: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 0.8rem) 16px calc(env(safe-area-inset-bottom, 0px) + 1.2rem);
+  .sheet { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column; overflow-y: auto; isolation: isolate; }
+  .sheet::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--topo);
+    -webkit-mask: url(img/topo.svg) 0 0 / 560px repeat; mask: url(img/topo.svg) 0 0 / 560px repeat; }
+  .sheet-in { max-width: 34rem; width: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 14px calc(env(safe-area-inset-bottom, 0px) + 1.2rem);
     flex: 1; display: flex; flex-direction: column; gap: 1rem; }
-  .rec-btn { width: 7.2rem; height: 7.2rem; border-radius: 50%; border: 0; background: var(--blaze); color: var(--on-blaze); display: grid; place-items: center;
-    box-shadow: 0 0 0 8px color-mix(in srgb, var(--blaze) 18%, transparent); }
+  .rec-btn { width: 7.4rem; height: 7.4rem; border-radius: 50%; border: 0; background: var(--blaze); color: var(--on-blaze); display: grid; place-items: center;
+    box-shadow: 0 0 0 6px var(--bg), 0 0 0 8px color-mix(in srgb, var(--blaze) 55%, transparent); }
   .rec-btn.on { animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 16px color-mix(in srgb, var(--blaze) 10%, transparent); } }
-  .timer { font-size: 2.6rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-  .spinner { width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 4px solid var(--tint); border-top-color: var(--moss); animation: spin 0.8s linear infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--bg), 0 0 0 16px color-mix(in srgb, var(--blaze) 22%, transparent); } }
+  .timer { font-family: var(--display); font-size: 3.6rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .rec-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--bad); margin-right: 0.45rem; vertical-align: 0.3rem; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+  .spinner { width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 3px solid var(--tint); border-top-color: var(--blaze); animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .rec-btn.on, .spinner { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .rec-btn.on, .spinner, .rec-dot { animation: none; } }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); z-index: 40; background: var(--ink); color: var(--bg);
-    padding: 0.6rem 1rem; border-radius: 12px; font-weight: 600; font-size: 0.95rem; max-width: calc(100% - 32px); }
-  .seg { display: inline-flex; background: var(--tint); border-radius: 12px; padding: 3px; gap: 2px; }
-  .seg button { border: 0; background: none; padding: 0.45rem 0.9rem; border-radius: 9px; font-weight: 700; color: var(--ink-2); }
-  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+    padding: 0.6rem 1rem; border-radius: 4px; font-weight: 600; font-size: 0.95rem; max-width: calc(100% - 28px); }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px; gap: 3px; flex-wrap: wrap; }
+  .seg button { border: 0; background: none; padding: 0.45rem 0.85rem; border-radius: 3px; font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+  .seg button[aria-pressed="true"] { background: var(--olive); color: var(--on-olive); }
   .credit { font-size: 0.86rem; color: var(--ink-2); }
   .credit b { color: var(--ink); font-weight: 600; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [id^="g-"] { scroll-margin-top: calc(4rem + env(safe-area-inset-top, 0px)); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
@@ -258,8 +320,11 @@ var LEVELS = { 1: "Start here", 2: "Next step", 3: "Advanced", 4: "Expert" };
 var KEY = "callwild.v1";
 function loadStore() {
   try { var raw = localStorage.getItem(KEY); if (raw) { var s = JSON.parse(raw); if (s && s.attempts) return s; } } catch (e) {}
-  return { attempts: [], settings: { theme: "auto" }, intro: false };
+  return { attempts: [], settings: { theme: "field" }, intro: false };
 }
+/* Dark ("field") unless daylight or the phone's own setting was picked. Older
+   saves said "auto", "light" or "dark". */
+function themeOf(st) { var t = st && st.theme; return t === "day" || t === "light" ? "day" : t === "phone" ? "phone" : "field"; }
 function saveStore(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
 
 var IDB = (function () {
@@ -518,12 +583,18 @@ function useThemeTick() {
 var ICONS = {
   play: "M8 5.5v13l11-6.5z", stop: "M7 7h10v10H7z",
   back: "M15 5l-7 7 7 7", chev: "M9 5l7 7-7 7",
-  learn: "M4 6.5C6.5 5 9.5 5 12 6.5V19c-2.5-1.5-5.5-1.5-8 0zM12 6.5C14.5 5 17.5 5 20 6.5V19c-2.5-1.5-5.5-1.5-8 0z",
-  progress: "M4 19h16M6 16l4-5 3 3 5-7",
-  about: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v6M12 7.5v.5",
+  calls: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2",
+  scores: "M4 20h16M7 16v-4M12 16V7M17 16v-7",
+  info: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v6M12 7.5v.5",
   check: "M5 12.5l4.5 4.5L19 7.5", bang: "M12 6v7.5M12 17v.5", cross: "M7 7l10 10M17 7L7 17",
+  close: "M6 6l12 12M18 6L6 18",
+  clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7.5V12l3 2",
+  bag: "M5.5 8.5h13l-1 11.5h-11zM9 8.5V7a3 3 0 016 0v1.5",
+  timer: "M12 21a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM12 10v4l2 1.5M9.5 2.5h5M12 2.5v3",
+  share: "M12 4v11M8 8l4-4 4 4M5 13v6.5h14V13",
   retry: "M5 12a7 7 0 1 0 2.1-5M5 4v4h4", trash: "M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"
 };
+ICONS.learn = ICONS.calls; ICONS.progress = ICONS.scores; ICONS.about = ICONS.info;
 function Icon(p) {
   var size = p.size || 22;
   if (p.name === "mic") return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth=${p.w || 2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -531,6 +602,36 @@ function Icon(p) {
   var fill = p.name === "play" || p.name === "stop";
   return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill=${fill ? "currentColor" : "none"} stroke=${fill ? "none" : "currentColor"}
     strokeWidth=${p.w || 2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d=${ICONS[p.name]}/></svg>`;
+}
+
+/* The mark: a duck call — mouthpiece, barrel, insert — sounding off. Solid
+   and square-shouldered in blaze orange; it holds up from a home-screen icon
+   down to the top bar. */
+function Mark(p) {
+  var s = p.size || 28, c = p.color || "var(--blaze)";
+  return html`<svg width=${s} height=${s} viewBox="0 0 32 32" aria-hidden="true">
+    <g transform="rotate(-28 16 16)">
+      <g fill=${c}><path d="M1.6 14.3h4.6l1.3-1.2v5.8l-1.3-1.2H1.6z"/><rect x="7.2" y="11.6" width="11.4" height="8.8" rx="1.6"/><rect x="19.5" y="12.5" width="4.6" height="7" rx="0.8"/></g>
+      <path d="M26.4 13.4a3.3 3.3 0 010 5.2M28.4 11a6.4 6.4 0 010 10" fill="none" stroke=${c} strokeWidth="1.9" strokeLinecap="round"/>
+    </g>
+  </svg>`;
+}
+
+/* The bar across the top of every screen: the mark on the home screen, a back
+   arrow and where you are everywhere else. */
+function TopBar(p) {
+  var left = p.back ? html`<button className="tb-back" aria-label="Back" onClick=${function () { go(p.back); }}><${Icon} name="back" size="24" w="2.2"/></button>
+      <div className="tb-title">${p.title}</div>` :
+    p.title ? html`<div className="tb-title" style=${{ paddingLeft: "8px" }}>${p.title}</div>` :
+    html`<div className="brand"><${Mark} size="30"/><h1 className="wordmark">Call <small>of the</small> Wild</h1></div>`;
+  return html`<header className="topbar"><div className="topbar-in">${left}${p.right || null}</div></header>`;
+}
+
+/* How hard a call is, as four rising bars, with its name beside them. */
+function Pips(p) {
+  var n = p.level || 1;
+  return html`<span className="lvl" aria-label=${"Level " + n + " of 4: " + LEVELS[n]}><span className="pips" aria-hidden="true">${[1, 2, 3, 4].map(function (k) {
+    return html`<i key=${k} className=${k <= n ? "on" : ""} style=${{ height: (3 + k * 3) + "px" }}></i>`; })}</span>${p.label === false ? null : LEVELS[n]}</span>`;
 }
 
 /* Species marks: simple line drawings, one stroke weight, so the grid reads as a set. */
@@ -623,8 +724,24 @@ function NoteMap(p) {
   </div>`;
 }
 
+/* The colours of the sound pictures, from the theme: in the dark, a thermal
+   scope's ramp (quiet is the background, loud runs hot through red and orange
+   to white); in daylight, paper to ink. 256 RGB steps. */
+function specRamp() {
+  var stops = (css("--spec-stops") || "#000000 0, #ffffff 1").split(",").map(function (t) {
+    var m = t.trim().split(/\s+/); return [hex2rgb(m[0]), parseFloat(m[1])];
+  }), out = new Uint8ClampedArray(768);
+  for (var i = 0; i < 256; i++) {
+    var v = i / 255, k = 0;
+    while (k < stops.length - 2 && v > stops[k + 1][1]) k++;
+    var a = stops[k], b = stops[k + 1], f = b[1] > a[1] ? Math.max(0, Math.min(1, (v - a[1]) / (b[1] - a[1]))) : 0;
+    for (var ch = 0; ch < 3; ch++) out[i * 3 + ch] = a[0][ch] + (b[0][ch] - a[0][ch]) * f;
+  }
+  return out;
+}
+
 /* A picture of the sound (a spectrogram): low pitches at the bottom, high
-   at the top, darker where it is louder. One hue, light to dark. */
+   at the top, hotter where it is louder. */
 function SoundPicture(p) {
   var wr = useWidth(), ref = wr[0], W = wr[1] || 320, cv = useRef(null), H = p.height || 104, tick = useThemeTick();
   var playing = usePlaying(), raf = useRef(0), headRef = useRef(null);
@@ -634,13 +751,13 @@ function SoundPicture(p) {
     var c = cv.current; if (!c || !spec || !W) return;
     var dpr = Math.min(2, window.devicePixelRatio || 1), plotH = H - 18;
     c.width = Math.round(W * dpr); c.height = Math.round(plotH * dpr); c.style.width = W + "px"; c.style.height = plotH + "px";
-    var g = c.getContext("2d"), img = g.createImageData(c.width, c.height), lo = hex2rgb(css("--surface") || "#ffffff"), hi = hex2rgb(css("--spec-hi") || "#0d366b");
+    var g = c.getContext("2d"), img = g.createImageData(c.width, c.height), ramp = specRamp();
     for (var px = 0; px < c.width; px++) {
       var col = Math.min(spec.cols - 1, Math.floor(px / c.width * spec.cols));
       for (var py = 0; py < c.height; py++) {
         var row = Math.min(spec.rows - 1, Math.floor((1 - py / c.height) * spec.rows));
-        var v = Math.pow(spec.data[col * spec.rows + row] / 255, 1.15), o = (py * c.width + px) * 4;
-        img.data[o] = lo[0] + (hi[0] - lo[0]) * v; img.data[o + 1] = lo[1] + (hi[1] - lo[1]) * v; img.data[o + 2] = lo[2] + (hi[2] - lo[2]) * v; img.data[o + 3] = 255;
+        var k = 3 * Math.min(255, Math.round(255 * Math.pow(spec.data[col * spec.rows + row] / 255, 1.15))), o = (py * c.width + px) * 4;
+        img.data[o] = ramp[k]; img.data[o + 1] = ramp[k + 1]; img.data[o + 2] = ramp[k + 2]; img.data[o + 3] = 255;
       }
     }
     g.putImageData(img, 0, 0);
@@ -663,9 +780,9 @@ function SoundPicture(p) {
   var band = p.mark ? [p.mark[0] / dur, p.mark[1] / dur] : null;
   return html`<div className="chart" ref=${ref} style=${{ height: H + "px" }}>
     ${spec ? null : html`<div className="muted small" style=${{ position: "absolute", top: "40%", width: "100%", textAlign: "center" }}>Loading…</div>`}
-    <canvas ref=${cv} role="img" aria-label=${p.label || "Picture of the sound"} style=${{ borderRadius: "10px", background: "var(--surface)", outline: "1px solid var(--line)" }}></canvas>
+    <canvas ref=${cv} role="img" aria-label=${p.label || "Picture of the sound"} style=${{ borderRadius: "3px", background: "var(--bg)", outline: "1px solid var(--line)" }}></canvas>
     ${band ? html`<div style=${{ position: "absolute", top: 0, height: "3px", borderRadius: "2px", background: "var(--blaze)", left: (band[0] * 100) + "%", width: Math.max(1, (band[1] - band[0]) * 100) + "%" }} title="The part that was scored"></div>` : null}
-    <div ref=${headRef} style=${{ position: "absolute", top: 0, left: 0, width: "2px", height: plotH + "px", background: "var(--blaze)", opacity: 0, pointerEvents: "none" }}></div>
+    <div ref=${headRef} style=${{ position: "absolute", top: 0, left: 0, width: "2px", height: plotH + "px", background: "var(--data)", opacity: 0, pointerEvents: "none" }}></div>
     <svg width=${W} height="18" style=${{ position: "absolute", left: 0, top: plotH + "px" }} aria-hidden="true">
       ${ticks.map(function (tk) { return html`<text key=${tk} x=${Math.min(W - 2, Math.max(0, tk / (dur || 1) * W))} y="13" fontSize="11" fill="var(--ink-3)" textAnchor=${tk === 0 ? "start" : "middle"}>${tk === 0 ? "0" : (tk % 1 ? tk.toFixed(1) : tk) + " s"}</text>`; })}
     </svg>
@@ -686,8 +803,8 @@ function Sparkline(p) {
 
 function Meter(p) {
   var b = p.band || band(p.value);
-  return html`<div className=${"meter" + (p.small ? " meter-s" : "")} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(p.value)} aria-label=${p.label}>
-    <i style=${{ width: Math.max(2, Math.min(100, p.value)) + "%", background: bandColor(b) }}></i></div>`;
+  return html`<div className=${"meter" + (p.small ? " meter-s" : "") + (p.seg ? " meter-seg" : "")} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(p.value)} aria-label=${p.label}>
+    <i style=${{ width: (p.value > 0 ? Math.max(2, Math.min(100, p.value)) : 0) + "%", background: bandColor(b) }}></i></div>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -827,31 +944,32 @@ function Recorder(p) {
     insecure: "Phones only allow the microphone on secure (https) pages. Open the app from its https address.",
     unsupported: "This browser can't record audio. Try Safari on iPhone or Chrome on Android."
   }[er[0]];
+  var close = function () { if (cap.current) { cap.current.cancel(); cap.current = null; clearInterval(timer.current); } p.onClose(); };
+  var mm = function (t) { return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0"); };
   return html`<div className="sheet" role="dialog" aria-modal="true" aria-label=${"Record your " + call.name}>
     <div className="sheet-in">
-      <div className="row">
-        <button className="back" onClick=${function () { if (cap.current) { cap.current.cancel(); cap.current = null; clearInterval(timer.current); } p.onClose(); }} disabled=${phase === "busy"}>
-          <${Icon} name="back" size="20"/> Close</button>
+      <div className="row between">
+        <span className="eyebrow">${SPECIES[call.species].name} · Record</span>
+        <button className="icon-btn" aria-label="Close" onClick=${close} disabled=${phase === "busy"}><${Icon} name="close" size="22"/></button>
       </div>
       <div className="stack-s">
-        <div className="eyebrow">${SPECIES[call.species].name} · Record</div>
-        <h2>${call.name}</h2>
+        <h1 style=${{ fontSize: "2.3rem" }}>${call.name}</h1>
         <p className="muted">Say it like <span className="say">${call.say}</span>. ${call.drill}</p>
       </div>
-      <div ref=${wref} style=${{ height: "80px" }}>
+      <div ref=${wref} style=${{ height: "80px", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
         ${phase === "rec" ? html`<canvas ref=${canvas} aria-hidden="true"></canvas>` : null}
       </div>
-      <div style=${{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.1rem", textAlign: "center" }}>
+      <div style=${{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.2rem", textAlign: "center" }}>
         ${phase === "ready" || phase === "starting" ? html`
           <button className="rec-btn" onClick=${start} disabled=${phase === "starting"} aria-label="Start recording"><${Icon} name="mic" size="46" w="2.2"/></button>
-          <p className="muted" style=${{ maxWidth: "22rem" }}>Tap, wait a beat, then call. Hold the phone at arm's length, in a quiet room. ${Math.round(maxSec)} seconds max.</p>` : null}
+          <p className="muted" style=${{ maxWidth: "22rem" }}>Tap, wait a beat, then call. Arm's length from the phone, in a quiet spot. ${Math.round(maxSec)} seconds max.</p>` : null}
         ${phase === "rec" ? html`
-          <div className="timer" aria-live="off">0:${String(Math.floor(sec)).padStart(2, "0")}<span className="hero-of" style=${{ fontSize: "1rem" }}> / 0:${String(Math.round(maxSec)).padStart(2, "0")}</span></div>
+          <div className="timer" aria-live="off"><span className="rec-dot" aria-hidden="true"></span>${mm(sec)}<span className="hero-of"> / ${mm(maxSec)}</span></div>
           <button className="rec-btn on" onClick=${stop} aria-label="Stop recording"><${Icon} name="stop" size="40"/></button>
-          <p className="muted">Listening… tap to stop. Stops by itself in ${Math.ceil(left)} s.</p>` : null}
-        ${phase === "busy" ? html`<div className="spinner" role="status" aria-label="Scoring"></div><p className="muted">Scoring your call…</p>` : null}
-        ${phase === "error" ? html`<div className="card stack-s" style=${{ textAlign: "left" }}><h3>No microphone</h3><p>${errText}</p>
-          <button className="btn btn-moss" onClick=${function () { setPhase("ready"); }}>Try again</button></div>` : null}
+          <p className="muted">Listening — tap to stop. Stops by itself in ${Math.ceil(left)} s.</p>` : null}
+        ${phase === "busy" ? html`<div className="spinner" role="status" aria-label="Scoring"></div><p className="eyebrow" style=${{ color: "var(--ink-2)" }}>Scoring your call</p>` : null}
+        ${phase === "error" ? html`<div className="card stack-s" style=${{ textAlign: "left", borderLeft: "3px solid var(--bad)" }}><h3>No microphone</h3><p>${errText}</p>
+          <button className="btn btn-olive" onClick=${function () { setPhase("ready"); }}>Try again</button></div>` : null}
       </div>
     </div>
   </div>`;
@@ -860,99 +978,167 @@ function Recorder(p) {
 /* ------------------------------------------------------------------ */
 /* Screens                                                              */
 /* ------------------------------------------------------------------ */
+/* What's worth practising this month: a nudge, not a regulation — seasons
+   vary by state and year. [animal, headline] for each month, January first. */
+var SEASONS = [
+  [["predator", "Winter coyotes"], ["duck", "Late-season ducks"]],
+  [["predator", "Coyote breeding season"], ["goose", "Late-season geese"]],
+  [["turkey", "Spring gobblers"], ["predator", "Late predator calling"]],
+  [["turkey", "Spring gobblers"], ["locator", "Locate a gobbler"]],
+  [["turkey", "Late-season gobblers"], ["locator", "Locate a gobbler"]],
+  [["elk", "Off-season elk"], ["duck", "Off-season reps"]],
+  [["elk", "Elk prep"], ["dove", "Dove opener is coming"]],
+  [["elk", "Archery elk"], ["dove", "Dove season"]],
+  [["elk", "The elk rut"], ["teal", "Early teal season"]],
+  [["deer", "Whitetail pre-rut"], ["duck", "Duck season"]],
+  [["deer", "The whitetail rut"], ["duck", "Peak duck migration"]],
+  [["goose", "Late-season geese"], ["predator", "Predator season"]]
+];
+var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+var GROUP_ICON = { waterfowl: "duck", turkey: "turkey", biggame: "elk", upland: "quail", predators: "predator" };
+var GROUP_SHORT = { waterfowl: "Waterfowl", turkey: "Turkey", biggame: "Big game", upland: "Upland", predators: "Predators" };
+
+function SeasonBanner(p) {
+  var sp = SPECIES[p.id], names = callsOf(sp).slice(0, 3).map(function (id) { return DATA.calls[id].name; }).join(" · ");
+  return html`<button className="banner" onClick=${function () { go("/s/" + sp.id); }}>
+    <span className="ic"><${Critter} id=${sp.id} size="30"/></span>
+    <span className="grow"><span className="eyebrow hot">${p.kicker}</span><b>${p.title}</b><span className="small muted">${names}</span></span>
+    <span className="chev"><${Icon} name="chev" size="20"/></span>
+  </button>`;
+}
+
 function Home(p) {
-  var store = p.store, last = store.attempts[store.attempts.length - 1];
+  var store = p.store, at = store.attempts, last = at[at.length - 1];
   var lastCall = last ? DATA.calls[last.call] : null;
-  var best = function (id) { var b = null; store.attempts.forEach(function (a) { if (a.call === id && (b === null || a.score > b)) b = a.score; }); return b; };
-  return html`<div className="wrap stack">
-    <header className="mast">
-      <svg className="contours" viewBox="0 0 150 120" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <path d="M150 18c-22 2-34 14-52 14S70 18 48 26 22 52 30 70s30 22 52 18 40-20 68-14"/><path d="M150 34c-16 2-26 10-40 10s-24-8-40-2-22 20-16 32 22 14 38 12 34-14 58-10"/>
-        <path d="M150 52c-12 1-18 6-28 6s-18-4-28 0-12 12-8 18 14 8 24 6 22-8 40-6"/><path d="M150 70c-8 0-12 4-18 4s-10-2-14 0-4 6 0 8 10 2 16 0 10-2 16-2"/>
-      </svg>
-      <div className="eyebrow">Field practice</div>
-      <h1>Call of the Wild</h1>
-      <div className="rule"></div>
-      <p className="muted" style=${{ maxWidth: "26rem" }}>Learn a call. Record yourself on your call. Get a score and tips on what to fix.</p>
-    </header>
-    ${!store.intro ? html`<section className="card stack-s" aria-label="How it works">
-      <h3>How it works</h3>
-      <ol className="steps">
-        <li><span>Pick an animal and a call. Read the lesson and hear the real thing.</span></li>
-        <li><span>Tap record and blow your call at the phone.</span></li>
-        <li><span>Get a score for how close your pattern is — note count, rhythm, pitch, length — and the top things to fix.</span></li>
-      </ol>
-      <div className="row" style=${{ marginTop: "0.3rem" }}>
-        <button className="btn btn-moss" onClick=${function () { p.setIntro(); go("/c/duck-quack"); }}>Start with the basic quack</button>
-      </div>
-      <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${p.setIntro}>Got it, hide this</button>
-    </section>` : null}
-    ${lastCall ? html`<button className="card row" style=${{ textAlign: "left", color: "var(--ink)" }} onClick=${function () { go("/c/" + lastCall.id); }}>
-      <span className="grow"><span className="eyebrow">Keep going</span><br/><b style=${{ fontSize: "1.15rem" }}>${lastCall.name}</b>
-        <span className="muted"> · ${SPECIES[lastCall.species].name}</span><br/>
-        <span className="small muted">Last ${last.score} · best ${best(lastCall.id)}</span></span>
-      <${Icon} name="chev" size="20"/>
-    </button>` : null}
-    ${GROUPS.map(function (g) {
-      var list = DATA.species.filter(function (s) { return (s.group || "all") === g.id && callsOf(s).length; });
-      if (!list.length) return null;
-      return html`<section key=${g.id} className="stack-s" aria-label=${g.name}>
-        <div className="eyebrow">${g.name}</div>
-        <div className="grid2">
-          ${list.map(function (s) {
-            var n = callsOf(s).length;
-            return html`<button key=${s.id} className="tile" onClick=${function () { go("/s/" + s.id); }}>
-              <span className="badge"><${Critter} id=${s.id}/></span>
-              <b>${s.name}</b><span>${n} ${n === 1 ? "call" : "calls"} · ${s.tag.split(":")[0].split(" — ")[0]}</span>
-            </button>`;
-          })}
+  var board = scoreBoard(at), total = board.animals.reduce(function (t, x) { return t + x.n; }, 0), tried = Object.keys(board.best).length;
+  var animal = {}; board.animals.forEach(function (x) { animal[x.id] = x; });
+  var bestEver = at.reduce(function (m, a) { return Math.max(m, a.score || 0); }, 0);
+  var best = function (id) { var b = null; at.forEach(function (a) { if (a.call === id && (b === null || a.score > b)) b = a.score; }); return b; };
+  var month = new Date().getMonth();
+  var season = (SEASONS[month] || []).filter(function (x) { return SPECIES[x[0]] && callsOf(SPECIES[x[0]]).length; }).slice(0, 2);
+  var jump = function (gid) { var el = document.getElementById("g-" + gid); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  var rank = rankOf(board.overall);
+  return html`<${R.Fragment}>
+    <${TopBar} right=${html`<button className="tb-score" onClick=${function () { go("/progress"); }} aria-label=${"Caller score " + board.overall + ", " + rank}><b>${board.overall}</b><span>${rank}</span></button>`}/>
+    <div className="wrap stack">
+      <section className="card hero topo stack-s" aria-label="Caller card">
+        <div className="row between"><span className="eyebrow">Caller card</span><span className="chip chip-olive">${rank}</span></div>
+        <div className="row" style=${{ alignItems: "flex-end", gap: "0.85rem", margin: "0.3rem 0 0.35rem" }}>
+          <div style=${{ whiteSpace: "nowrap" }}><span className="big">${board.overall}</span><span className="big-of">/100</span></div>
+          <div className="grow" style=${{ paddingBottom: "0.15rem" }}><span className="eyebrow" style=${{ color: "var(--ink-2)" }}>Caller score</span><br/>
+            <span className="small muted">${at.length ? "Your best on every call, averaged across the animals" : "Record your first call to start your card"}</span></div>
         </div>
-      </section>`;
-    })}
-  </div>`;
+        <div className="stats">
+          <div className="stat"><span className="v">${tried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${total}</span></span><span className="l">Calls tried</span></div>
+          <div className="stat"><span className="v">${at.length}</span><span className="l">Attempts</span></div>
+          <div className="stat"><span className="v">${at.length ? bestEver : "—"}</span><span className="l">Best score</span></div>
+        </div>
+      </section>
+
+      <nav className="tools" aria-label="Jump to a group">${GROUPS.filter(function (g) { return GROUP_SHORT[g.id]; }).map(function (g) {
+        return html`<button key=${g.id} className="tool" onClick=${function () { jump(g.id); }}><${Critter} id=${GROUP_ICON[g.id]} size="30"/><span>${GROUP_SHORT[g.id]}</span></button>`;
+      })}</nav>
+
+      ${!store.intro ? html`<section className="card stack-s" aria-label="How it works">
+        <div className="row between"><span className="eyebrow hot">First time out</span><button className="link" style=${{ padding: 0 }} onClick=${p.setIntro}>Hide</button></div>
+        <ol className="steps">
+          <li><span><b>Pick a call.</b> Read the lesson and hear the real animal.</span></li>
+          <li><span><b>Record.</b> Blow your call at the phone.</span></li>
+          <li><span><b>Get scored.</b> See how close you are, and what to fix first.</span></li>
+        </ol>
+        <button className="btn btn-blaze" onClick=${function () { p.setIntro(); go("/c/duck-quack"); }}>Start with the basic quack</button>
+      </section>` : null}
+
+      ${lastCall ? html`<button className="banner plain" onClick=${function () { go("/c/" + lastCall.id); }}>
+        <span className="ic"><${Critter} id=${lastCall.species} size="30"/></span>
+        <span className="grow"><span className="eyebrow">Pick up where you left off</span><b>${lastCall.name}</b>
+          <span className="small muted">Last ${last.score} · best ${best(lastCall.id)} · ${ago(last.at)}</span></span>
+        <span className="chev"><${Icon} name="chev" size="20"/></span>
+      </button>` : null}
+
+      ${season.length ? html`<section className="stack-s" aria-label="In season">
+        ${season.map(function (x, k) { return html`<${SeasonBanner} key=${x[0]} id=${x[0]} title=${x[1]} kicker=${k ? "Also in season" : "Prime time · " + MONTHS[month]}/>`; })}
+        <p className="small muted" style=${{ padding: "0 2px" }}>A rough guide — seasons vary by state.</p>
+      </section>` : null}
+
+      ${GROUPS.map(function (g) {
+        var list = DATA.species.filter(function (s) { return (s.group || "all") === g.id && callsOf(s).length; });
+        if (!list.length) return null;
+        var n = list.reduce(function (t, s) { return t + callsOf(s).length; }, 0);
+        return html`<section key=${g.id} id=${"g-" + g.id} className="stack-s" aria-label=${g.name}>
+          <div className="sec-head"><h2>${g.name}</h2><span className="eyebrow">${n} calls</span></div>
+          <div className="card list divide">${list.map(function (s) {
+            var k = callsOf(s).length, sc = animal[s.id];
+            return html`<button key=${s.id} className="tile" onClick=${function () { go("/s/" + s.id); }}>
+              <span className="badge"><${Critter} id=${s.id} size="32"/></span>
+              <span className="grow"><b>${s.name}</b><span className="sub">${k} ${k === 1 ? "call" : "calls"} · ${s.tag.split(":")[0].split(" — ")[0]}</span></span>
+              ${sc && sc.tried ? html`<span className="score-pill" aria-label=${"Your score " + sc.score}>${sc.score}</span>` : null}
+              <span className="chev"><${Icon} name="chev" size="18"/></span>
+            </button>`;
+          })}</div>
+        </section>`;
+      })}
+    </div>
+  <//>`;
 }
 
 function SpeciesPage(p) {
   var s = SPECIES[p.id];
   if (!s) return html`<${NotFound}/>`;
-  var store = p.store;
+  var store = p.store, g = GROUPS.filter(function (x) { return x.id === s.group; })[0];
   var stat = function (id) {
     var n = 0, b = null; store.attempts.forEach(function (a) { if (a.call === id) { n++; if (b === null || a.score > b) b = a.score; } });
     return { n: n, best: b };
   };
-  return html`<div className="wrap stack">
-    <div><button className="back" onClick=${function () { go("/"); }}><${Icon} name="back" size="20"/> All animals</button></div>
-    <header className="row-top">
-      <span className="badge" style=${{ width: "3.6rem", height: "3.6rem", borderRadius: "16px", display: "grid", placeItems: "center", background: "var(--tint)", color: "var(--moss)", flex: "none" }}><${Critter} id=${s.id} size="40"/></span>
-      <div className="grow stack-s" style=${{ gap: "0.3rem" }}><h1 style=${{ fontSize: "2.1rem" }}>${s.name}</h1><p className="muted">${s.tag}</p></div>
-    </header>
-    <p>${s.intro}</p>
-    ${(function () {
-      var ids = callsOf(s), out = [], cur = null, rows = [];
-      var flush = function () { if (rows.length) out.push(html`<section key=${"sec" + out.length} className="stack-s" aria-label=${cur || "Calls"}>
-        ${cur ? html`<div className="eyebrow">${cur}</div>` : null}
-        <div className="card divide" style=${{ padding: "0.2rem 0.9rem" }}>${rows}</div></section>`); rows = []; };
-      ids.forEach(function (id) {
-        var c = DATA.calls[id], st = stat(id);
-        if ((c.section || null) !== cur) { flush(); cur = c.section || null; }
-        rows.push(html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
-          <span className="grow stack-s" style=${{ gap: "0.2rem" }}>
-            <span className="row" style=${{ gap: "0.5rem", flexWrap: "wrap" }}><span className="nm">${c.name}</span><span className=${"chip chip-l" + c.level}>${LEVELS[c.level]}</span></span>
-            <span className="small muted">${c.what}</span>
-          </span>
-          ${st.n ? html`<span className="score-pill" style=${{ color: "var(--ink)" }} aria-label=${"Best score " + st.best}>${st.best}</span>` : null}
-          <span className="chev"><${Icon} name="chev" size="18"/></span>
-        </button>`);
-      });
-      flush();
-      return out;
-    })()}
-    <section className="stack-s">
-      <div className="eyebrow">What you need</div>
-      <p>${s.gear}</p>
-    </section>
-    <p className="small muted note-box">The targets these calls are scored against are a first draft from published calling instruction and real recordings. A seasoned caller should check them before a score is taken as gospel.</p>
-  </div>`;
+  var mine = scoreBoard(store.attempts).animals.filter(function (x) { return x.id === s.id; })[0] || { score: 0, tried: 0, n: callsOf(s).length };
+  var tries = store.attempts.filter(function (a) { return DATA.calls[a.call] && DATA.calls[a.call].species === s.id; }).length;
+  return html`<${R.Fragment}>
+    <${TopBar} back="/" title=${g ? g.name : "All animals"}/>
+    <div className="wrap stack">
+      <header className="lesson-head topo stack">
+        <div className="row" style=${{ gap: "0.9rem" }}>
+          <span style=${{ width: "4.3rem", height: "4.3rem", borderRadius: "5px", display: "grid", placeItems: "center", background: "var(--tint)", color: "var(--olive-ink)", flex: "none", border: "1px solid var(--line-2)" }}><${Critter} id=${s.id} size="52"/></span>
+          <div className="grow stack-s" style=${{ gap: "0.35rem" }}><h1 style=${{ fontSize: "2.15rem" }}>${s.name}</h1><p className="muted small">${s.tag}</p></div>
+        </div>
+        <div className="stats">
+          <div className="stat"><span className="v">${mine.tried ? mine.score : "—"}</span><span className="l">Your score</span></div>
+          <div className="stat"><span className="v">${mine.tried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${mine.n}</span></span><span className="l">Calls tried</span></div>
+          <div className="stat"><span className="v">${tries}</span><span className="l">Attempts</span></div>
+        </div>
+      </header>
+      <p>${s.intro}</p>
+      ${(function () {
+        var ids = callsOf(s), out = [], cur = null, rows = [];
+        var flush = function () {
+          if (!rows.length) return;
+          out.push(html`<section key=${"sec" + out.length} className="stack-s" aria-label=${cur || "Calls"}>
+            <div className="sec-head"><h2>${cur || "Calls"}</h2><span className="eyebrow">${rows.length} ${rows.length === 1 ? "call" : "calls"}</span></div>
+            <div className="card list divide">${rows}</div></section>`);
+          rows = [];
+        };
+        ids.forEach(function (id) {
+          var c = DATA.calls[id], st = stat(id);
+          if ((c.section || null) !== cur) { flush(); cur = c.section || null; }
+          rows.push(html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
+            <span className="grow stack-s" style=${{ gap: "0.3rem" }}>
+              <span className="nm">${c.name}</span>
+              <${Pips} level=${c.level}/>
+              <span className="small muted">${c.what}</span>
+            </span>
+            ${st.n ? html`<span className="score-pill" aria-label=${"Best score " + st.best}>${st.best}</span>` : null}
+            <span className="chev"><${Icon} name="chev" size="18"/></span>
+          </button>`);
+        });
+        flush();
+        return out;
+      })()}
+      <section className="card stack-s" aria-label="What you need">
+        <div className="row" style=${{ gap: "0.5rem" }}><span style=${{ color: "var(--olive-ink)", display: "flex" }}><${Icon} name="bag" size="20"/></span><h3>What you need</h3></div>
+        <p>${s.gear}</p>
+      </section>
+      <p className="small muted note-box">The targets these calls are scored against are a first draft from published calling instruction and real recordings. A seasoned caller should check them before a score is taken as gospel.</p>
+    </div>
+  <//>`;
 }
 
 function CallPage(p) {
@@ -962,57 +1148,60 @@ function CallPage(p) {
   var s = SPECIES[c.species], store = p.store;
   var mine = store.attempts.filter(function (a) { return a.call === c.id; });
   var best = mine.reduce(function (b, a) { return b === null || a.score > b ? a.score : b; }, null);
-  return html`<div className="wrap stack" style=${{ paddingBottom: "12rem" }}>
-    <div><button className="back" onClick=${function () { go("/s/" + s.id); }}><${Icon} name="back" size="20"/> ${s.name}</button></div>
-    <header className="stack-s">
-      <div className="row" style=${{ gap: "0.5rem" }}><span className=${"chip chip-l" + c.level}>${LEVELS[c.level]}</span>${best !== null ? html`<span className="chip">Your best ${best}</span>` : null}</div>
-      <h1 style=${{ fontSize: "2.2rem" }}>${c.name}</h1>
-      <p style=${{ fontSize: "1.08rem" }}>${c.what}</p>
-      <p className="muted"><b style=${{ color: "var(--ink)" }}>When: </b>${c.when}</p>
-    </header>
+  return html`<${R.Fragment}>
+    <${TopBar} back=${"/s/" + s.id} title=${s.name}/>
+    <div className="wrap stack" style=${{ paddingBottom: "12rem" }}>
+      <header className="lesson-head topo stack-s">
+        <div className="row" style=${{ gap: "0.75rem", flexWrap: "wrap" }}><${Pips} level=${c.level}/>${best !== null ? html`<span className="chip chip-olive">Your best ${best}</span>` : null}</div>
+        <h1>${c.name}</h1>
+        <p className="lead">${c.what}</p>
+        <div><span className="chip chip-hot">Say it: ${c.say}</span></div>
+      </header>
+      <div className="kv"><${Icon} name="clock" size="20"/><p><span className="eyebrow" style=${{ marginRight: "0.45rem", color: "var(--ink-2)" }}>When</span>${c.when}</p></div>
 
-    <section className="card stack" aria-label="Listen">
-      <div className="eyebrow">Hear it</div>
-      ${c.listen.length ? c.listen.map(function (l) { return html`<${ClipPlayer} key=${l.clip} clip=${l.clip} label=${l.label}/>`; }) :
-        html`<p className="small muted">${c.noClip || "No free recording of a real one yet."} A good caller's recording can be added here later.</p>`}
-      <${GuidePlayer} call=${c}/>
-      <div className="stack-s">
-        <div className="row" style=${{ justifyContent: "space-between" }}><b>The pattern</b><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span></div>
-        <${NoteMap} ghost=${c.ghost} mine=${[]} shaped=${isShaped(c)} height=${120} label=${"Target pattern for the " + c.name}/>
-      </div>
-    </section>
+      <section className="card stack" aria-label="Listen">
+        <div className="row between"><h3>The real thing</h3><span className="eyebrow">Field recording</span></div>
+        ${c.listen.length ? c.listen.map(function (l) { return html`<${ClipPlayer} key=${l.clip} clip=${l.clip} label=${l.label}/>`; }) :
+          html`<p className="small muted">${c.noClip || "No free recording of a real one yet."} A good caller's recording can be added here later.</p>`}
+        <${GuidePlayer} call=${c}/>
+        <div className="stack-s">
+          <div className="row between"><span className="eyebrow">Target pattern</span><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span></div>
+          <${NoteMap} ghost=${c.ghost} mine=${[]} shaped=${isShaped(c)} height=${120} label=${"Target pattern for the " + c.name}/>
+        </div>
+      </section>
 
-    <section className="stack-s" aria-label="How to do it">
-      <h2>How to do it</h2>
-      <p className="muted">Say it like <span className="say">${c.say}</span></p>
-      <ol className="steps">${c.steps.map(function (t, i) { return html`<li key=${i}><span>${t}</span></li>`; })}</ol>
-    </section>
-    <section className="stack-s" aria-label="Common mistakes">
-      <h3>Common mistakes</h3>
-      <ul className="dots">${c.mistakes.map(function (t, i) { return html`<li key=${i}>${t}</li>`; })}</ul>
-    </section>
-    <section className="card stack-s" style=${{ background: "var(--tint)", borderColor: "transparent" }} aria-label="Practice drill">
-      <div className="eyebrow">Practice drill</div>
-      <p>${c.drill}</p>
-    </section>
+      <section className="stack-s" aria-label="How to do it">
+        <div className="sec-head"><h2>How to call it</h2></div>
+        <ol className="steps">${c.steps.map(function (t, i) { return html`<li key=${i}><span>${t}</span></li>`; })}</ol>
+      </section>
+      <section className="stack-s" aria-label="Common mistakes">
+        <div className="sec-head"><h2>Common mistakes</h2></div>
+        <ul className="miss">${c.mistakes.map(function (t, i) { return html`<li key=${i}><${Icon} name="cross" size="18" w="2.4"/><span>${t}</span></li>`; })}</ul>
+      </section>
+      <section className="card drill stack-s" aria-label="Practice drill">
+        <div className="row" style=${{ gap: "0.5rem" }}><span style=${{ color: "var(--blaze-ink)", display: "flex" }}><${Icon} name="timer" size="20"/></span><span className="eyebrow hot">Practice drill</span></div>
+        <p>${c.drill}</p>
+      </section>
 
-    ${mine.length ? html`<section className="stack-s" aria-label="Your attempts">
-      <div className="row" style=${{ justifyContent: "space-between" }}><h3>Your attempts</h3><span className="small muted">${mine.length} total</span></div>
-      <div className="card divide" style=${{ padding: "0.1rem 0.9rem" }}>
-        ${mine.slice(-6).reverse().map(function (a) {
-          return html`<button key=${a.id} className="call-row" onClick=${function () { go("/r/" + a.id); }}>
-            <span className="score-pill" style=${{ background: "color-mix(in srgb, " + bandColor(band(a.score)) + " 18%, transparent)" }}>${a.score}</span>
-            <span className="grow"><b>${a.verdict}</b><br/><span className="small muted">${ago(a.at)}</span></span>
-            <span className="chev"><${Icon} name="chev" size="18"/></span></button>`;
-        })}
-      </div>
-    </section>` : null}
+      ${mine.length ? html`<section className="stack-s" aria-label="Your attempts">
+        <div className="sec-head"><h2>Your attempts</h2><span className="eyebrow">${mine.length} total</span></div>
+        <div className="card list divide">
+          ${mine.slice(-6).reverse().map(function (a) {
+            var col = bandColor(band(a.score));
+            return html`<button key=${a.id} className="call-row" onClick=${function () { go("/r/" + a.id); }}>
+              <span className="score-pill" style=${{ background: "color-mix(in srgb, " + col + " 18%, transparent)" }}>${a.score}</span>
+              <span className="grow"><span className="nm" style=${{ fontSize: "1.05rem" }}>${a.verdict}</span><br/><span className="small muted">${ago(a.at)}</span></span>
+              <span className="chev"><${Icon} name="chev" size="18"/></span></button>`;
+          })}
+        </div>
+      </section>` : null}
 
-    <div className="sticky-cta"><div>
-      <button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22"/> Record yourself</button>
-    </div></div>
-    ${rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null}
-  </div>`;
+      <div className="sticky-cta"><div>
+        <button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22" w="2.4"/> Record yourself</button>
+      </div></div>
+      ${rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null}
+    </div>
+  <//>`;
 }
 
 var PROBLEMS = {
@@ -1022,6 +1211,8 @@ var PROBLEMS = {
   short: { h: "Too short", t: "The recording stopped before anything was heard. Tap record, then call." },
   error: { h: "Something went wrong", t: "The scoring hit an error on this recording. Please try again." }
 };
+
+function bandInk(b) { return b === "good" ? "var(--good-ink)" : b === "warn" ? "var(--warn-ink)" : "var(--bad-ink)"; }
 
 function ResultPage(p) {
   var a = p.attempt, c = a ? DATA.calls[a.call] : null;
@@ -1040,20 +1231,20 @@ function ResultPage(p) {
   if (!a || !c) return html`<${NotFound}/>`;
   var s = SPECIES[c.species], myId = "mine:" + a.id;
   var problem = a.problem ? PROBLEMS[a.problem] || PROBLEMS.error : null;
-  var again = html`<button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22"/> Try again</button>`;
+  var again = html`<button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22" w="2.4"/> Try again</button>`;
   var playMine = audio ? html`<button className="play" onClick=${function () { if (playing === myId) Player.stop(); else Player.url(myId, audioUrl); }} aria-pressed=${playing === myId}>
-      <span className="disc" style=${{ background: "var(--data)", color: "#fff" }}><${Icon} name=${playing === myId ? "stop" : "play"} size="18"/></span>
+      <span className="disc" style=${{ background: "var(--data)", color: "#06121b" }}><${Icon} name=${playing === myId ? "stop" : "play"} size="18"/></span>
       <span className="grow"><b>Play your call</b><br/><span className="small muted">${secs(audio.samples.length / audio.rate)} recorded</span></span></button>` : null;
   var recorder = rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null;
+  var head = html`<${TopBar} back=${"/c/" + c.id} title=${c.name}/>`;
 
   if (problem) {
-    return html`<div className="wrap stack">
-      <div><button className="back" onClick=${function () { go("/c/" + c.id); }}><${Icon} name="back" size="20"/> ${c.name}</button></div>
-      <section className="card stack-s"><div className="eyebrow">No score this time</div><h2>${problem.h}</h2><p>${problem.t}</p></section>
+    return html`<${R.Fragment}>${head}<div className="wrap stack">
+      <section className="card stack-s" style=${{ borderLeft: "3px solid var(--warn)" }}><div className="eyebrow">No score this time</div><h2>${problem.h}</h2><p>${problem.t}</p></section>
       ${audio ? html`<section className="card stack-s">${playMine}<${SoundPicture} samples=${audio.samples} rate=${audio.rate} playId=${myId} label="Picture of your recording"/></section>` : null}
       ${again}
       ${recorder}
-    </div>`;
+    </div><//>`;
   }
 
   var sc = a.score, b = band(sc), parts = a.parts || [];
@@ -1068,31 +1259,30 @@ function ResultPage(p) {
     </div>`;
   }
   var shaped = isShaped(c), mark = audio && a.span ? [a.span[0], a.span[1]] : null;
-  return html`<div className="wrap stack">
-    <div><button className="back" onClick=${function () { go("/c/" + c.id); }}><${Icon} name="back" size="20"/> ${c.name}</button></div>
-    <section className="card stack-s" aria-label="Score">
+  return html`<${R.Fragment}>${head}<div className="wrap stack">
+    <section className="card hero topo stack-s" aria-label="Score">
       <div className="eyebrow">${s.name} · ${c.name} · ${ago(a.at)}</div>
-      <div className="row" style=${{ alignItems: "flex-end", gap: "0.9rem" }}>
-        <div><span className="hero-num">${sc}</span><span className="hero-of"> /100</span></div>
-        <div className="grow" style=${{ paddingBottom: "0.35rem" }}><b style=${{ fontSize: "1.3rem" }}>${a.verdict}</b><br/><span className="small muted">pattern match</span></div>
+      <div className="row" style=${{ alignItems: "flex-end", gap: "1rem", margin: "0.35rem 0 0.25rem" }}>
+        <div style=${{ whiteSpace: "nowrap" }}><span className="hero-num">${sc}</span><span className="hero-of">/100</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.2rem" }}><span className="verdict" style=${{ color: bandInk(b) }}>${a.verdict}</span><br/><span className="eyebrow">Pattern match</span></div>
       </div>
-      <${Meter} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
+      <${Meter} seg=${true} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
       ${a.groups > 1 ? html`<p className="small muted">You blew ${a.groups} separate calls; this scores the best one (marked in orange on the picture below).</p>` : null}
-      ${a.likeOther && DATA.calls[a.likeOther.id] ? html`<div className="note-box stack-s" style=${{ borderColor: "var(--blaze)" }}>
+      ${a.likeOther && DATA.calls[a.likeOther.id] ? html`<div className="note-box hot stack-s">
         <p><b>That sounded more like ${otherName(c, a.likeOther.id)}</b> (it would score ${a.likeOther.score} as that). This lesson is the ${c.name.toLowerCase()}: ${c.what.charAt(0).toLowerCase() + c.what.slice(1)}</p>
         <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${function () { go("/c/" + a.likeOther.id); }}>Open that lesson</button></div>` : null}
       ${(a.warnings || []).indexOf("clipped") >= 0 ? html`<p className="small st-warn">Your recording distorted — it was too loud for the mic. Hold the phone farther away next time.</p>` : null}
     </section>
 
     ${a.tips && a.tips.length ? html`<section className="stack-s" aria-label="What to fix">
-      <h2>${sc >= 85 ? "To make it even better" : "What to fix"}</h2>
-      ${a.tips.map(function (t, i) { return html`<div key=${i} className="tip"><span className="n">${i + 1}</span><p style=${{ paddingTop: "0.2rem" }}>${t.text}</p></div>`; })}
-    </section>` : html`<section className="card stack-s"><h3>Nothing to fix on this one</h3><p>Every part of the pattern is on target. Now make it sound like this every time — and practice it soft and loud.</p></section>`}
+      <div className="sec-head"><h2>${sc >= 85 ? "To make it even better" : "What to fix"}</h2></div>
+      ${a.tips.map(function (t, i) { return html`<div key=${i} className="tip"><span className="n">${String(i + 1).padStart(2, "0")}</span><p>${t.text}</p></div>`; })}
+    </section>` : html`<section className="card stack-s" style=${{ borderLeft: "3px solid var(--good)" }}><h3>Nothing to fix on this one</h3><p>Every part of the pattern is on target. Now make it sound like this every time — and practice it soft and loud.</p></section>`}
     ${a.good && a.good.length ? html`<div className="good-chips" aria-label="What you got right">${a.good.map(function (g) { return html`<span key=${g} className="chip"><${Icon} name="check" size="14" w="2.6"/> ${g}</span>`; })}</div>` : null}
 
     <section className="card stack-s" aria-label="Your call against the target">
-      <div className="row" style=${{ justifyContent: "space-between", flexWrap: "wrap", gap: "0.4rem" }}>
-        <b>Your call vs the target</b>
+      <div className="row between" style=${{ flexWrap: "wrap", gap: "0.4rem" }}>
+        <h3>Your call vs the target</h3>
         <span className="legend"><span><i style=${{ width: "16px", height: "7px", background: "var(--data)" }}></i>You</span><span><i style=${{ width: "16px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span>
       </div>
       <${NoteMap} mine=${a.view || []} ghost=${c.ghost} shaped=${shaped} height=${160}/>
@@ -1104,18 +1294,18 @@ function ResultPage(p) {
     </section>
 
     <section className="card stack-s" aria-label="Breakdown">
-      <b>Breakdown</b>
+      <h3>Breakdown</h3>
       ${soundParts.length ? html`
-        <div className="eyebrow" style=${{ marginTop: ".25rem" }}>How it sounds</div>
+        <div className="eyebrow" style=${{ marginTop: ".3rem" }}>How it sounds</div>
         <div className="divide">${soundParts.map(partRow)}</div>
         <p className="small muted">Compared with the real recording. The score is the timing below times this, so the right rhythm on the wrong sound can't score well.</p>
-        <div className="eyebrow" style=${{ marginTop: ".25rem" }}>Timing and shape</div>
+        <div className="eyebrow" style=${{ marginTop: ".3rem" }}>Timing and shape</div>
         <div className="divide">${shapeParts.map(partRow)}</div>` :
         html`<div className="divide">${parts.map(partRow)}</div>`}
     </section>
 
     <section className="card stack" aria-label="Listen back">
-      <b>Listen back</b>
+      <h3>Listen back</h3>
       ${playMine}
       ${audio ? html`<${SoundPicture} samples=${audio.samples} rate=${audio.rate} playId=${myId} mark=${mark} label="Picture of your call"/>` :
         html`<p className="small muted">The recording for this attempt is no longer kept on this phone.</p>`}
@@ -1125,7 +1315,7 @@ function ResultPage(p) {
     ${again}
     <button className="btn btn-line" onClick=${function () { go("/c/" + c.id); }}>Back to the lesson</button>
     ${recorder}
-  </div>`;
+  </div><//>`;
 }
 
 /* Scores for bragging rights. An animal's score is the average of your best
@@ -1162,57 +1352,74 @@ function ProgressPage(p) {
   at.forEach(function (a) { (byCall[a.call] = byCall[a.call] || []).push(a); });
   var ids = Object.keys(byCall).filter(function (id) { return DATA.calls[id]; }).sort(function (x, y) { return byCall[y][byCall[y].length - 1].at - byCall[x][byCall[x].length - 1].at; });
   var board = scoreBoard(at), total = board.animals.reduce(function (t, x) { return t + x.n; }, 0);
-  return html`<div className="wrap stack">
-    <header className="stack-s"><div className="eyebrow">Progress</div><h1 style=${{ fontSize: "2.2rem" }}>Your calling</h1></header>
-    <section className="card stack-s" aria-label="Caller score">
-      <div className="eyebrow">Caller score</div>
-      <div className="row" style=${{ alignItems: "flex-end", gap: "0.9rem" }}>
-        <div><span className="hero-num">${board.overall}</span><span className="hero-of"> /100</span></div>
-        <div className="grow" style=${{ paddingBottom: "0.35rem" }}><b style=${{ fontSize: "1.3rem" }}>${rankOf(board.overall)}</b><br/>
-          <span className="small muted">${ids.length} of ${total} calls tried · ${at.length} ${at.length === 1 ? "attempt" : "attempts"}</span></div>
+  var rank = rankOf(board.overall), next = null;
+  for (var k = RANKS.length - 1; k >= 0; k--) if (RANKS[k][0] > board.overall) { next = RANKS[k]; break; }
+  var animalsTried = board.animals.filter(function (x) { return x.tried; }).length;
+  return html`<${R.Fragment}><${TopBar} title=${html`<h1 style=${{ font: "inherit", letterSpacing: "inherit" }}>Scores</h1>`}/><div className="wrap stack">
+    <section className="card hero topo stack-s" aria-label="Caller score">
+      <div className="row between"><span className="eyebrow">Caller score</span><span className="chip chip-olive">${rank}</span></div>
+      <div className="row" style=${{ alignItems: "flex-end", gap: "0.9rem", margin: "0.3rem 0 0.3rem" }}>
+        <div style=${{ whiteSpace: "nowrap" }}><span className="big">${board.overall}</span><span className="big-of">/100</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.15rem" }}><span className="rank">${rank}</span><br/>
+          <span className="small muted">${next ? (next[0] - board.overall) + " points to " + next[1] : "Top rank. Keep it there."}</span></div>
       </div>
-      <${Meter} value=${board.overall} band=${band(board.overall)} label=${"Caller score " + board.overall + " out of 100"}/>
-      <button className="btn btn-moss" style=${{ marginTop: "0.4rem" }} onClick=${function () { shareScores(board, p.flash); }}>Share my scores</button>
+      <${Meter} seg=${true} value=${board.overall} band=${band(board.overall)} label=${"Caller score " + board.overall + " out of 100"}/>
+      <div className="stats">
+        <div className="stat"><span className="v">${ids.length}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${total}</span></span><span className="l">Calls tried</span></div>
+        <div className="stat"><span className="v">${at.length}</span><span className="l">Attempts</span></div>
+        <div className="stat"><span className="v">${animalsTried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${board.animals.length}</span></span><span className="l">Animals</span></div>
+      </div>
+      <button className="btn btn-olive" style=${{ marginTop: "0.2rem" }} onClick=${function () { shareScores(board, p.flash); }}><${Icon} name="share" size="20"/> Share my scores</button>
     </section>
-    <section className="card stack-s" aria-label="Scores by animal">
-      <b>By animal</b>
-      <div className="divide">
+
+    <section className="stack-s" aria-label="Scores by animal">
+      <div className="sec-head"><h2>By animal</h2></div>
+      <div className="card list divide">
         ${board.animals.map(function (x) {
-          return html`<button key=${x.id} className="part" style=${{ width: "100%", background: "none", border: 0, textAlign: "left", color: "var(--ink)" }} onClick=${function () { go("/s/" + x.id); }}>
-            <span className="st-good" aria-hidden="true" style=${{ color: "var(--moss)" }}><${Critter} id=${x.id} size="22"/></span>
-            <div className="lab"><b>${x.name}</b><span className="val">${x.score} · ${x.tried}/${x.n} calls</span></div>
-            <${Meter} small=${true} value=${x.score} band=${band(x.score)} label=${x.name + ": " + x.score + " out of 100"}/>
+          return html`<button key=${x.id} className="tile" onClick=${function () { go("/s/" + x.id); }}>
+            <span className="badge" style=${{ width: "2.7rem", height: "2.7rem" }}><${Critter} id=${x.id} size="28"/></span>
+            <span className="grow stack-s" style=${{ gap: "0.35rem" }}>
+              <span className="row between"><b style=${{ fontSize: "1.05rem", color: x.tried ? "var(--ink)" : "var(--ink-2)" }}>${x.name}</b><span className="num" style=${{ fontSize: "1.2rem", fontWeight: 700, color: x.tried ? "var(--ink)" : "var(--ink-3)" }}>${x.tried ? x.score : "—"}</span></span>
+              <${Meter} small=${true} value=${x.score} band=${band(x.score)} label=${x.name + ": " + x.score + " out of 100"}/>
+              <span className="sub">${x.tried}/${x.n} ${x.n === 1 ? "call" : "calls"} tried</span>
+            </span>
           </button>`;
         })}
       </div>
       <p className="small muted">An animal's score is the average of your best score on each of its calls; calls you haven't tried count as zero. The caller score averages the animals.</p>
     </section>
-    ${ids.length ? html`<section className="card divide" style=${{ padding: "0.1rem 0.9rem" }} aria-label="Calls you have practiced">
-      ${ids.map(function (id) {
-        var list = byCall[id], c = DATA.calls[id]; if (!c) return null;
-        var scores = list.slice(-12).map(function (a) { return a.score; }), last = list[list.length - 1];
-        var b = list.reduce(function (m, a) { return Math.max(m, a.score); }, 0);
-        return html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
-          <span className="grow"><b>${c.name}</b> <span className="small muted">· ${SPECIES[c.species].name}</span><br/>
-            <span className="small muted">${list.length} ${list.length === 1 ? "try" : "tries"} · best ${b} · last ${last.score}, ${ago(last.at)}</span></span>
-          <${Sparkline} values=${scores}/>
-        </button>`;
-      })}
-    </section>
-    <p className="small muted">Each line is your last 12 scores on that call; the faint rule marks 70.</p>` : html`<section className="card stack-s"><h3>Nothing yet</h3><p>Record a call and your scores will show up here.</p>
-      <button className="btn btn-moss" onClick=${function () { go("/c/duck-quack"); }}>Start with the basic quack</button></section>`}
-  </div>`;
+
+    ${ids.length ? html`<section className="stack-s" aria-label="Calls you have practiced">
+      <div className="sec-head"><h2>Call history</h2><span className="eyebrow">${ids.length} ${ids.length === 1 ? "call" : "calls"}</span></div>
+      <div className="card list divide">
+        ${ids.map(function (id) {
+          var list = byCall[id], c = DATA.calls[id]; if (!c) return null;
+          var scores = list.slice(-12).map(function (a) { return a.score; }), last = list[list.length - 1];
+          var b = list.reduce(function (m, a) { return Math.max(m, a.score); }, 0);
+          return html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
+            <span className="grow"><span className="nm" style=${{ fontSize: "1.1rem" }}>${c.name}</span><br/>
+              <span className="small muted">${SPECIES[c.species].name} · ${list.length} ${list.length === 1 ? "try" : "tries"} · best ${b} · last ${last.score}, ${ago(last.at)}</span></span>
+            <${Sparkline} values=${scores}/>
+          </button>`;
+        })}
+      </div>
+      <p className="small muted">Each line is your last 12 scores on that call; the faint rule marks 70.</p>
+    </section>` : html`<section className="card stack-s"><h3>Nothing yet</h3><p>Record a call and your scores will show up here.</p>
+      <button className="btn btn-blaze" onClick=${function () { go("/c/duck-quack"); }}>Start with the basic quack</button></section>`}
+  </div><//>`;
 }
 
 function AboutPage(p) {
-  var st = p.store.settings || {}, conf = useState(false);
+  var st = p.store.settings || {}, conf = useState(false), theme = themeOf(st);
   var setTheme = function (t) { p.setSettings(Object.assign({}, st, { theme: t })); };
   var credits = Object.keys(DATA.sounds).map(function (k) { return Object.assign({ id: k }, DATA.sounds[k]); });
-  return html`<div className="wrap stack">
-    <header className="stack-s"><div className="eyebrow">About</div><h1 style=${{ fontSize: "2.2rem" }}>Call of the Wild</h1>
-      <p className="muted">A first working demo: lessons for ${Object.keys(DATA.calls).length} calls across ${DATA.species.length} kinds of game, recording, and scoring with tips.</p></header>
+  return html`<${R.Fragment}><${TopBar} title=${html`<h1 style=${{ font: "inherit", letterSpacing: "inherit" }}>About</h1>`}/><div className="wrap stack">
+    <header className="stack-s" style=${{ paddingTop: "0.3rem" }}>
+      <div className="row" style=${{ gap: "0.7rem" }}><${Mark} size="44"/><span className="wordmark" style=${{ fontSize: "1.9rem" }}>Call <small>of the</small> Wild</span></div>
+      <p className="muted">A working demo: lessons for ${Object.keys(DATA.calls).length} calls across ${DATA.species.length} kinds of game, recording, and scoring with tips.</p>
+    </header>
 
-    <section className="stack-s"><h2>How the scoring works</h2>
+    <section className="card stack-s"><h2>How the scoring works</h2>
       <p>Your phone splits the recording into notes and measures what a caller controls: how many notes, how long each one is, how evenly they're spaced, which way the pitch and volume move, whether each note stops clean, and the shape inside a note — a goose honk's break, a turkey yelp's drop, a bugle's climb.</p>
       <p>Those measurements are scored against the pattern each call is supposed to have. For calls that copy an animal closely — teal peeps, a bobwhite's whistle, a cow moose — the targets are measured from the real recording you can hear in the lesson. For calls that are a caller's craft, like the greeting call or a goose's honk, they come from calling instruction. The biggest misses become the tips.</p>
       <p>Every call is also checked for how it sounds, against its real recording: where its pitch sits, and whether it's a clean note, a raspy one, or just air. That part multiplies the score rather than averaging into it, so the right rhythm on the wrong sound — a whistle in a quack's rhythm, or clapping — can't score well.</p>
@@ -1222,40 +1429,42 @@ function AboutPage(p) {
       <p className="muted small">Everything happens on this phone. Nothing is uploaded.</p>
     </section>
 
-    <section className="stack-s"><h2>Recording tips</h2>
-      <ul className="dots"><li>Quiet room: no TV, fan, or running water.</li><li>Hold the phone about an arm's length from the call. Too close and it distorts.</li>
+    <section className="card stack-s"><h2>Recording tips</h2>
+      <ul className="dots"><li>Quiet spot: no TV, fan, wind or running water.</li><li>Hold the phone about an arm's length from the call. Too close and it distorts.</li>
         <li>Tap record, wait a beat, then call. One call per recording.</li><li>Don't cover the mic (on the bottom edge of most phones).</li></ul>
     </section>
 
-    <section className="stack-s"><h2>Calls and the law</h2>
+    <section className="card stack-s"><h2>Calls and the law</h2>
       <p>Practice with recordings all you want. In the field, US federal rules ban recorded or electronically amplified calls for ducks, geese and other migratory birds (50 CFR 20.21), apart from special light-goose seasons, and many states restrict electronic calls for other game. This app is a practice tool — don't play it in the field. Check your state's rules.</p>
     </section>
 
-    <section className="stack-s"><h2>Look</h2>
-      <div className="seg" role="group" aria-label="Theme">${["auto", "light", "dark"].map(function (t) {
-        return html`<button key=${t} aria-pressed=${(st.theme || "auto") === t} onClick=${function () { setTheme(t); }}>${t === "auto" ? "Match phone" : t === "light" ? "Light" : "Dark"}</button>`; })}</div>
+    <section className="card stack-s"><h2>Look</h2>
+      <p className="small muted">Dark is easiest on the eyes in a blind before light. Daylight reads better in bright sun.</p>
+      <div className="seg" role="group" aria-label="Theme">${[["field", "Dark"], ["day", "Daylight"], ["phone", "Match phone"]].map(function (t) {
+        return html`<button key=${t[0]} aria-pressed=${theme === t[0]} onClick=${function () { setTheme(t[0]); }}>${t[1]}</button>`; })}</div>
     </section>
 
-    <section className="stack-s"><h2>Sounds</h2>
+    <section className="stack-s"><div className="sec-head"><h2>Sounds</h2><span className="eyebrow">${credits.length} recordings</span></div>
       <p className="muted small">Real recordings, free to use with credit. Clips were trimmed, rumble-filtered and level-matched. The CC BY-NC-SA ones may not be used commercially — they would need replacing or licensing before this app is sold.</p>
-      <div className="card divide" style=${{ padding: "0.2rem 0.9rem" }}>
+      <div className="card list divide">
         ${credits.map(function (cr) { return html`<p key=${cr.id} className="credit" style=${{ padding: "0.6rem 0" }}><b>${cr.what}</b><br/>
           ${cr.by} · <a href=${cr.url} target="_blank" rel="noopener">${cr.ref}</a> · ${cr.where} · <a href=${cr.licenseUrl} target="_blank" rel="noopener">${cr.license}</a></p>`; })}
       </div>
     </section>
 
-    <section className="stack-s"><h2>Your data</h2>
+    <section className="card stack-s"><h2>Your data</h2>
       <p className="muted">Your scores and recordings stay on this phone, in this browser. ${p.store.attempts.length} attempts saved.</p>
       ${conf[0] ? html`<div className="row"><button className="btn btn-small btn-tint" onClick=${function () { conf[1](false); }}>Keep them</button>
         <button className="btn btn-small" style=${{ background: "var(--bad)", color: "#fff" }} onClick=${function () { p.wipe(); conf[1](false); }}><${Icon} name="trash" size="18"/> Delete everything</button></div>` :
         html`<button className="btn btn-small btn-line" style=${{ alignSelf: "flex-start" }} onClick=${function () { conf[1](true); }}>Delete my scores and recordings</button>`}
     </section>
     <p className="small muted">Working title. Built as a demo; the name is shared with a well-known hunting video game, so it may want a new one before going public.</p>
-  </div>`;
+  </div><//>`;
 }
 
 function NotFound() {
-  return html`<div className="wrap stack"><h2>Not found</h2><p className="muted">That page doesn't exist.</p><button className="btn btn-moss" onClick=${function () { go("/"); }}>Home</button></div>`;
+  return html`<${R.Fragment}><${TopBar} back="/" title="Not found"/><div className="wrap stack"><h2>Not found</h2><p className="muted">That page doesn't exist.</p>
+    <button className="btn btn-olive" onClick=${function () { go("/"); }}>Home</button></div><//>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1278,8 +1487,9 @@ function App() {
     window.addEventListener("hashchange", f); return function () { window.removeEventListener("hashchange", f); };
   }, []);
   useEffect(function () {
-    var t = (store.settings || {}).theme || "auto", el = document.documentElement;
-    if (t === "auto") el.removeAttribute("data-theme"); else el.setAttribute("data-theme", t);
+    document.documentElement.setAttribute("data-theme", themeOf(store.settings));
+    // the phone's status bar takes the page's own background
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", css("--bg") || "#0E100D");
     bumpTheme();
   }, [store.settings && store.settings.theme]);
   var update = function (fn) { setStore(function (s) { var n = fn(s); saveStore(n); return n; }); };
@@ -1333,11 +1543,11 @@ function App() {
   else page = html`<${NotFound}/>`;
 
   var tab = route.name === "progress" ? "progress" : route.name === "about" ? "about" : "learn";
-  var tabs = [["learn", "Learn", "/"], ["progress", "Progress", "/progress"], ["about", "About", "/about"]];
+  var tabs = [["learn", "Calls", "/", "calls"], ["progress", "Scores", "/progress", "scores"], ["about", "About", "/about", "info"]];
   return html`<${R.Fragment}>
     <main>${page}</main>
     <div className="tabs"><nav aria-label="Main">${tabs.map(function (t) {
-      return html`<button key=${t[0]} aria-current=${tab === t[0] ? "page" : null} onClick=${function () { go(t[2]); }}><${Icon} name=${t[0]} size="24"/>${t[1]}</button>`;
+      return html`<button key=${t[0]} aria-current=${tab === t[0] ? "page" : null} onClick=${function () { go(t[2]); }}><${Icon} name=${t[3]} size="24"/>${t[1]}</button>`;
     })}</nav></div>
     ${toast[0] ? html`<div className="toast" role="status">${toast[0]}</div>` : null}
   <//>`;

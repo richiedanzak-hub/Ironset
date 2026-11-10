@@ -3,7 +3,7 @@
    It lives in its own folder so its scope is callwild/ only: a worker at the
    repo root would fight IRONSET's for the same scope and one would replace the
    other. */
-const VERSION = "callwild-v4";
+const VERSION = "callwild-v5";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const SOUNDS = VERSION + "-sounds";
@@ -15,6 +15,7 @@ const SHELL_URLS = [
   "./analysis.js",
   "./calls.js",
   "./manifest.webmanifest",
+  "./img/topo.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
