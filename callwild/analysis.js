@@ -150,6 +150,62 @@
     return Math.exp(-0.6931 * r * r);
   }
 
+  /* How close to the heart of a target. Anywhere in range used to be full
+     marks — which is how a call that was only roughly right on every count
+     still scored 90+. Now full marks are for the centre (the real animal's
+     value, or the middle of what calling instruction allows); credit tapers
+     to EDGE at the ends of the range, and keeps falling outside it.
+     `log`: the quantity is a ratio (a speed, a length), judged in proportion. */
+  /* The strictness settings. `edge`: credit at the ends of a target range.
+     `w0`, `w0s`: how many parts' worth of weight a score is shared across
+     (see scoreGroup). Calibrated by tools/check.cjs; tune() is for that tool. */
+  var TUNE = { edge: 0.75, edgeIn: 0.8, edgeOut: 0.55, w0: 2.2, w0s: 1.2, ptol: 4, psoft: 3.5, ktol: 4.5, ksoft: 4 };
+  function tune(o) { for (var k in o) TUNE[k] = o[k]; return TUNE; }
+  /* `outer`: for a caller's-craft call, the textbook range around the
+     recording's own. Anywhere in it is acceptable but costs: credit slides
+     from `edgeIn` at the recording's range down to `edgeOut` at the textbook's
+     ends — so a textbook call at a different pace than this hen is "close",
+     not "sounds right". */
+  function near(x, lo, hi, soft, c, log, outer) {
+    var EDGE = outer ? TUNE.edgeIn : TUNE.edge;
+    if (!(x === x)) return 0;
+    var f = log ? function (v) { return Math.log(Math.max(v, 1e-9)); } : function (v) { return v; };
+    var X = f(x), L = f(lo), H = f(hi), C = c === undefined || c === null ? (L + H) / 2 : f(clamp(c, lo, hi));
+    if (X < L || X > H) {
+      if (outer) {
+        var OL = f(Math.min(outer[0], lo)), OH = f(Math.max(outer[1], hi)), OUT = TUNE.edgeOut;
+        if (X >= OL && X < L) return EDGE - (EDGE - OUT) * (L - OL > 0 ? (L - X) / (L - OL) : 1);
+        if (X <= OH && X > H) return EDGE - (EDGE - OUT) * (OH - H > 0 ? (X - H) / (OH - H) : 1);
+        return OUT * band(x, Math.min(outer[0], lo), Math.max(outer[1], hi), soft);
+      }
+      return EDGE * band(x, lo, hi, soft);
+    }
+    var hw = X < C ? C - L : H - C, r = hw > 0 ? (X - C) / hw : 0;
+    return 1 - (1 - EDGE) * r * r;
+  }
+  /* At least `need`, with full marks from `full` up. */
+  function atLeast(x, need, full, soft) {
+    var EDGE = TUNE.edge;
+    if (!(x === x)) return 0;
+    if (x >= full) return 1;
+    if (x >= need) return EDGE + (1 - EDGE) * (full > need ? (x - need) / (full - need) : 1);
+    return EDGE * band(x, need, Infinity, soft);
+  }
+  /* The share of notes that show a shape (a yelp's roll, a honk's break),
+     against the share the real recording shows: full marks at its share, EDGE
+     at half of it, little when the shape is mostly missing. A straight ratio
+     was too touchy for a measure this fine — two notes that didn't register
+     cost a good call a third of its score. */
+  function share(f, need, raw) { if (raw) return f; need = need || 1; return atLeast(f, need * 0.5, need, need * 0.3); }
+  /* At most `lim`, with full marks at `full` and below. */
+  function atMost(x, lim, full, soft) {
+    var EDGE = TUNE.edge;
+    if (!(x === x)) return 0;
+    if (x <= full) return 1;
+    if (x <= lim) return EDGE + (1 - EDGE) * (lim > full ? (lim - x) / (lim - full) : 1);
+    return EDGE * band(x, -Infinity, lim, soft);
+  }
+
   /* ------------------------------------------------------------------ */
   /* Envelope and notes                                                   */
   /* ------------------------------------------------------------------ */
@@ -173,15 +229,27 @@
   /* A dip of `depth` dB that recovers by `depth` dB is a gap between two notes,
      even when the sound never falls all the way back to silence — which is what
      a fast feeding chuckle or a turkey cutt does. */
-  function valleyCuts(e, s, t, depth) {
-    var cuts = [], peak = e[s], valley = Infinity, vi = -1, falling = false;
+  /* Split a run of sound where it dips `depth` dB and comes back up. The dip
+     has to last a little while (below its midpoint) to count as a gap between
+     notes: a room's echo puts short, sharp dips into a long, smooth call, and
+     splitting at those chopped a dove's coo into ten pieces. How long depends
+     on the call — 10 ms for a fast chatter whose real gaps are that short,
+     25 ms for calls made of long, smooth notes. */
+  function valleyCuts(e, s, t, depth, minSec) {
+    var cuts = [], peak = e[s], valley = Infinity, vi = -1, falling = false, minW = Math.max(2, Math.round((minSec || 0.01) / HOP));
     for (var i = s + 1; i <= t; i++) {
       var v = e[i];
       if (!falling) {
         if (v > peak) peak = v;
         else if (v < peak - depth) { falling = true; valley = v; vi = i; }
       } else if (v < valley) { valley = v; vi = i; }
-      else if (v > valley + depth) { cuts.push(vi); falling = false; peak = v; }
+      else if (v > valley + depth) {
+        var lvl = valley + depth / 2, a = vi, b = vi;
+        while (a > s && e[a - 1] < lvl) a--;
+        while (b < i && e[b + 1] < lvl) b++;
+        if (b - a + 1 >= minW) cuts.push(vi);
+        falling = false; peak = v;
+      }
     }
     return cuts;
   }
@@ -215,7 +283,7 @@
     var split = spec.split === undefined ? 6 : spec.split, pieces = [];
     for (k = 0; k < merged.length; k++) {
       var a = merged[k][0], b = merged[k][1];
-      var cuts = split ? valleyCuts(e, a, b, split) : [];
+      var cuts = split ? valleyCuts(e, a, b, split, spec.splitMin || (spec.kind === "single" ? 0.025 : 0.01)) : [];
       var start = a;
       for (var c = 0; c < cuts.length; c++) { pieces.push([start, cuts[c] - 1]); start = cuts[c]; }
       pieces.push([start, b]);
@@ -225,6 +293,13 @@
     for (k = 0; k < pieces.length; k++) {
       var p0 = pieces[k][0], p1 = pieces[k][1], pk = -Infinity, pi = p0;
       for (var j = p0; j <= p1; j++) if (e[j] > pk) { pk = e[j]; pi = j; }
+      // A note ends where it falls well below its own peak, not where the room
+      // finally goes quiet: in a kitchen or a truck cab the echo trails every
+      // note, and counting the tail made a 75 ms cluck read as 180. Long calls
+      // that swell and fade (a bugle, a moan) keep more of their ends.
+      var trim = spec.trim || (spec.bridge >= 0.1 ? 15 : 12);
+      while (p0 < pi && e[p0] < pk - trim) p0++;
+      while (p1 > pi && e[p1] < pk - trim) p1--;
       // the 20 ms window sees a note a little before it starts and after it
       // stops; trimming to just inside the window centres lands close to the truth
       var t0 = frameTime(p0) + 0.005, t1 = frameTime(p1) - 0.005, dur = t1 - t0;
@@ -312,7 +387,7 @@
     // clean whistle or hoot puts nearly all of it there; a raspy quack, a growl
     // or a caw spreads it over many. It reads the spectrum, not the pitch, so it
     // holds up on fast, high whistles that the pitch tracker cannot follow.
-    var N = 512, re = new Float32Array(N), im = new Float32Array(N), w = hann(N), cents = [], flats = [], pures = [], pk = new Float32Array(N / 2);
+    var N = 512, re = new Float32Array(N), im = new Float32Array(N), w = hann(N), cents = [], flats = [], pures = [], pkFs = [], pk = new Float32Array(N / 2);
     var bin = RATE / N, kLo = Math.max(1, Math.floor(150 / bin)), kHi = Math.min(N / 2 - 1, Math.floor(6000 / bin));
     for (t = note.t0; t + N / RATE <= note.t1 + 0.012; t += 0.02) {
       var s0 = Math.round(t * RATE);
@@ -329,6 +404,14 @@
         var near = 0;
         for (k = Math.max(kLo, kMax - 2); k <= Math.min(kHi, kMax + 2); k++) near += pk[k];
         cents.push(num / den); flats.push(Math.exp(lg / cnt) / (den / cnt)); pures.push(near / den);
+        // where the sound's strongest peaks sit (the six biggest within 20 dB
+        // of the loudest): a phone's tilt toward bass or treble barely moves
+        // them, where it drags the plain average (brightness) a long way
+        var peaks = [];
+        for (k = kLo + 1; k < kHi; k++) if (pk[k] > pk[k - 1] && pk[k] >= pk[k + 1] && pk[k] >= pk[kMax] * 0.01) peaks.push(k);
+        peaks.sort(function (a, b) { return pk[b] - pk[a]; });
+        peaks = peaks.slice(0, 6);
+        if (peaks.length) { var lp = 0; peaks.forEach(function (k2) { lp += Math.log(k2 * bin); }); pkFs.push(Math.exp(lp / peaks.length)); }
       }
     }
 
@@ -431,6 +514,7 @@
       centroid: cents.length ? median(cents) : 0,
       flat: flats.length ? median(flats) : 0,
       pure: pures.length ? median(pures) : 0,
+      peakF: pkFs.length ? median(pkFs) : 0,
       head: head.length ? median(head) : 0, tail: tail.length ? median(tail) : 0,
       start: startS, end: endS, squeak: squeak,
       jumpUp: round(jumpUp, 2), jumpDown: round(jumpDown, 2),
@@ -465,7 +549,10 @@
     for (i = 1; i < n; i++) { iois.push(on[i] - on[i - 1]); gaps.push(notes[i].t0 - notes[i - 1].t1); }
     var durs = notes.map(function (q) { return q.dur; });
     var span = n ? notes[n - 1].t1 - notes[0].t0 : 0;
-    var rate = n > 1 ? (n - 1) / (on[n - 1] - on[0]) : 0;
+    // notes a second, from the typical gap between note starts: one note that
+    // a room's echo splits in two (or two it runs together) barely moves it,
+    // where counting notes over the whole span moved it a lot
+    var rate = n > 2 ? 1 / median(on.slice(1).map(function (t, i) { return t - on[i]; })) : n > 1 ? 1 / (on[1] - on[0]) : 0;
     var half = Math.floor(iois.length / 2);
     var ioiFirst = half ? mean(iois.slice(0, half)) : NaN, ioiLast = half ? mean(iois.slice(iois.length - half)) : NaN;
 
@@ -511,6 +598,7 @@
       f0w: wmedian(pitched.map(function (q) { return q.f0; }), pitched.map(function (q) { return q.dur; })),
       cent: wmedian(notes.map(function (q) { return q.centroid; }), durs),
       pure: wmedian(notes.map(function (q) { return q.pure; }), durs),
+      peakF: wmedian(notes.map(function (q) { return q.peakF; }), durs),
       flat: wmedian(notes.map(function (q) { return q.flat; }), durs),
       n: n, span: span, rate: rate,
       iois: iois, gaps: gaps, durs: durs,
@@ -540,6 +628,8 @@
   function secs(s) { return (Math.round(s * 10) / 10).toFixed(1) + " s"; }
   function steps(v) { var a = Math.abs(v); return a < 0.75 ? "about level" : (Math.round(a * 2) / 2) + " half-step" + (Math.round(a * 2) / 2 === 1 ? "" : "s"); }
   function frac(k, n) { return n ? k / n : 0; }
+  /* the heart of a range: the given centre, else its middle (in proportion) */
+  function mid(r, c, log) { return c !== undefined && c !== null ? c : Math.sqrt(r[0] * r[1]); }
   function hz(f) { return f >= 1000 ? (Math.round(f / 100) / 10).toFixed(1) + " kHz" : Math.round(f / 10) * 10 + " Hz"; }
 
   /* Every part returns {score 0-1, value, target, tip}. `p` are the targets
@@ -558,8 +648,9 @@
       var r = p.range, v = m.rate;
       if (m.n < 2) return { label: "Speed", score: 0, value: "—", target: range(r, "/s"), tip: "I only heard one note, so there is no speed to measure yet." };
       return {
-        label: "Speed", score: band(v, r[0], r[1], p.soft || r[0] * 0.25),
+        label: "Speed", score: near(v, r[0], r[1], p.soft || r[0] * 0.15, p.c, true, p.outer),
         value: round(v, 1) + "/s", target: range(r, "/s"),
+        nudge: (v > mid(r, p.c) ? "A touch slower" : "A touch quicker") + ": you ran " + round(v, 1) + " notes a second; the heart of it is about " + round(mid(r, p.c), 1) + ".",
         tip: v < r[0] ? "Too slow: " + round(v, 1) + " notes a second. Aim for " + range(r) + " — pick it up so the notes run into each other a little less." :
           v > r[1] ? "Too fast: " + round(v, 1) + " notes a second. Aim for " + range(r) + ". Slow down and finish each '" + say + "' before the next." : null
       };
@@ -570,7 +661,7 @@
       if (p.kind === "even") {
         var lim = p.cv || 0.2;
         // uneven spacing, or a beat that steadily rushes or drags: either one is off
-        s = Math.min(band(cv, 0, lim, lim * 0.7), band(Math.abs(ch), 0, p.drift || 0.25, 0.2));
+        s = Math.min(atMost(cv, lim, p.full || lim * 0.45, lim * 0.7), atMost(Math.abs(ch), p.drift || 0.25, p.dfull || (p.drift || 0.25) * 0.4, 0.2));
         value = Math.round(cv * 100) + "% uneven"; target = "under " + Math.round(lim * 100) + "%";
         if (s < 0.75) tip = ch < -0.25 ? "Your notes rushed toward the end. Keep the beat steady, like a clock: " + say + "… " + say + "… " + say + "." :
           ch > 0.25 ? "Your notes dragged toward the end. Hold the same beat all the way through." :
@@ -588,15 +679,19 @@
         value = Math.round(cv * 100) + "% uneven"; target = "over " + Math.round((p.cv || 0.28) * 100) + "%";
         if (s < 0.75) tip = "Too tidy. A real one is excited and broken up — bunch some notes together and leave gaps between others.";
       } else { s = 1; value = "—"; target = "—"; }
-      return { label: "Rhythm", score: s, value: value, target: target, tip: tip };
+      return { label: "Rhythm", score: s, value: value, target: target, tip: tip,
+        nudge: p.kind === "even" ? "Steadier still: your spacing was " + Math.round(cv * 100) + "% uneven. Put every note exactly on the beat." : null };
     },
     length: function (m, p, say) {
       var r = p.range, durs = m.durs, ok = 0, short = 0, long = 0;
       durs.forEach(function (d) { if (d < r[0] * 0.85) short++; else if (d > r[1] * 1.15) long++; else ok++; });
-      var s = mean(durs.map(function (d) { return band(d, r[0], r[1], (r[1] - r[0]) * 0.6 + 0.03); }));
+      // judged on the typical (median) note: a real animal's notes vary a lot
+      // from one to the next, and scoring each one failed the animal itself
+      var s = near(m.medDur, r[0], r[1], (r[1] - r[0]) * 0.6 + 0.03, p.c, true, p.outer), c = mid(r, p.c, true);
       return {
         label: "Note length", score: s,
         value: ms(m.medDur), target: Math.round(r[0] * 1000) + "–" + ms(r[1]),
+        nudge: (m.medDur > c ? "Notes a touch shorter" : "Hold each note a touch longer") + ": yours ran " + ms(m.medDur) + "; the real ones are about " + ms(c) + ".",
         tip: short > long && short > ok * 0.5 ? "Your notes are clipped short (" + ms(m.medDur) + "). Hold each one a touch longer — " + Math.round(r[0] * 1000) + "–" + ms(r[1]) + "." :
           long > short && long > ok * 0.5 ? "Your notes are dragging (" + ms(m.medDur) + " each). Cut them shorter — " + Math.round(r[0] * 1000) + "–" + ms(r[1]) + "." : null
       };
@@ -617,17 +712,17 @@
       var by = m.pitchBy === "pitch" ? "" : " (judged by brightness — a raspy call has no clean pitch to follow)";
       if (m.n < 2) return { label: "Pitch", score: 0, value: "—", target: "", tip: null };
       if (p.dir === "down") {
-        s = band(-v, r[0], r[1], soft);
+        s = near(-v, r[0], r[1], soft, p.c, true);
         if (s < 0.75) tip = -v < r[0] ? (v > 0.75 ? "Your pitch climbed across the call" : "Your pitch stayed flat") + by + ". Start high and let each note step a little lower." :
           "Your pitch fell off a cliff — it dropped " + steps(v) + ". Step down gradually instead of all at once.";
         return { label: "Pitch", score: s, value: value, target: "falls " + range(r), tip: tip };
       }
       if (p.dir === "up") {
-        s = band(v, r[0], r[1], 1.5);
+        s = near(v, r[0], r[1], 1.5, p.c, true);
         if (s < 0.75) tip = "Your pitch should climb across the call" + by + ".";
         return { label: "Pitch", score: s, value: value, target: "rises " + range(r), tip: tip };
       }
-      s = band(Math.abs(v), 0, r[1] || 2, 1.5);
+      s = atMost(Math.abs(v), r[1] || 2, (r[1] || 2) * 0.4, 1.5);
       if (s < 0.75) tip = "Keep every note on the same pitch" + by + " — it " + (v > 0 ? "rose " : "fell ") + steps(v) + ".";
       return { label: "Pitch", score: s, value: value, target: "level", tip: tip };
     },
@@ -635,7 +730,7 @@
       var v = m.volChange, s, tip = null, value = v < -2 ? "fades " + Math.round(-v) + " dB" : v > 2 ? "grows " + Math.round(v) + " dB" : "level";
       if (m.n < 2) return { label: "Volume", score: 0, value: "—", target: "", tip: null };
       if (p.dir === "down") {
-        s = band(-v, p.min || 3, 40, 3);
+        s = atLeast(-v, p.min || 3, (p.min || 3) * 2, 3);
         if (s < 0.75) tip = "Start loud and let each note come down in volume — ease off the air as you go.";
         return { label: "Volume", score: s, value: value, target: "fades", tip: tip };
       }
@@ -645,7 +740,7 @@
         if (!first) tip = "Hit the first note hardest — it is the one that grabs their attention.";
         return { label: "Volume", score: s, value: first ? "loud start" : "loudest at note " + (m.loudest + 1), target: "loud start", tip: tip };
       }
-      s = band(Math.abs(v), 0, p.max || 6, 3);
+      s = atMost(Math.abs(v), p.max || 6, (p.max || 6) * 0.4, 3);
       if (s < 0.75) tip = "Keep the volume even from first note to last.";
       return { label: "Volume", score: s, value: value, target: "even", tip: tip };
     },
@@ -664,7 +759,7 @@
       // own jumps look like squeaks
       var bad = notes.filter(function (q) { return q.voiced >= 0.45 && q.squeak; }).length;
       return {
-        label: "No squeaks", score: 1 - frac(bad, notes.length),
+        label: "No squeaks", score: clamp(1 - Math.max(0, frac(bad, notes.length) - (p.allow || 0)), 0, 1),
         value: bad ? plural(bad, "squeak") : "clean", target: "clean",
         tip: bad ? "I heard " + plural(bad, "note") + " squeak or crack upward. That is usually too much air or too much pressure — push from your gut, not your cheeks, and ease off a little." : null
       };
@@ -675,7 +770,7 @@
       // geese's quick clucks show it on some, not every one)
       var need = p.jump || 4, ok = notes.filter(function (q) { return q.jumpUp >= need || (q.tail - q.head) >= need; }).length;
       return {
-        label: "The break", score: clamp(frac(ok, notes.length) / (p.need || 1), 0, 1),
+        label: "The break", score: share(frac(ok, notes.length), p.need, p.raw),
         value: ok + " of " + notes.length, target: p.need ? "some notes" : "every note",
         tip: frac(ok, notes.length) < (p.need || 1) ? "Each honk needs to break — start low ('her') and snap up high ('onk'). Back-pressure from your hand is what makes it crack over." : null
       };
@@ -686,9 +781,9 @@
       var tip = p.label ? "Let the pitch slide down at the end of each call instead of holding one flat note." :
         "Each note should roll over from high to low — 'kee-yuk'. Let the pitch fall inside every note, not just across the run.";
       return {
-        label: p.label || "High to low", score: frac(ok, notes.length),
-        value: ok + " of " + notes.length, target: "every note",
-        tip: ok < notes.length ? tip : null
+        label: p.label || "High to low", score: share(frac(ok, notes.length), p.need, p.raw),
+        value: ok + " of " + notes.length, target: p.need ? "most notes" : "every note",
+        tip: frac(ok, notes.length) < (p.need || 1) ? tip : null
       };
     },
     consistent: function (m, p, say, notes) {
@@ -698,16 +793,18 @@
       // pitch from note to note where the notes hold one; brightness where they
       // are raspy, which wanders more from one honest quack to the next
       var spread = m.levels.length >= 2 ? sd(m.levels) : 0, lim = m.pitchBy === "pitch" ? 1.5 : 3;
-      var alike = band(spread, 0, lim, lim);
+      if (p.spLim) lim = Math.max(lim, p.spLim);
+      var alike = atMost(spread, lim, Math.max(lim * 0.4, p.spFull || 0), lim);
       // a call near the line between holding a pitch and not can read either
       // way; alike by either measure is alike
       if (m.pitchBy === "pitch") {
         var tl = notes.filter(function (q) { return q.centroid > 0; }).map(function (q) { return st(q.centroid, 100); });
-        if (tl.length >= 2) alike = Math.max(alike, band(sd(tl), 0, 3, 3));
+        if (tl.length >= 2) alike = Math.max(alike, atMost(sd(tl), 3, 1.2, 3));
       }
-      var s = Math.min(band(cvDur, 0, 0.25, 0.2), alike);
+      var s = Math.min(atMost(cvDur, p.cvLim || 0.25, p.cvFull || 0.1, 0.2), alike);
       return {
         label: "Consistency", score: s, value: s >= 0.75 ? "alike" : "they vary", target: "all alike",
+        nudge: "Make them more alike: same length, same pitch, every time.",
         tip: s < 0.75 ? (cvDur > 0.25 ? "Your " + say + "s came out different lengths. Make every one the same: same air, same word, same stop." :
           "Your pitch wandered from one to the next. Keep your hand and air the same for every one.") : null
       };
@@ -715,14 +812,14 @@
     firstLong: function (m, p, say, notes) {
       var r = p.range, d = notes[0].dur;
       return {
-        label: "Long first note", score: band(d, r[0], r[1], 0.12), value: ms(d), target: Math.round(r[0] * 1000) + "–" + ms(r[1]),
+        label: "Long first note", score: near(d, r[0], r[1], 0.12, p.c, true, p.outer), value: ms(d), target: Math.round(r[0] * 1000) + "–" + ms(r[1]),
         tip: d < r[0] ? "Open with a long, drawn-out note — half a second — before the rest roll out." : d > r[1] ? "Your first note dragged on. Half a second is plenty." : null
       };
     },
     runLen: function (m, p, say, notes) {
       var r = p.range, v = m.span;
       return {
-        label: "Run length", score: band(v, r[0], r[1], 0.6), value: secs(v), target: range(r, " s"),
+        label: "Run length", score: near(v, r[0], r[1], 0.6, p.c, true, p.outer), value: secs(v), target: range(r, " s"),
         tip: v < r[0] ? "Keep it rolling longer — " + range(r, " seconds") + " without stopping." : v > r[1] ? "That ran long. A couple of seconds, then break it up with a quack." : null
       };
     },
@@ -738,7 +835,7 @@
         for (var i = 0; i < g.length; i++) if ((g[i] < cut) === ((i + ph) % 2 === 0)) hit++;
         best = Math.max(best, hit / g.length);
       }
-      var s = best * band(hi / Math.max(lo, 0.005), 1.8, 99, 0.6);
+      var s = share(best * band(hi / Math.max(lo, 0.005), 1.8, 99, 0.6), p.need, p.raw);
       return {
         label: "Pairs", score: s, value: s >= 0.75 ? "paired" : "not paired", target: "ga-whit pairs",
         tip: s < 0.75 ? "Make it two-and-a-beat: 'ga-whit' tight together, then a short pause, then the next pair." : null
@@ -753,7 +850,7 @@
       notes.forEach(function (c) {
         if (c.dur < 0.6 * longest) return;
         var cl = c.peakS - c.start, dr = c.peakS - c.end;
-        var sc = band(cl, need, 60, p.soft || need * 0.5) * (p.fall === false ? 1 : band(dr, p.drop || 2, 60, 2));
+        var sc = atLeast(cl, need, need * 1.6, p.soft || need * 0.5) * (p.fall === false ? 1 : atLeast(dr, p.drop || 2, (p.drop || 2) * 1.6, 2));
         if (sc > s) { s = sc; q = c; climb = cl; }
       });
       return {
@@ -765,15 +862,16 @@
     },
     holdLen: function (m, p, say, notes) {
       var r = p.range, q = notes.reduce(function (a, b) { return b.dur > a.dur ? b : a; }, notes[0]);
-      var s = band(q.dur, r[0], r[1], (r[1] - r[0]) * 0.5 + 0.1);
+      var s = near(q.dur, r[0], r[1], (r[1] - r[0]) * 0.5 + 0.1, p.c, true, p.outer), c = mid(r, p.c, true);
       return {
         label: "Length", score: s, value: secs(q.dur), target: range(r, " s"),
+        nudge: (q.dur > c ? "A touch shorter" : "Hold it a little longer") + ": yours ran " + secs(q.dur) + "; the real one is about " + secs(c) + ".",
         tip: s < 0.75 ? (q.dur < r[0] ? "Hold it longer — this call should last " + range(r, " seconds") + "." : "That ran long. Keep it to " + range(r, " seconds") + ".") : null
       };
     },
     smooth: function (m, p, say, notes) {
       var q = notes.reduce(function (a, b) { return b.dur > a.dur ? b : a; }, notes[0]);
-      var lim = p.wobble || 0.5, s = band(q.wobble, 0, lim, lim);
+      var lim = p.wobble || 0.5, s = atMost(q.wobble, lim, p.full || lim * 0.4, lim);
       return {
         label: "Smooth tone", score: q.voiced < 0.3 ? 0.4 : s, value: q.wobble <= lim ? "smooth" : "shaky", target: "smooth",
         tip: s < 0.75 ? "The tone shook. Hold steady air through the whole note and let the pitch glide instead of wobble." : null
@@ -782,13 +880,13 @@
     waver: function (m, p, say, notes) {
       var lim = p.min || 0.5, ok = notes.filter(function (q) { return q.wobble >= lim || q.span >= 3; }).length;
       return {
-        label: "Waver", score: frac(ok, notes.length), value: ok + " of " + notes.length, target: "every cry",
+        label: "Waver", score: share(frac(ok, notes.length), p.need, p.raw), value: ok + " of " + notes.length, target: "every cry",
         tip: ok < notes.length ? "Put more panic in it — let the pitch waver and crack inside each cry (open and close your hand over the call)." : null
       };
     },
     rolling: function (m, p, say, notes) {
       var q = notes.reduce(function (a, b) { return b.dur > a.dur ? b : a; }, notes[0]);
-      var s = band(q.roll, p.min || 0.12, 9, 0.08);
+      var s = atLeast(q.roll, p.min || 0.12, (p.min || 0.12) * 1.6, 0.08);
       return {
         label: "Roll", score: s, value: q.roll >= (p.min || 0.12) ? "rolling" : "flat", target: "rolling",
         tip: s < 0.75 ? "A purr rolls — flutter it (a soft 'prrrr' with your tongue or throat) instead of holding one smooth note." : null
@@ -809,16 +907,33 @@
       // is too rough to (a hen's raspy quack has no clean pitch, but it is
       // still far brighter than a goose's honk and duller than a teal's peep).
       var byPitch = p.f0 > 0 && m.f0w > 0 && m.pitchedFrac >= 0.3;
-      var v = byPitch ? m.f0w : m.cent, ref = byPitch ? p.f0 : p.cent;
+      var byPeaks = !byPitch && p.pk > 0 && m.peakF > 0;
+      var v = byPitch ? m.f0w : byPeaks ? m.peakF : m.cent, ref = byPitch ? p.f0 : byPeaks ? p.pk : p.cent;
       if (!v || !ref) return { label: "Pitch level", score: 0.5, value: "—", target: "", tip: null };
-      var tol = byPitch ? (p.tol || 5) : (p.ctol || 7), soft = byPitch ? (p.soft || 4) : (p.csoft || 5);
-      var d = st(v, ref), s = band(d, -tol, tol, soft);
+      // Different animals of one kind sit within a couple of half-steps of each
+      // other (three bull elk here bugle within 1.2); a caller 3 off is close,
+      // 6 off is plainly higher or lower than the real thing.
+      var tol = byPitch ? (p.tol || TUNE.ptol || 4) : byPeaks ? (p.ktol || TUNE.ktol || 5) : (p.ctol || TUNE.ctol || 9),
+        soft = byPitch ? (p.soft || TUNE.psoft || 3) : byPeaks ? (TUNE.ksoft || 4) : (p.csoft || 6);
+      var d = st(v, ref);
+      // A pitch tracker can read a call rich in overtones an octave or a
+      // twelfth off (the second or third harmonic), on either side; that is
+      // the tracker, not the caller, so those readings fold back to near full
+      // credit. A caller is almost never a whole octave off.
+      if (byPitch) {
+        var fold = [[0, 0], [12, 1], [-12, 1], [19, 2], [-19, 2]].reduce(function (b, k) {
+          var dd = Math.abs(d - k[0]) + k[1]; return dd < Math.abs(b) ? (d - k[0] < 0 ? -dd : dd) : b;
+        }, d);
+        d = fold;
+      }
+      var s = near(d, -tol, tol, soft, 0);
       // a reading an octave off is as likely the tracker (a honk's low half, an
       // echo) as the caller: part credit, not none
-      if (byPitch) s = Math.max(s, 0.6 * band(Math.abs(d) - 12, -3, 3, 3));
+
       if (byPitch) {
         return {
           label: "Pitch level", score: s, value: hz(v), target: "about " + hz(ref),
+          nudge: (d > 0 ? "A touch lower" : "A touch higher") + ": you sat around " + hz(v) + "; the real one is about " + hz(ref) + ".",
           tip: s >= 0.75 ? null : d > 0 ?
             "Too high — you were around " + hz(v) + " and the real one sits near " + hz(ref) + ". Bring it down: ease off the air pressure." :
             "Too low — you were around " + hz(v) + " and the real one sits near " + hz(ref) + ". Bring it up: a little more air pressure."
@@ -832,7 +947,8 @@
         };
       }
       return {
-        label: "Brightness", score: s, value: d > tol ? "too bright" : d < -tol ? "too dull" : "right", target: "like the real one",
+        label: "Brightness", score: s, value: d > tol ? "too bright" : d < -tol ? "too dull" : s >= 0.95 ? "right" : d > 0 ? "a bit bright" : "a bit dull", target: "like the real one",
+        nudge: d > 0 ? "A touch fuller and deeper — yours came out a little thin next to the real one." : "A touch brighter and sharper — yours came out a little dull next to the real one.",
         tip: s >= 0.75 ? null : d > 0 ?
           "Your call came out thinner and brighter than the real one. Listen again — it is fuller and deeper than that." :
           "Your call came out duller and deeper than the real one. Listen again — it is sharper and brighter than that."
@@ -841,7 +957,7 @@
     tone: function (m, p, say, notes) {
       // A clean whistle, a raspy quack, or something between: the call's purity
       // against the real animal's, with room either side (tools/learn.cjs).
-      var v = m.pure, lo = p.lo || 0, hi = p.hi === undefined ? 1 : p.hi, s = band(v, lo, hi, p.soft || 0.15);
+      var v = m.pure, lo = p.lo || 0, hi = p.hi === undefined ? 1 : p.hi, s = near(v, lo, hi, p.soft || 0.15, p.pure);
       var word = function (x) { return x >= 0.7 ? "clean" : x >= 0.45 ? "mixed" : "raspy"; };
       // and not just noise: a rasp is still a voice, with structure under the
       // grit; a clap, a puff of breath or wind across the phone is not. How
@@ -856,6 +972,7 @@
       }
       return {
         label: "Tone", score: s, value: word(v), target: p.pure === undefined ? "" : word(p.pure),
+        nudge: p.pure === undefined ? null : v > p.pure ? "A little more grit in the tone — the real one is rougher than yours." : "A little cleaner — the real one rings more than yours.",
         tip: s >= 0.75 ? null : v > hi ?
           "Too clean. The real one is rough and raspy, not a pure note — put some grit in it with more air from your gut." :
           "Too rough. The real one is a clear, clean tone — ease off and let it ring instead of rasp."
@@ -871,9 +988,10 @@
     pauses: function (m, p, say, notes) {
       var r = p.range;
       if (m.n < 2) return { label: "Pauses", score: p.single ? 1 : 0.4, value: "—", target: range(r, " s"), tip: p.single ? null : "Blow it a few times with a pause between, so I can hear your spacing." };
-      var s = mean(m.gaps.map(function (g) { return band(g, r[0], r[1], (r[1] - r[0]) * 0.5 + 0.1); }));
+      var s = near(median(m.gaps), r[0], r[1], (r[1] - r[0]) * 0.5 + 0.1, p.c, true, p.outer), c = mid(r, p.c, true);
       return {
         label: "Pauses", score: s, value: secs(median(m.gaps)), target: range(r, " s"),
+        nudge: (median(m.gaps) > c ? "Tighten up the pauses a little" : "Leave a little more room between calls") + ": yours were " + secs(median(m.gaps)) + "; about " + secs(c) + " is the heart of it.",
         tip: s < 0.75 ? (median(m.gaps) < r[0] ? "Leave more room between calls — " + range(r, " seconds") + " of quiet." : "The pauses ran long. Keep " + range(r, " seconds") + " between calls.") : null
       };
     },
@@ -889,7 +1007,7 @@
         var last = notes[notes.length - 1];
         parts++; if (last.dur >= 1.4 * median(notes.slice(0, -1).map(function (q) { return q.dur; }))) ok++;
       }
-      var s = parts ? ok / parts : 0;
+      var s = parts ? share(ok / parts, p.need, p.raw) : 0;
       return {
         label: "Phrasing", score: s, value: ok + " of 2", target: "2 phrases, long last note",
         tip: s < 1 ? "Break it into two phrases — 'who cooks for you… who cooks for you-all' — and drag the very last 'all' out and down." : null
@@ -919,7 +1037,12 @@
     // Timing and sound are then multiplied, not pooled: pooled, a whistle blown
     // in a quack's rhythm still collected most of the credit, because the
     // timing parts outvoted the two that said it was the wrong sound.
-    var T = tw ? Math.exp(ts / tw) : 1, V = vw ? Math.exp(vs / vw) : 1;
+    // Each side is shared across at most `w0` (`w0s`) parts' worth of weight,
+    // not across all of them: averaged over every part, one thing badly off
+    // was diluted by all the things that were fine, and a call 25% too fast
+    // with perfect rhythm still scored in the 90s. Capped, each miss costs
+    // its full share however many other parts are judged.
+    var T = tw ? Math.exp(ts / Math.min(tw, TUNE.w0)) : 1, V = vw ? Math.exp(vs / Math.min(vw, TUNE.w0s)) : 1;
     return { parts: parts, score: tw || vw ? Math.round(100 * T * V) : 0, timing: T, sound: V };
   }
 
@@ -1000,8 +1123,15 @@
       .sort(function (p, q) { return q.weight * (1 - q.score) - p.weight * (1 - p.score); })
       .slice(0, 3)
       .map(function (p) { return { key: p.key, text: p.tip }; });
+    if (out.tips.length < 3 && best.score < 93) {
+      best.parts
+        .filter(function (p) { return p.nudge && p.score < 0.95 && !out.tips.some(function (t) { return t.key === p.key; }); })
+        .sort(function (p, q) { return q.weight * (1 - q.score) - p.weight * (1 - p.score); })
+        .slice(0, 3 - out.tips.length)
+        .forEach(function (p) { out.tips.push({ key: p.key, text: p.nudge, nudge: true }); });
+    }
     out.good = best.parts
-      .filter(function (p) { return p.score >= 0.9; })
+      .filter(function (p) { return p.score >= 0.9 && !out.tips.some(function (t) { return t.key === p.key; }); })
       .sort(function (p, q) { return q.weight - p.weight; })
       .map(function (p) { return p.label; });
     out.ok = true;
@@ -1045,6 +1175,7 @@
     spectrogram: spectrogram,
     idealPattern: idealPattern,
     verdict: verdict,
-    _: { resample: resample, envelope: envelope, yin: yin, fft: fft, band: band, tsSlope: tsSlope, median: median, highpass2: highpass2, measureGroup: measureGroup }
+    tune: tune,
+    _: { resample: resample, envelope: envelope, yin: yin, fft: fft, band: band, tsSlope: tsSlope, median: median, highpass2: highpass2, measureGroup: measureGroup, scoreGroup: scoreGroup }
   };
 });
