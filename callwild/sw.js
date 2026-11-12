@@ -3,7 +3,7 @@
    It lives in its own folder so its scope is callwild/ only: a worker at the
    repo root would fight IRONSET's for the same scope and one would replace the
    other. */
-const VERSION = "callwild-v5";
+const VERSION = "callwild-v6";
 const SHELL = VERSION + "-shell";
 const DEPS = VERSION + "-deps";
 const SOUNDS = VERSION + "-sounds";
@@ -25,12 +25,12 @@ const SHELL_URLS = [
 /* Every reference recording, so lessons can be heard offline. About 2.5 MB in all. */
 const SOUND_URLS = [
   "barred-owl", "blackduck-hen", "bwteal-hen", "bwteal-peeps", "coyote-howl", "coyote-lone", "crow-caws",
-  "deer-blow", "deer-fawn", "dove-coo", "elk-bugle", "elk-calf-mew", "elk-chuckle", "elk-cow-mew",
+  "deer-blow", "deer-fawn", "deer-fawn-bleat", "dove-coo", "elk-bugle", "elk-calf-mew", "elk-chuckle", "elk-cow-mew", "elk-herd-bugle",
   "elk-location", "fox-gray", "fox-red", "gadwall-calls", "goose-clucks", "goose-honks", "goose-murmur",
   "goose-pairs", "gwteal-peeps", "horned-owl", "mallard-drake", "mallard-feeding", "mallard-hen-lonesome",
-  "mallard-hen-quacks", "mallard-hen-series", "moose-cow", "mottled-hen", "pintail-drake", "quail-bobwhite",
+  "mallard-hen-quacks", "mallard-hen-series", "moose-bull-grunt", "moose-cow", "mottled-hen", "pintail-drake", "quail-bobwhite",
   "quail-covey", "redhead-meows", "ringneck-hen", "scaup-growls", "turkey-cluckpurr", "turkey-clucks",
-  "turkey-cutts", "turkey-gobble", "turkey-keekee", "turkey-purr", "turkey-tree", "turkey-yelps",
+  "turkey-assembly", "turkey-cutts", "turkey-gobble", "turkey-keekee", "turkey-purr", "turkey-tree", "turkey-yelps",
   "wigeon-whistles", "woodduck-squeals",
 ].map((id) => "./sounds/" + id + ".mp3");
 

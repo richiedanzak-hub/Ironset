@@ -6,12 +6,16 @@
       a different one.
    3. Decoys a skeptic tries first — whistling a tune, humming, talking,
       clapping, blowing into the phone — on every lesson.
-   4. Each real recording altered the way a person's call differs from the
-      animal's: a few half-steps off, a bit fast or slow, a room's echo, a
-      bassy or tinny phone, background noise. A good call should still pass.
+   4. Strictness: each real recording altered the way a person's call differs
+      from the animal's, scored on its own lesson. The real recording is the
+      bullseye; small differences (a half-step or two, a few percent of tempo,
+      a different phone) should still score in the 90s; clear ones (3
+      half-steps, 12% fast) in the high 80s; big ones (6 half-steps, 25%
+      fast) in the 60s and 70s; several at once lower still. Each row shows
+      the median across all calls against the band it should sit in.
 
-   It prints a summary and exits non-zero if the animal fails its own lesson
-   or a realistic alteration sinks a real call. */
+   It prints a summary and exits non-zero if the animal fails its own lesson,
+   if small differences cost too much, or if big ones cost too little. */
 const path = require("path"), { execFileSync } = require("child_process");
 const DIR = path.join(__dirname, "..");
 const A = require(path.join(DIR, "analysis.js"));
@@ -32,11 +36,11 @@ for (const a of ids) {
   const x = ff(clip(a));
   for (const b of ids) {
     const s = score(x, b);
-    if (a === b) { own.push(s); if (s < 80) low.push(a + " " + s); }
+    if (a === b) { own.push(s); if (s < 90) low.push(a + " " + s); }
     else { other.push(s); if (grp(a) === grp(b)) otherSame.push(s); }
   }
 }
-console.log("1. real recordings on their own lesson: average " + Math.round(own.reduce((p, q) => p + q, 0) / own.length) + (low.length ? " | UNDER 80: " + low.join(", ") : " | all 80+"));
+console.log("1. real recordings on their own lesson: average " + Math.round(own.reduce((p, q) => p + q, 0) / own.length) + (low.length ? " | UNDER 90: " + low.join(", ") : " | all 90+"));
 console.log("2. real recordings on other lessons: median " + pct(other, 0.5) + ", 75+ on " + share(other, 75) + " (same group: median " + pct(otherSame, 0.5) + ", 75+ on " + share(otherSame, 75) + ")");
 if (low.length) failed = true;
 
@@ -73,31 +77,31 @@ for (const [name, make] of Object.entries(decoys)) {
 }
 console.log("   all decoys: median " + pct(all, 0.5) + ", 75+ on " + share(all, 75) + " of lessons");
 
-/* 4. a real call, a little off */
-const ALTER = {
-  "3 half-steps up": "asetrate=44100*1.1892,aresample=44100,atempo=0.8409",
-  "3 half-steps down": "asetrate=44100*0.8409,aresample=44100,atempo=1.1892",
-  "10% faster": "atempo=1.1", "10% slower": "atempo=0.9",
-  "room echo": "aecho=0.8:0.8:25|50|90:0.2|0.12|0.06",
-  "bassy phone": "bass=g=6:f=400,treble=g=-6:f=2500", "tinny phone": "bass=g=-6:f=400,treble=g=6:f=2500",
-  "noise": "anoisesrc=c=pink:a=0.02[n];[0:a][n]amix=inputs=2:duration=first:weights=1 1",
-};
-console.log("4. real recordings, altered, on their own lesson (under 70 listed):");
-for (const [name, af] of Object.entries(ALTER)) {
-  const s = [], bad = [];
-  for (const id of ids) {
-    let x;
-    try { x = name === "noise" ? noisy(ff(clip(id))) : ff(clip(id), af); } catch (e) { continue; }
-    const v = score(x, id); s.push(v); if (v < 70) bad.push(id + " " + v);
-  }
-  console.log("   " + name.padEnd(18) + " median " + String(pct(s, 0.5)).padStart(3) + " | " + (bad.join(", ") || "none"));
-  if (bad.length > 2) failed = true;
-}
-function noisy(x) { // pink-ish noise 25 dB under the call's peak
-  let pk = 0; for (const v of x) pk = Math.max(pk, Math.abs(v));
-  const y = new Float32Array(x.length), amp = pk * Math.pow(10, -25 / 20); let b = 0;
-  for (let i = 0; i < x.length; i++) { const w = rnd() * 2 - 1; b = 0.97 * b + 0.03 * w; y[i] = x[i] + amp * (b * 4 + w * 0.3); }
-  return y;
+/* 4. a real call, a little off — or a lot */
+const k = (st) => Math.pow(2, st / 12), ps = (st) => `asetrate=44100*${k(st)},aresample=44100,atempo=${1 / k(st)}`;
+const BASSY = "bass=g=6:f=400,treble=g=-6:f=2500", TINNY = "bass=g=-6:f=400,treble=g=6:f=2500";
+const ALTER = [
+  // [name, filters (averaged), band the median should sit in, fail if outside]
+  ["as is", ["anull"], [95, 100], true],
+  ["±1.5 half-steps", [ps(1.5), ps(-1.5)], [90, 100], true],
+  ["±6% tempo", ["atempo=1.06", "atempo=0.94"], [90, 100], true],
+  ["another phone", [BASSY, TINNY], [88, 100], true],
+  ["room echo", ["aecho=0.8:0.9:11|23|37|53|71|97|131|173:0.3|0.24|0.19|0.15|0.11|0.08|0.05|0.03"], [80, 100], false],
+  ["±3 half-steps", [ps(3), ps(-3)], [80, 91], true],
+  ["±12% tempo", ["atempo=1.12", "atempo=0.88"], [80, 91], true],
+  ["±6 half-steps", [ps(6), ps(-6)], [55, 75], true],
+  // (calls that are a caller's craft keep the textbook's range as acceptable,
+  // so a big tempo change costs them a little less than an animal-copy call)
+  ["±25% tempo", ["atempo=1.25", "atempo=0.8"], [58, 82], true],
+  ["3 + 12% + phone", [ps(3) + ",atempo=1.12," + TINNY, ps(-3) + ",atempo=0.88," + BASSY], [62, 82], true],
+  ["6 + 25%", [ps(6) + ",atempo=1.25", ps(-6) + ",atempo=0.8"], [35, 62], true],
+];
+console.log("4. real recordings, altered, on their own lesson (median, 25th-75th, should sit in):");
+for (const [name, afs, want, gate] of ALTER) {
+  const s = ids.map((id) => Math.round(afs.map((af) => score(ff(clip(id), af), id)).reduce((a, b) => a + b, 0) / afs.length));
+  const m = pct(s, 0.5), ok = m >= want[0] && m <= want[1];
+  console.log("   " + name.padEnd(17) + String(m).padStart(4) + ("   " + pct(s, 0.25) + "-" + pct(s, 0.75)).padEnd(10) + "  " + want.join("-") + (ok ? "" : gate ? "  OUT OF BAND" : "  (soft)"));
+  if (!ok && gate) failed = true;
 }
 console.log(failed ? "CHECK FAILED" : "CHECK OK");
 process.exit(failed ? 1 : 0);

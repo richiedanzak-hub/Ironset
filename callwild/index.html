@@ -840,7 +840,7 @@ function GuidePlayer(p) {
   var base = real ? real / Math.pow(2, mid / 12) : (p.call.tone || SPECIES[p.call.species].tone || 600);
   return html`<button className="play ghosty" onClick=${function () { if (on) Player.stop(); else Player.pattern(id, p.call.ghost, base); }} aria-pressed=${on}>
     <span className="disc"><${Icon} name=${on ? "stop" : "play"} size="18"/></span>
-    <span className="grow"><b>Rhythm guide</b><br/><span className="small muted">The timing and pitch shape to aim for — played as tones, not an animal.</span></span>
+    <span className="grow"><b>Rhythm guide</b><br/><span className="small muted">The real call's timing and pitch shape, played as tones — not an animal.</span></span>
   </button>`;
 }
 
@@ -1136,7 +1136,7 @@ function SpeciesPage(p) {
         <div className="row" style=${{ gap: "0.5rem" }}><span style=${{ color: "var(--olive-ink)", display: "flex" }}><${Icon} name="bag" size="20"/></span><h3>What you need</h3></div>
         <p>${s.gear}</p>
       </section>
-      <p className="small muted note-box">The targets these calls are scored against are a first draft from published calling instruction and real recordings. A seasoned caller should check them before a score is taken as gospel.</p>
+      <p className="small muted note-box">Every call is scored against the real recording in its lesson: match it and you score near 100. Real animals vary, so a seasoned caller's ear is still the final word.</p>
     </div>
   <//>`;
 }
@@ -1165,7 +1165,7 @@ function CallPage(p) {
           html`<p className="small muted">${c.noClip || "No free recording of a real one yet."} A good caller's recording can be added here later.</p>`}
         <${GuidePlayer} call=${c}/>
         <div className="stack-s">
-          <div className="row between"><span className="eyebrow">Target pattern</span><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span></div>
+          <div className="row between"><span className="eyebrow">The real call's pattern</span><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Real call</span></span></div>
           <${NoteMap} ghost=${c.ghost} mine=${[]} shaped=${isShaped(c)} height=${120} label=${"Target pattern for the " + c.name}/>
         </div>
       </section>
@@ -1264,7 +1264,7 @@ function ResultPage(p) {
       <div className="eyebrow">${s.name} · ${c.name} · ${ago(a.at)}</div>
       <div className="row" style=${{ alignItems: "flex-end", gap: "1rem", margin: "0.35rem 0 0.25rem" }}>
         <div style=${{ whiteSpace: "nowrap" }}><span className="hero-num">${sc}</span><span className="hero-of">/100</span></div>
-        <div className="grow" style=${{ paddingBottom: "0.2rem" }}><span className="verdict" style=${{ color: bandInk(b) }}>${a.verdict}</span><br/><span className="eyebrow">Pattern match</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.2rem" }}><span className="verdict" style=${{ color: bandInk(b) }}>${a.verdict}</span><br/><span className="eyebrow">Match to the real call</span></div>
       </div>
       <${Meter} seg=${true} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
       ${a.groups > 1 ? html`<p className="small muted">You blew ${a.groups} separate calls; this scores the best one (marked in orange on the picture below).</p>` : null}
@@ -1282,8 +1282,8 @@ function ResultPage(p) {
 
     <section className="card stack-s" aria-label="Your call against the target">
       <div className="row between" style=${{ flexWrap: "wrap", gap: "0.4rem" }}>
-        <h3>Your call vs the target</h3>
-        <span className="legend"><span><i style=${{ width: "16px", height: "7px", background: "var(--data)" }}></i>You</span><span><i style=${{ width: "16px", height: "10px", background: "var(--ghost)" }}></i>Target</span></span>
+        <h3>Your call vs the real one</h3>
+        <span className="legend"><span><i style=${{ width: "16px", height: "7px", background: "var(--data)" }}></i>You</span><span><i style=${{ width: "16px", height: "10px", background: "var(--ghost)" }}></i>Real call</span></span>
       </div>
       <${NoteMap} mine=${a.view || []} ghost=${c.ghost} shaped=${shaped} height=${160}/>
       <details><summary>Note by note</summary>
@@ -1421,17 +1421,19 @@ function AboutPage(p) {
 
     <section className="card stack-s"><h2>How the scoring works</h2>
       <p>Your phone splits the recording into notes and measures what a caller controls: how many notes, how long each one is, how evenly they're spaced, which way the pitch and volume move, whether each note stops clean, and the shape inside a note — a goose honk's break, a turkey yelp's drop, a bugle's climb.</p>
-      <p>Those measurements are scored against the pattern each call is supposed to have. For calls that copy an animal closely — teal peeps, a bobwhite's whistle, a cow moose — the targets are measured from the real recording you can hear in the lesson. For calls that are a caller's craft, like the greeting call or a goose's honk, they come from calling instruction. The biggest misses become the tips.</p>
-      <p>Every call is also checked for how it sounds, against its real recording: where its pitch sits, and whether it's a clean note, a raspy one, or just air. That part multiplies the score rather than averaging into it, so the right rhythm on the wrong sound — a whistle in a quack's rhythm, or clapping — can't score well.</p>
-      <p>A total miss on any one part costs a lot: a greeting call that climbs instead of falling can't score "close." And when what you blew is clearly a different call — a goose honk in a duck lesson — the result says so. It stays quiet about close cousins (a mallard hen and a black duck hen) that even the real recordings can't tell apart.</p>
-      <p className="note-box">The score is a pattern match, not a promise that a duck will land. Nobody has the data to score "would an animal answer this." And the targets are a first draft — a good caller should check them.</p>
-      <p className="muted small">Only calls with a real recording to hear are listed. Some favorites — the hail and comeback calls, buck grunts, rattling — aren't here yet because no free recording of them could be found.</p>
+      <p><b>The real recording in each lesson is the bullseye.</b> Every target is measured from it: its speed, its note lengths and spacing, where its pitch sits, how clean or raspy it is, and its shape. Sound exactly like it and you score near 100. Every way you differ costs points, and the further off, the more it costs — being roughly right isn't enough any more.</p>
+      <p>As a guide: a half-step off or a few percent fast still scores in the 90s. Three half-steps off, or 12% fast, lands in the high 80s. Six half-steps off or a quarter too fast drops to the 60s and 70s, and several misses at once lower still. 90 and up means you sound like the real thing.</p>
+      <p>For calls that are a caller's craft — the greeting call, the feeding chuckle, a goose's honk — what calling instruction teaches still counts as acceptable, but the closer you are to the real bird, the higher you score.</p>
+      <p>How it sounds is checked against the real recording too: where the pitch sits, and whether it's a clean note, a raspy one, or just air. That part multiplies the score rather than averaging into it, so the right rhythm on the wrong sound — a whistle in a quack's rhythm, or clapping — can't score well. And when what you blew is clearly a different call — a goose honk in a duck lesson — the result says so.</p>
+      <p className="note-box">The score is a match to one real animal, not a promise that a duck will land. Real animals vary, and nobody has the data to score "would an animal answer this." A good caller's ear is still the final word.</p>
+      <p className="muted small">Only calls with a real recording to hear are listed. Some favorites aren't here yet because no free, clearly labelled recording of them could be found: the hail, comeback, highball and pleading calls; buck grunts, doe bleats, the snort-wheeze and rattling; the elk lip bawl and estrous and assembly mews; and a gobbler's spit and drum.</p>
       <p className="muted small">Everything happens on this phone. Nothing is uploaded.</p>
     </section>
 
     <section className="card stack-s"><h2>Recording tips</h2>
       <ul className="dots"><li>Quiet spot: no TV, fan, wind or running water.</li><li>Hold the phone about an arm's length from the call. Too close and it distorts.</li>
-        <li>Tap record, wait a beat, then call. One call per recording.</li><li>Don't cover the mic (on the bottom edge of most phones).</li></ul>
+        <li>Tap record, wait a beat, then call. One call per recording.</li><li>Don't cover the mic (on the bottom edge of most phones).</li>
+        <li>Mind the echo. A bathroom, garage or empty room stretches every note and costs you points. A furnished room, a truck cab or outdoors is best.</li></ul>
     </section>
 
     <section className="card stack-s"><h2>Calls and the law</h2>
