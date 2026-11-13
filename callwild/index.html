@@ -1,0 +1,1563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Call Wild"/>
+<meta name="theme-color" content="#0E100D"/>
+<meta name="description" content="Learn duck, goose, turkey, elk, deer and predator calls. Record yourself and get scored, with tips."/>
+<title>Call of the Wild</title>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png"/>
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap"/>
+<style>
+  /* Call of the Wild — field theme.
+     Built like the gear: dark, low-glare surfaces for a blind before first
+     light; blaze orange only for the one thing to do next; olive drab for the
+     rest; a topo sheet underneath. Square-shouldered cards with hairline
+     edges, condensed uppercase labels, numbers set like instrument readouts.
+     "Daylight" is the same system, light, for reading in the sun. */
+  :root {
+    --bg: #0E100D;
+    --surface: #161914;
+    --surface-2: #1C2019;
+    --tint: #252A21;
+    --line: #2A2F26;
+    --line-2: #3B4236;
+    --ink: #EDEFE7;
+    --ink-2: #A6AD9D;
+    --ink-3: #808878;
+    --olive: #56643A;
+    --olive-ink: #B8C48E;
+    --on-olive: #F4F6EC;
+    --blaze: #F26A1B;
+    --blaze-ink: #FF8B4A;
+    --on-blaze: #160A02;
+    --data: #4FB0EC;
+    --data-soft: rgba(79, 176, 236, 0.18);
+    --ghost: #3B4236;
+    --good: #79B65A; --warn: #E3B23C; --bad: #E2533F;
+    --good-ink: #8FD06D; --warn-ink: #F1C35A; --bad-ink: #FF8873;
+    --topo: rgba(214, 226, 196, 0.085);
+    --spec-stops: #0E100D 0, #23123B .3, #7A1C55 .52, #D6452B .72, #F4A532 .87, #FFF2C8 1;
+    --shade: rgba(0, 0, 0, 0.62);
+    --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  :root[data-theme="day"] {
+    --bg: #E9E7DE; --surface: #F8F7F2; --surface-2: #F0EEE6; --tint: #E0DDD1; --line: #D2CEC0; --line-2: #B9B4A2;
+    --ink: #151912; --ink-2: #4A5142; --ink-3: #676E5F; --olive: #4C5A2B; --olive-ink: #44522A; --on-olive: #FFFFFF;
+    --blaze: #E85A0E; --blaze-ink: #B5440A; --on-blaze: #160A02; --data: #1F6FC4; --data-soft: rgba(31, 111, 196, 0.14);
+    --ghost: #CBC6B6; --good-ink: #2E6E1E; --warn-ink: #855600; --bad-ink: #AE2A1E;
+    --topo: rgba(58, 70, 38, 0.11); --spec-stops: #F8F7F2 0, #CDD1BA .3, #7F8C56 .56, #3D4825 .8, #151912 1;
+    --shade: rgba(20, 24, 14, 0.45); color-scheme: light;
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-theme="phone"] {
+      --bg: #E9E7DE; --surface: #F8F7F2; --surface-2: #F0EEE6; --tint: #E0DDD1; --line: #D2CEC0; --line-2: #B9B4A2;
+      --ink: #151912; --ink-2: #4A5142; --ink-3: #676E5F; --olive: #4C5A2B; --olive-ink: #44522A; --on-olive: #FFFFFF;
+      --blaze: #E85A0E; --blaze-ink: #B5440A; --on-blaze: #160A02; --data: #1F6FC4; --data-soft: rgba(31, 111, 196, 0.14);
+      --ghost: #CBC6B6; --good-ink: #2E6E1E; --warn-ink: #855600; --bad-ink: #AE2A1E;
+      --topo: rgba(58, 70, 38, 0.11); --spec-stops: #F8F7F2 0, #CDD1BA .3, #7F8C56 .56, #3D4825 .8, #151912 1;
+      --shade: rgba(20, 24, 14, 0.45); color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { font-size: 16.5px; -webkit-text-size-adjust: 100%; background: var(--bg); }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.45; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--blaze); outline-offset: 2px; border-radius: 3px; }
+  .boot { min-height: 80vh; display: grid; place-items: center; color: var(--ink-2); font-family: var(--display); letter-spacing: .1em; text-transform: uppercase; }
+
+  /* Type */
+  h1, h2, h3 { margin: 0; font-family: var(--display); line-height: 1; text-transform: uppercase; text-wrap: balance; }
+  h1 { font-size: 2.45rem; font-weight: 800; letter-spacing: 0.015em; }
+  h2 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.04em; }
+  h3 { font-size: 1.12rem; font-weight: 700; letter-spacing: 0.05em; }
+  p { margin: 0; }
+  .muted { color: var(--ink-2); }
+  .small { font-size: 0.88rem; }
+  .lead { font-size: 1.08rem; color: var(--ink); }
+  .eyebrow { font-family: var(--display); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); }
+  .eyebrow.hot { color: var(--blaze-ink); }
+  .num { font-family: var(--display); font-variant-numeric: tabular-nums; }
+  .stack { display: flex; flex-direction: column; gap: 1rem; }
+  .stack-s { display: flex; flex-direction: column; gap: 0.55rem; }
+  .row { display: flex; align-items: center; gap: 0.7rem; }
+  .row-top { display: flex; align-items: flex-start; gap: 0.7rem; }
+  .between { justify-content: space-between; }
+  .grow { flex: 1; min-width: 0; }
+  .wrap { max-width: 34rem; margin: 0 auto; padding: 1rem 14px 7.5rem; }
+
+  /* Section heads: a label, a hairline, and a count */
+  .sec-head { display: flex; align-items: center; gap: 0.6rem; }
+  .sec-head h2 { font-size: 1.05rem; letter-spacing: 0.12em; color: var(--ink-2); }
+  .sec-head::after { content: ""; flex: 1; height: 1px; background: var(--line); order: 2; }
+  .sec-head .eyebrow { order: 3; }
+
+  /* Top bar */
+  .topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 90%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+  .topbar-in { max-width: 34rem; margin: 0 auto; height: 3.3rem; display: flex; align-items: center; gap: 0.5rem; padding: 0 10px 0 6px; }
+  .tb-back { display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; flex: none; background: none; border: 0; color: var(--ink); border-radius: 4px; }
+  .tb-title { flex: 1; min-width: 0; font-family: var(--display); font-weight: 700; font-size: 1.1rem; letter-spacing: 0.08em; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.55rem; padding-left: 6px; color: var(--ink); text-decoration: none; }
+  .wordmark { font-family: var(--display); font-weight: 800; font-size: 1.28rem; letter-spacing: 0.07em; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+  .wordmark small { font-size: 0.72em; letter-spacing: 0.1em; color: var(--ink-2); margin: 0 0.1em; }
+  .tb-score { display: inline-flex; align-items: center; gap: 0.45rem; background: none; border: 1px solid var(--line-2); border-radius: 4px; padding: 0.2rem 0.55rem 0.2rem 0.45rem; color: var(--ink); }
+  .tb-score b { font-family: var(--display); font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tb-score span { font-family: var(--display); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+
+  /* Topo sheet behind a block */
+  .topo { position: relative; isolation: isolate; overflow: hidden; }
+  .topo::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--topo);
+    -webkit-mask: url(img/topo.svg) 0 0 / 560px repeat; mask: url(img/topo.svg) 0 0 / 560px repeat; }
+
+  /* Buttons */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 0.55rem; width: 100%; min-height: 3.4rem; border: 0; border-radius: 5px; padding: 0.7rem 1.1rem;
+    font-family: var(--display); font-weight: 800; font-size: 1.2rem; letter-spacing: 0.07em; text-transform: uppercase; text-decoration: none; }
+  .btn svg { flex: none; }
+  .btn-blaze { background: var(--blaze); color: var(--on-blaze); }
+  .btn-olive { background: var(--olive); color: var(--on-olive); }
+  .btn-tint { background: var(--tint); color: var(--ink); }
+  .btn-line { background: transparent; color: var(--ink); border: 1px solid var(--line-2); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn-small { min-height: 2.6rem; font-size: 1rem; width: auto; padding: 0.4rem 0.9rem; }
+  .icon-btn { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 5px; background: none; color: var(--ink); }
+  .link { background: none; border: 0; padding: 0.3rem 0; color: var(--blaze-ink); font-family: var(--display); font-weight: 700; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .back { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 0; padding: 0.4rem 0.2rem 0.4rem 0; color: var(--ink-2); font-weight: 600; }
+
+  /* Cards and lists */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1rem; }
+  .card-tight { padding: 0.75rem 0.9rem; }
+  .divide > * + * { border-top: 1px solid var(--line); }
+  .list { padding: 0 0.85rem; }
+
+  /* Chips and readouts */
+  .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.5rem 0.16rem; border-radius: 3px; font-family: var(--display); font-size: 0.8rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; background: var(--tint); color: var(--ink-2); white-space: nowrap; line-height: 1.2; }
+  .chip-hot { background: color-mix(in srgb, var(--blaze) 16%, transparent); color: var(--blaze-ink); }
+  .chip-olive { background: color-mix(in srgb, var(--olive) 34%, transparent); color: var(--olive-ink); }
+  .score-pill { min-width: 2.7rem; text-align: center; padding: 0.15rem 0.45rem; border-radius: 3px; font-family: var(--display); font-size: 1.1rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; background: var(--tint); color: var(--ink); line-height: 1.3; }
+  .pips { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .pips i { width: 4px; background: var(--line-2); border-radius: 1px; }
+  .pips i.on { background: var(--blaze); }
+  .lvl { display: inline-flex; align-items: center; gap: 0.45rem; font-family: var(--display); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; }
+  .stat { border: 1px solid var(--line-2); border-radius: 4px; padding: 0.42rem 0.55rem; background: color-mix(in srgb, var(--bg) 45%, transparent); min-width: 0; }
+  .stat .v { display: block; font-family: var(--display); font-weight: 700; font-size: 1.3rem; line-height: 1.05; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .l { display: block; font-family: var(--display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Dashboard */
+  .hero { padding: 1rem 1rem 0.9rem; background: linear-gradient(160deg, color-mix(in srgb, var(--olive) 30%, var(--surface)) 0%, var(--surface) 62%); border-color: var(--line-2); }
+  .big { font-family: var(--display); font-size: 4.4rem; font-weight: 600; line-height: 0.82; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .big-of { font-family: var(--display); font-size: 1.15rem; font-weight: 600; color: var(--ink-3); margin-left: 0.15rem; }
+  .rank { font-family: var(--display); font-size: 1.5rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; }
+  .tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.4rem; }
+  .tool { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; padding: 0.55rem 0.1rem 0.45rem; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; color: var(--olive-ink); }
+  .tool span { font-family: var(--display); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
+  .banner { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid var(--line-2);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--blaze) 12%, var(--surface)) 0%, var(--surface) 70%); color: var(--ink); }
+  .banner .ic { width: 2.9rem; height: 2.9rem; flex: none; display: grid; place-items: center; border-radius: 4px; background: color-mix(in srgb, var(--blaze) 14%, transparent); color: var(--blaze-ink); }
+  .banner b { display: block; font-family: var(--display); font-size: 1.32rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.05; }
+  .banner.plain { background: var(--surface); }
+  .banner.plain .ic { background: var(--tint); color: var(--olive-ink); }
+
+  /* Animal rows (home) and call rows (an animal's page) */
+  .tile { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.7rem 0; color: var(--ink); }
+  .tile .badge { width: 3rem; height: 3rem; flex: none; border-radius: 4px; display: grid; place-items: center; background: var(--tint); color: var(--olive-ink); }
+  .tile b { display: block; font-family: var(--display); font-size: 1.22rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
+  .tile .sub { display: block; font-size: 0.86rem; color: var(--ink-2); line-height: 1.3; margin-top: 0.1rem; }
+  .call-row { display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.8rem 0; color: var(--ink); }
+  .call-row .nm { font-family: var(--display); font-size: 1.22rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
+  .chev { color: var(--ink-3); flex: none; }
+
+  /* Lesson */
+  .lesson-head { padding: 1.1rem 1rem 1rem; margin: -1rem -14px 0; border-bottom: 1px solid var(--line); }
+  .kv { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.5rem; align-items: start; }
+  .kv svg { margin-top: 0.15rem; color: var(--olive-ink); }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.5rem; align-items: baseline; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+  ol.steps li:first-child { border-top: 0; padding-top: 0.2rem; }
+  ol.steps li::before { content: counter(s, decimal-leading-zero); font-family: var(--display); font-weight: 800; font-size: 1.3rem; letter-spacing: 0.02em; color: var(--blaze-ink); font-variant-numeric: tabular-nums; }
+  ul.dots { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  ul.miss { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+  ul.miss li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.45rem; align-items: start; }
+  ul.miss svg { color: var(--bad-ink); margin-top: 0.15rem; }
+  .say { font-family: var(--display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blaze-ink); }
+  .note-box { border-left: 3px solid var(--olive); padding: 0.15rem 0 0.15rem 0.8rem; }
+  .note-box.hot { border-left-color: var(--blaze); }
+  .drill { border-left: 3px solid var(--blaze); background: var(--surface-2); }
+  .sticky-cta { position: fixed; left: 0; right: 0; bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px)); padding: 0.6rem 14px 0.55rem; z-index: 5;
+    background: linear-gradient(to top, var(--bg) 72%, transparent); }
+  .sticky-cta > div { max-width: 34rem; margin: 0 auto; }
+
+  /* Players */
+  .play { display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left; background: none; border: 0; padding: 0.3rem 0; color: var(--ink); }
+  .play .disc { width: 2.7rem; height: 2.7rem; border-radius: 4px; display: grid; place-items: center; flex: none; background: var(--blaze); color: var(--on-blaze); }
+  .play.ghosty .disc { background: var(--tint); color: var(--ink); }
+  .play b { font-weight: 600; }
+
+  /* Charts */
+  .chart { position: relative; }
+  .chart svg, .chart canvas { display: block; width: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.82rem; color: var(--ink-2); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .legend i { display: inline-block; vertical-align: middle; margin-right: 0.35rem; border-radius: 2px; }
+  .readout { min-height: 1.3rem; font-size: 0.85rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  table.notes { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+  table.notes th, table.notes td { text-align: left; padding: 0.35rem 0.3rem; border-bottom: 1px solid var(--line); }
+  table.notes th { color: var(--ink-3); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.78rem; }
+  details > summary { cursor: pointer; color: var(--ink-2); font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.85rem; }
+
+  /* Score */
+  .hero-num { font-family: var(--display); font-size: 5rem; font-weight: 600; line-height: 0.8; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .hero-of { font-family: var(--display); font-size: 1.15rem; color: var(--ink-3); font-weight: 600; }
+  .verdict { font-family: var(--display); font-size: 1.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; }
+  .meter { position: relative; height: 6px; border-radius: 1px; background: var(--tint); overflow: hidden; }
+  .meter > i { display: block; height: 100%; }
+  .meter-s { height: 4px; }
+  .meter-seg { height: 10px; }
+  .meter-seg::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0 calc(10% - 3px), var(--surface) calc(10% - 3px) 10%); }
+  .part { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.3rem 0.55rem; align-items: center; padding: 0.6rem 0; }
+  .part .lab { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; font-size: 0.95rem; }
+  .part .lab b { font-family: var(--display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.05em; text-transform: uppercase; }
+  .part .val { color: var(--ink-2); font-size: 0.86rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .part .meter { grid-column: 2; }
+  .st-good { color: var(--good-ink); } .st-warn { color: var(--warn-ink); } .st-bad { color: var(--bad-ink); }
+  .tip { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.5rem; align-items: start; padding: 0.75rem 0.85rem; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--blaze); border-radius: 4px; }
+  .tip .n { font-family: var(--display); font-weight: 800; font-size: 1.5rem; line-height: 1; color: var(--blaze-ink); font-variant-numeric: tabular-nums; }
+  .good-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .good-chips .chip { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good-ink); }
+
+  /* Tab bar */
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 94%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .tabs nav { max-width: 34rem; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tabs button { position: relative; background: none; border: 0; display: flex; flex-direction: column; align-items: center; gap: 0.12rem; padding: 0.55rem 0 0.5rem;
+    font-family: var(--display); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  .tabs button[aria-current="page"] { color: var(--blaze-ink); }
+  .tabs button[aria-current="page"]::before { content: ""; position: absolute; top: -1px; left: 30%; right: 30%; height: 2px; background: var(--blaze); }
+
+  /* Recorder */
+  .sheet { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column; overflow-y: auto; isolation: isolate; }
+  .sheet::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--topo);
+    -webkit-mask: url(img/topo.svg) 0 0 / 560px repeat; mask: url(img/topo.svg) 0 0 / 560px repeat; }
+  .sheet-in { max-width: 34rem; width: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 14px calc(env(safe-area-inset-bottom, 0px) + 1.2rem);
+    flex: 1; display: flex; flex-direction: column; gap: 1rem; }
+  .rec-btn { width: 7.4rem; height: 7.4rem; border-radius: 50%; border: 0; background: var(--blaze); color: var(--on-blaze); display: grid; place-items: center;
+    box-shadow: 0 0 0 6px var(--bg), 0 0 0 8px color-mix(in srgb, var(--blaze) 55%, transparent); }
+  .rec-btn.on { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--bg), 0 0 0 16px color-mix(in srgb, var(--blaze) 22%, transparent); } }
+  .timer { font-family: var(--display); font-size: 3.6rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .rec-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--bad); margin-right: 0.45rem; vertical-align: 0.3rem; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+  .spinner { width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 3px solid var(--tint); border-top-color: var(--blaze); animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .rec-btn.on, .spinner, .rec-dot { animation: none; } }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); z-index: 40; background: var(--ink); color: var(--bg);
+    padding: 0.6rem 1rem; border-radius: 4px; font-weight: 600; font-size: 0.95rem; max-width: calc(100% - 28px); }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px; gap: 3px; flex-wrap: wrap; }
+  .seg button { border: 0; background: none; padding: 0.45rem 0.85rem; border-radius: 3px; font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+  .seg button[aria-pressed="true"] { background: var(--olive); color: var(--on-olive); }
+  .credit { font-size: 0.86rem; color: var(--ink-2); }
+  .credit b { color: var(--ink); font-weight: 600; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [id^="g-"] { scroll-margin-top: calc(4rem + env(safe-area-inset-top, 0px)); }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script>
+/* htm 3.1.1 — JSX-like templates with no build step. (c) Jason Miller,
+   Apache License 2.0, https://github.com/developit/htm */
+!function(n,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):n.htm=e()}(this,function(){var n=function(e,t,u,s){var r;t[0]=0;for(var p=1;p<t.length;p++){var h=t[p++],o=t[p]?(t[0]|=h?1:2,u[t[p++]]):t[++p];3===h?s[0]=o:4===h?s[1]=Object.assign(s[1]||{},o):5===h?(s[1]=s[1]||{})[t[++p]]=o:6===h?s[1][t[++p]]+=o+"":h?(r=e.apply(o,n(e,o,u,["",null])),s.push(r),o[0]?t[0]|=2:(t[p-2]=0,t[p]=r)):s.push(o)}return s},e=new Map;return function(t){var u=e.get(this);return u||(u=new Map,e.set(this,u)),(u=n(this,u.get(t)||(u.set(t,u=function(n){for(var e,t,u=1,s="",r="",p=[0],h=function(n){1===u&&(n||(s=s.replace(/^\s*\n\s*|\s*\n\s*$/g,"")))?p.push(0,n,s):3===u&&(n||s)?(p.push(3,n,s),u=2):2===u&&"..."===s&&n?p.push(4,n,0):2===u&&s&&!n?p.push(5,0,!0,s):u>=5&&((s||!n&&5===u)&&(p.push(u,0,s,t),u=6),n&&(p.push(u,n,0,t),u=6)),s=""},o=0;o<n.length;o++){o&&(1===u&&h(),h(o));for(var f=0;f<n[o].length;f++)e=n[o][f],1===u?"<"===e?(h(),p=[p],u=3):s+=e:4===u?"--"===s&&">"===e?(u=1,s=""):s=e+s[0]:r?e===r?r="":s+=e:'"'===e||"'"===e?r=e:">"===e?(h(),u=1):u&&("="===e?(u=5,t=s,s=""):"/"===e&&(u<5||">"===n[o][f+1])?(h(),3===u&&(p=p[0]),u=p,(p=p[0]).push(2,0,u),u=0):" "===e||"\t"===e||"\n"===e||"\r"===e?(h(),u=2):s+=e),3===u&&"!--"===s&&(u=4,p=p[0])}return h(),p}(t)),u),arguments,[])).length>1?u:u[0]}});
+</script>
+<script src="calls.js"></script>
+<script src="analysis.js"></script>
+</head>
+<body>
+<div id="root"><div class="boot">Loading Call of the Wild…</div></div>
+<script>
+/* Installed-app plumbing. Plain JS on purpose: it should run even if React never arrives. */
+(function () {
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+  }
+})();
+</script>
+<script>
+(function () {
+"use strict";
+if (!window.React || !window.ReactDOM || !window.htm || !window.CALLWILD || !window.CallAnalysis) {
+  document.getElementById("root").innerHTML = '<div class="boot">Call of the Wild needs a connection the first time it opens. Check your signal and reload.</div>';
+  return;
+}
+var R = React, h = R.createElement, html = htm.bind(h);
+var useState = R.useState, useEffect = R.useEffect, useRef = R.useRef, useMemo = R.useMemo, useCallback = R.useCallback, useLayoutEffect = R.useLayoutEffect;
+var DATA = window.CALLWILD, CA = window.CallAnalysis;
+var SPECIES = {}; DATA.species.forEach(function (s) { SPECIES[s.id] = s; });
+var GROUPS = DATA.groups || [{ id: "all", name: "Animals" }];
+// a call is only listed when there is a real recording of it to hear
+function listed(c) { return !!(c && c.listen && c.listen.length); }
+function callsOf(s) { return s.calls.filter(function (id) { return listed(DATA.calls[id]); }); }
+var LEVELS = { 1: "Start here", 2: "Next step", 3: "Advanced", 4: "Expert" };
+
+/* ------------------------------------------------------------------ */
+/* Storage: attempt history in localStorage, recordings in IndexedDB.   */
+/* Both can be missing (private windows, blocked storage); the app      */
+/* still works, it just forgets.                                        */
+/* ------------------------------------------------------------------ */
+var KEY = "callwild.v1";
+function loadStore() {
+  try { var raw = localStorage.getItem(KEY); if (raw) { var s = JSON.parse(raw); if (s && s.attempts) return s; } } catch (e) {}
+  return { attempts: [], settings: { theme: "field" }, intro: false };
+}
+/* Dark ("field") unless daylight or the phone's own setting was picked. Older
+   saves said "auto", "light" or "dark". */
+function themeOf(st) { var t = st && st.theme; return t === "day" || t === "light" ? "day" : t === "phone" ? "phone" : "field"; }
+function saveStore(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+var IDB = (function () {
+  var dbp = null;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise(function (res, rej) {
+      try {
+        var rq = indexedDB.open("callwild", 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore("audio"); };
+        rq.onsuccess = function () { res(rq.result); };
+        rq.onerror = function () { rej(rq.error); };
+      } catch (e) { rej(e); }
+    });
+    return dbp;
+  }
+  function tx(mode, fn) {
+    return open().then(function (db) {
+      return new Promise(function (res, rej) {
+        var t = db.transaction("audio", mode), st = t.objectStore("audio"), out = fn(st);
+        t.oncomplete = function () { res(out && out.result); };
+        t.onerror = function () { rej(t.error); };
+      });
+    });
+  }
+  return {
+    put: function (k, v) { return tx("readwrite", function (st) { st.put(v, k); }).catch(function () {}); },
+    get: function (k) { return tx("readonly", function (st) { return st.get(k); }).catch(function () { return null; }); },
+    del: function (k) { return tx("readwrite", function (st) { st.delete(k); }).catch(function () {}); },
+    clear: function () { return tx("readwrite", function (st) { st.clear(); }).catch(function () {}); }
+  };
+})();
+
+/* ------------------------------------------------------------------ */
+/* Audio                                                                */
+/* ------------------------------------------------------------------ */
+var AC = window.AudioContext || window.webkitAudioContext;
+var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+/* Playback only. Recording gets its own context, closed the moment it stops:
+   on iPhone, a context that has touched the microphone keeps the phone in
+   call mode, and anything played through it comes out of the earpiece —
+   quietly enough to sound like nothing at all. */
+var Sound = {
+  _ctx: null,
+  ctx: function () { if (!this._ctx && AC) this._ctx = new AC(); return this._ctx; },
+  // iOS only lets audio start inside the tap that asked for it: call this first thing in a click handler.
+  // "interrupted" (iOS, after a call or the mic) needs a resume just as "suspended" does.
+  unlock: function () { var c = this.ctx(); if (c && c.state !== "running") { try { c.resume(); } catch (e) {} } return c; }
+};
+
+var WORKLET = "class CwCapture extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}" +
+  "process(i){var c=i[0]&&i[0][0];if(c){for(var k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===this.b.length){this.port.postMessage(this.b);this.b=new Float32Array(2048);this.n=0}}}return true}}" +
+  "registerProcessor('cw-capture',CwCapture);";
+
+var Capture = {
+  workletOn: null,
+  start: function () {
+    // a fresh context per recording, created inside the tap so iOS lets it run
+    var ctx = AC ? new AC() : null;
+    if (!ctx) return Promise.reject({ code: "unsupported" });
+    try { ctx.resume(); } catch (e) {}
+    var drop = function (err) { try { ctx.close(); } catch (e) {} throw err; };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject({ code: location.protocol === "https:" || location.hostname === "localhost" ? "unsupported" : "insecure" }).catch(drop);
+    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } })
+      .then(function (stream) {
+        // phone call-processing would treat a duck call as noise and scrub it out, so it is all switched off above
+        var src = ctx.createMediaStreamSource(stream), chunks = [], listener = null, node = null, sink = ctx.createGain(), done = false;
+        sink.gain.value = 0;
+        function take(buf) {
+          if (done) return;
+          chunks.push(buf);
+          if (listener) { var s = 0; for (var i = 0; i < buf.length; i++) s += buf[i] * buf[i]; listener(10 * Math.log10(s / buf.length + 1e-10)); }
+        }
+        function viaProcessor() {
+          node = ctx.createScriptProcessor(4096, 1, 1);
+          node.onaudioprocess = function (ev) { take(new Float32Array(ev.inputBuffer.getChannelData(0))); };
+          src.connect(node); node.connect(sink); sink.connect(ctx.destination);
+        }
+        var ready;
+        if (ctx.audioWorklet && window.AudioWorkletNode && Capture.workletOn !== false) {
+          // the module belongs to the context, and every recording has a new one
+          var mod = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+          ready = mod.then(function () {
+            Capture.workletOn = true;
+            node = new AudioWorkletNode(ctx, "cw-capture");
+            node.port.onmessage = function (e) { take(e.data); };
+            src.connect(node); node.connect(sink); sink.connect(ctx.destination);
+          }).catch(function () { Capture.workletOn = false; viaProcessor(); });
+        } else { viaProcessor(); ready = Promise.resolve(); }
+        return ready.then(function () {
+          function finish() {
+            done = true;
+            try { src.disconnect(); } catch (e) {}
+            try { node && node.disconnect(); } catch (e) {}
+            try { sink.disconnect(); } catch (e) {}
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            // closing it is what hands the phone's audio back from call mode to the speaker
+            try { ctx.close(); } catch (e) {}
+          }
+          return {
+            rate: ctx.sampleRate,
+            onLevel: function (f) { listener = f; },
+            stop: function () {
+              finish();
+              var n = 0; chunks.forEach(function (c) { n += c.length; });
+              var out = new Float32Array(n), o = 0;
+              chunks.forEach(function (c) { out.set(c, o); o += c.length; });
+              return { samples: out, rate: ctx.sampleRate };
+            },
+            cancel: finish
+          };
+        });
+      }, drop);
+  }
+};
+
+/* 16-bit mono WAV, stored at 22.05 kHz: small, and every phone can play it back. */
+var STORE_RATE = 22050;
+function toWav(samples, rate) {
+  var x = rate === STORE_RATE ? samples : CA._.resample(samples, rate, STORE_RATE);
+  var buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
+  function str(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+  str(0, "RIFF"); v.setUint32(4, 36 + x.length * 2, true); str(8, "WAVE"); str(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, STORE_RATE, true); v.setUint32(28, STORE_RATE * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, x.length * 2, true);
+  for (var i = 0; i < x.length; i++) { var s = Math.max(-1, Math.min(1, x[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([buf], { type: "audio/wav" });
+}
+function fromWav(blob) {
+  return blob.arrayBuffer().then(function (ab) {
+    var v = new DataView(ab), rate = v.getUint32(24, true), n = (ab.byteLength - 44) >> 1, x = new Float32Array(n);
+    for (var i = 0; i < n; i++) x[i] = v.getInt16(44 + i * 2, true) / 32768;
+    return { samples: x, rate: rate };
+  });
+}
+
+function decode(ab) {
+  var c = OAC ? new OAC(1, 2, 44100) : Sound.ctx();
+  return new Promise(function (res, rej) {
+    var p = c.decodeAudioData(ab, res, rej);
+    if (p && p.then) p.then(res, rej);
+  });
+}
+var clipCache = {};
+function loadClip(id) {
+  if (!clipCache[id]) {
+    clipCache[id] = fetch("sounds/" + id + ".mp3").then(function (r) { if (!r.ok) throw new Error("clip"); return r.arrayBuffer(); })
+      .then(decode).then(function (b) { return { samples: b.getChannelData(0), rate: b.sampleRate, dur: b.duration }; })
+      .catch(function (e) { delete clipCache[id]; throw e; });
+  }
+  return clipCache[id];
+}
+
+/* One thing plays at a time. Components subscribe to know what, and how far in. */
+var Player = {
+  cur: null, subs: [],
+  sub: function (f) { var s = this.subs; s.push(f); return function () { var i = s.indexOf(f); if (i >= 0) s.splice(i, 1); }; },
+  emit: function () { var c = this.cur; this.subs.slice().forEach(function (f) { f(c); }); },
+  stop: function () { var c = this.cur; this.cur = null; if (c) { try { c.halt(); } catch (e) {} } this.emit(); },
+  ended: function (id) { if (this.cur && this.cur.id === id) { this.cur = null; this.emit(); } },
+  startedAt: function () { return this.cur ? (performance.now() - this.cur.t0) / 1000 : 0; },
+  url: function (id, url) {
+    this.stop();
+    var a = new Audio(url), self = this;
+    a.onended = function () { self.ended(id); };
+    a.onerror = function () { self.ended(id); };
+    this.cur = { id: id, t0: performance.now(), dur: 0, el: a, halt: function () { a.pause(); } };
+    a.onloadedmetadata = function () { if (self.cur && self.cur.id === id) { self.cur.dur = a.duration; self.emit(); } };
+    var p = a.play(); if (p && p.catch) p.catch(function () { self.ended(id); });
+    this.emit();
+  },
+  samples: function (id, x, rate) {
+    this.stop();
+    var ctx = Sound.unlock(); if (!ctx) return;
+    var b = ctx.createBuffer(1, x.length, rate); b.getChannelData(0).set(x);
+    var s = ctx.createBufferSource(), self = this; s.buffer = b; s.connect(ctx.destination);
+    s.onended = function () { self.ended(id); };
+    s.start();
+    this.cur = { id: id, t0: performance.now(), dur: x.length / rate, halt: function () { try { s.stop(); } catch (e) {} } };
+    this.emit();
+  },
+  /* The rhythm guide: the target pattern played as tones. Timing and pitch
+     shape only — it is a metronome with a melody, not an animal. */
+  pattern: function (id, ghost, base) {
+    this.stop();
+    var ctx = Sound.unlock(); if (!ctx) return;
+    var t0 = ctx.currentTime + 0.06, out = ctx.createGain(), lp = ctx.createBiquadFilter(), oscs = [];
+    out.gain.value = 0.16; lp.type = "lowpass"; lp.frequency.value = Math.min(4000, base * 4); lp.connect(out); out.connect(ctx.destination);
+    var hz = function (s) { return base * Math.pow(2, s / 12); };
+    ghost.forEach(function (q) {
+      var o = ctx.createOscillator(), g = ctx.createGain(), st = t0 + q.t, en = st + q.d, v = q.v === undefined ? 1 : q.v;
+      o.type = "sawtooth";
+      if (q.path) q.path.forEach(function (p, i) { var tt = st + p[0] * q.d; if (i === 0) o.frequency.setValueAtTime(hz(q.s + p[1]), tt); else o.frequency.linearRampToValueAtTime(hz(q.s + p[1]), tt); });
+      else o.frequency.setValueAtTime(hz(q.s), st);
+      g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(v, st + 0.008);
+      g.gain.setValueAtTime(v, Math.max(st + 0.01, en - 0.02)); g.gain.linearRampToValueAtTime(0, en);
+      if (q.roll) { var lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 24; lg.gain.value = 0.5 * v; lfo.connect(lg); lg.connect(g.gain); lfo.start(st); lfo.stop(en); oscs.push(lfo); }
+      o.connect(g); g.connect(lp); o.start(st); o.stop(en + 0.03); oscs.push(o);
+    });
+    var total = Math.max.apply(null, ghost.map(function (q) { return q.t + q.d; })) + 0.12, self = this;
+    var timer = setTimeout(function () { self.ended(id); }, total * 1000 + 80);
+    this.cur = { id: id, t0: performance.now() + 60, dur: total, halt: function () { clearTimeout(timer); oscs.forEach(function (o) { try { o.stop(); } catch (e) {} }); try { out.disconnect(); } catch (e) {} } };
+    this.emit();
+  }
+};
+function usePlaying() {
+  var st = useState(Player.cur ? Player.cur.id : null), setId = st[1];
+  useEffect(function () { return Player.sub(function (c) { setId(c ? c.id : null); }); }, []);
+  return st[0];
+}
+
+/* ------------------------------------------------------------------ */
+/* Small helpers                                                        */
+/* ------------------------------------------------------------------ */
+function go(path) { if (location.hash !== "#" + path) location.hash = path; }
+function ago(t) {
+  var s = (Date.now() - t) / 1000;
+  if (s < 60) return "just now"; if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago"; if (s < 86400 * 7) return Math.round(s / 86400) + " d ago";
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function secs(s) { return (Math.round(s * 10) / 10).toFixed(1) + " s"; }
+function band(score) { return score >= 70 ? "good" : score >= 50 ? "warn" : "bad"; }
+function partBand(s) { return s >= 0.8 ? "good" : s >= 0.55 ? "warn" : "bad"; }
+function bandColor(b) { return b === "good" ? "var(--good)" : b === "warn" ? "var(--warn)" : "var(--bad)"; }
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function hex2rgb(c) {
+  c = c.replace("#", ""); if (c.length === 3) c = c.split("").map(function (x) { return x + x; }).join("");
+  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
+}
+function useWidth() {
+  var ref = useRef(null), st = useState(0);
+  useLayoutEffect(function () {
+    var el = ref.current; if (!el) return;
+    st[1](el.clientWidth);
+    if (!window.ResizeObserver) return;
+    var ro = new ResizeObserver(function () { st[1](el.clientWidth); });
+    ro.observe(el);
+    return function () { ro.disconnect(); };
+  }, []);
+  return [ref, st[0]];
+}
+// theme changes (system or setting) repaint the canvas charts
+var themeTick = { n: 0, subs: [] };
+function bumpTheme() { themeTick.n++; themeTick.subs.forEach(function (f) { f(themeTick.n); }); }
+if (window.matchMedia) { var mq = window.matchMedia("(prefers-color-scheme: dark)"); if (mq.addEventListener) mq.addEventListener("change", bumpTheme); }
+function useThemeTick() {
+  var st = useState(themeTick.n);
+  useEffect(function () { var f = function (n) { st[1](n); }; themeTick.subs.push(f); return function () { themeTick.subs.splice(themeTick.subs.indexOf(f), 1); }; }, []);
+  return st[0];
+}
+
+/* ------------------------------------------------------------------ */
+/* Icons                                                                */
+/* ------------------------------------------------------------------ */
+var ICONS = {
+  play: "M8 5.5v13l11-6.5z", stop: "M7 7h10v10H7z",
+  back: "M15 5l-7 7 7 7", chev: "M9 5l7 7-7 7",
+  calls: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2",
+  scores: "M4 20h16M7 16v-4M12 16V7M17 16v-7",
+  info: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v6M12 7.5v.5",
+  check: "M5 12.5l4.5 4.5L19 7.5", bang: "M12 6v7.5M12 17v.5", cross: "M7 7l10 10M17 7L7 17",
+  close: "M6 6l12 12M18 6L6 18",
+  clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7.5V12l3 2",
+  bag: "M5.5 8.5h13l-1 11.5h-11zM9 8.5V7a3 3 0 016 0v1.5",
+  timer: "M12 21a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM12 10v4l2 1.5M9.5 2.5h5M12 2.5v3",
+  share: "M12 4v11M8 8l4-4 4 4M5 13v6.5h14V13",
+  retry: "M5 12a7 7 0 1 0 2.1-5M5 4v4h4", trash: "M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"
+};
+ICONS.learn = ICONS.calls; ICONS.progress = ICONS.scores; ICONS.about = ICONS.info;
+function Icon(p) {
+  var size = p.size || 22;
+  if (p.name === "mic") return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth=${p.w || 2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21"/></svg>`;
+  var fill = p.name === "play" || p.name === "stop";
+  return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill=${fill ? "currentColor" : "none"} stroke=${fill ? "none" : "currentColor"}
+    strokeWidth=${p.w || 2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d=${ICONS[p.name]}/></svg>`;
+}
+
+/* The mark: a duck call — mouthpiece, barrel, insert — sounding off. Solid
+   and square-shouldered in blaze orange; it holds up from a home-screen icon
+   down to the top bar. */
+function Mark(p) {
+  var s = p.size || 28, c = p.color || "var(--blaze)";
+  return html`<svg width=${s} height=${s} viewBox="0 0 32 32" aria-hidden="true">
+    <g transform="rotate(-28 16 16)">
+      <g fill=${c}><path d="M1.6 14.3h4.6l1.3-1.2v5.8l-1.3-1.2H1.6z"/><rect x="7.2" y="11.6" width="11.4" height="8.8" rx="1.6"/><rect x="19.5" y="12.5" width="4.6" height="7" rx="0.8"/></g>
+      <path d="M26.4 13.4a3.3 3.3 0 010 5.2M28.4 11a6.4 6.4 0 010 10" fill="none" stroke=${c} strokeWidth="1.9" strokeLinecap="round"/>
+    </g>
+  </svg>`;
+}
+
+/* The bar across the top of every screen: the mark on the home screen, a back
+   arrow and where you are everywhere else. */
+function TopBar(p) {
+  var left = p.back ? html`<button className="tb-back" aria-label="Back" onClick=${function () { go(p.back); }}><${Icon} name="back" size="24" w="2.2"/></button>
+      <div className="tb-title">${p.title}</div>` :
+    p.title ? html`<div className="tb-title" style=${{ paddingLeft: "8px" }}>${p.title}</div>` :
+    html`<div className="brand"><${Mark} size="30"/><h1 className="wordmark">Call <small>of the</small> Wild</h1></div>`;
+  return html`<header className="topbar"><div className="topbar-in">${left}${p.right || null}</div></header>`;
+}
+
+/* How hard a call is, as four rising bars, with its name beside them. */
+function Pips(p) {
+  var n = p.level || 1;
+  return html`<span className="lvl" aria-label=${"Level " + n + " of 4: " + LEVELS[n]}><span className="pips" aria-hidden="true">${[1, 2, 3, 4].map(function (k) {
+    return html`<i key=${k} className=${k <= n ? "on" : ""} style=${{ height: (3 + k * 3) + "px" }}></i>`; })}</span>${p.label === false ? null : LEVELS[n]}</span>`;
+}
+
+/* Species marks: simple line drawings, one stroke weight, so the grid reads as a set. */
+function Critter(p) {
+  var s = p.size || 34, k = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" };
+  var art = {
+    duck: html`<g ...${k}><path d="M9 31c0-5 6-7.5 12-6.5l12.5.3c4.2 0 7.3-1.6 9.5-4.3.6 7-3.3 13.5-12.5 14.4H17c-4.6 0-8-1.6-8-3.9z"/><circle cx="16" cy="17.5" r="5.6"/><path d="M10.6 18.4L5 20l5.8 1.4"/><path d="M6 41.5c3-1.6 6-1.6 9 0s6 1.6 9 0 6-1.6 9 0 6 1.6 9 0"/></g><circle cx="15.3" cy="16.2" r="1.2" fill="currentColor"/>`,
+    goose: html`<g ...${k}><path d="M15 34.5c0-5.5 6.5-8 14-7.5 7.5.5 13 3 14 7.5-4 3.6-20 4.4-28 0z"/><path d="M19 29.5c-2.6-4.6-3.6-10-3.4-16.5" strokeWidth="4.2"/><circle cx="14.8" cy="10.3" r="3.6"/><path d="M11.4 10.6L6.5 12.3l5.2.6"/><path d="M6 41.5c3-1.6 6-1.6 9 0s6 1.6 9 0 6-1.6 9 0 6 1.6 9 0"/></g>`,
+    turkey: html`<g ...${k}><path d="M9.5 31a16.5 16.5 0 0133 0"/><path d="M26 31L14.5 19.3M26 31l-5-15.5M26 31V14.5M26 31l5-15.5M26 31l11.5-11.7"/><circle cx="21" cy="31.5" r="6.8" fill="var(--tint)"/><path d="M16.5 27c-2.6-3-3.3-7.4-2.5-11.2"/><circle cx="14.2" cy="13.6" r="2.4"/><path d="M12.4 15.4c-1 2.4-.6 4.6.8 6.2"/><path d="M19.5 38.3L18.6 44M23 38.3l.9 5.7"/></g>`,
+    elk: html`<g ...${k}><path d="M20 23c-1 7.5 1 14 4 18.5 3-4.5 5-11 4-18.5-1.6-2-6.4-2-8 0z"/><path d="M20.2 24l-6.5-2.6M27.8 24l6.5-2.6"/><path d="M21.6 21.4C18 15 14 9.5 7 5.6M17.4 14.8L10.5 15M14.2 10.6l-5 .8M18.6 17.2l-3.4-7.6"/><path d="M26.4 21.4C30 15 34 9.5 41 5.6M30.6 14.8l6.9.2M33.8 10.6l5 .8M29.4 17.2l3.4-7.6"/></g>`,
+    deer: html`<g ...${k}><path d="M20 25c-1 6.8 1 12.4 4 16.5 3-4.1 5-9.7 4-16.5-1.6-1.9-6.4-1.9-8 0z"/><path d="M20.3 26.2c-4.8.6-8.6-1.4-10.3-4.1 4.2-1.6 8.2-.6 10.4 1.6M27.7 26.2c4.8.6 8.6-1.4 10.3-4.1-4.2-1.6-8.2-.6-10.4 1.6"/><path d="M21.7 23C20.5 17 17.3 13.4 12.6 12.7M18.4 15.8l.4-6.2M15.3 13.4l-1.2-5"/><path d="M26.3 23c1.2-6 4.4-9.6 9.1-10.3M29.6 15.8l-.4-6.2M32.7 13.4l1.2-5"/></g>`,
+    predator: html`<g ...${k}><path d="M24 26c6 0 10.5 6.8 8.6 10.6-1.7 3.2-5.6 1.9-8.6 1.9s-6.9 1.3-8.6-1.9C13.5 32.8 18 26 24 26z"/><ellipse cx="13.2" cy="20.5" rx="3.1" ry="4.3" transform="rotate(-22 13.2 20.5)"/><ellipse cx="20" cy="13.5" rx="3.1" ry="4.3" transform="rotate(-8 20 13.5)"/><ellipse cx="28" cy="13.5" rx="3.1" ry="4.3" transform="rotate(8 28 13.5)"/><ellipse cx="34.8" cy="20.5" rx="3.1" ry="4.3" transform="rotate(22 34.8 20.5)"/></g>`,
+    moose: html`<g ...${k}><path d="M19.5 23.5c-.6 7.4 1.3 12.6 4.5 16.5 3.2-3.9 5.1-9.1 4.5-16.5-1.7-2.2-7.3-2.2-9 0z"/><path d="M24 40.2v3.6M20 24.6l-5.4-1.3M28 24.6l5.4-1.3"/><path d="M20.4 22.3c-3.8-4.1-9.7-4.9-14.7-3.3.2 3.6 3.2 6.3 7.2 6.5M5.9 19.1l-1.4-4.2M8.9 18.1l-.6-4.6M12 17.6l.6-4.3M15.2 18.2l1.6-3.9"/><path d="M27.6 22.3c3.8-4.1 9.7-4.9 14.7-3.3-.2 3.6-3.2 6.3-7.2 6.5M42.1 19.1l1.4-4.2M39.1 18.1l.6-4.6M36 17.6l-.6-4.3M32.8 18.2l-1.6-3.9"/></g>`,
+    quail: html`<g ...${k}><path d="M11 30.5c0-7.4 6.6-12 14-12 7.3 0 12.4 4.7 13 10.7-2.9 5.5-9.7 8.6-17.2 8-6-.5-9.8-3.2-9.8-6.7z"/><circle cx="15" cy="19.5" r="5"/><path d="M10.2 19.7l-3.9 1.6 4.2.6M12.2 17.6c2.4-1.3 5-1.2 7.2.3M20 37.2l-1.4 5.6M25.6 37.4l1.2 5.4"/></g><circle cx="14.2" cy="19.6" r="1.1" fill="currentColor"/>`,
+    dove: html`<g ...${k}><path d="M7.5 27.5c3-4.5 8.5-6.4 14.3-5.8L39.5 14l-4.4 8.4c-.4 6.6-6.9 10.6-14.8 10.6-6.4 0-11.2-2.4-12.8-5.5z"/><circle cx="13.6" cy="22.3" r="3.6"/><path d="M10.1 22.6l-3.6 1.2 3.7.4M19 33l-1.3 6.5M24.5 33l.8 6.3"/></g><circle cx="13.1" cy="21.8" r="1" fill="currentColor"/>`,
+    locator: html`<g ...${k}><path d="M14 20c0-7.5 4.5-11 10-11s10 3.5 10 11v9c0 7.5-4.5 11-10 11s-10-3.5-10-11z"/><circle cx="19.3" cy="19.5" r="3.9"/><circle cx="28.7" cy="19.5" r="3.9"/><path d="M24 22.5l-1.4 3.2h2.8z"/><path d="M17.5 30c2 2.2 4.2 3.2 6.5 3.2s4.5-1 6.5-3.2M19 35c1.6 1 3.2 1.4 5 1.4s3.4-.4 5-1.4"/></g><circle cx="19.3" cy="19.5" r="1.3" fill="currentColor"/><circle cx="28.7" cy="19.5" r="1.3" fill="currentColor"/>`
+  };
+  var sp = SPECIES[p.id], key = (sp && sp.icon) || p.id;
+  return html`<svg width=${s} height=${s} viewBox="0 0 48 48" aria-hidden="true">${art[key] || art.duck}</svg>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Charts                                                               */
+/* ------------------------------------------------------------------ */
+
+/* Your notes against the target. Time runs left to right from each one's
+   first note; height is pitch in half-steps from that first note. The gray
+   lanes are the target; the blue marks are you. */
+function NoteMap(p) {
+  var mine = p.mine || [], ghost = p.ghost || [], shaped = !!p.shaped;
+  // Shaped calls are compared from where the first note starts (a honk's low
+  // "her", a yelp's high "kee"), the same place the target's shape starts.
+  if (shaped) {
+    var f0 = mine.filter(function (q) { return q.lev !== null && q.lev !== undefined && q.path && q.path.length; })[0];
+    var off = f0 ? f0.lev + f0.path[0][1] : 0;
+    if (off) mine = mine.map(function (q) { return Object.assign({}, q, { lev: q.lev === null || q.lev === undefined ? q.lev : q.lev - off }); });
+  }
+  var wr = useWidth(), ref = wr[0], W = wr[1] || 320, sel = useState(-1);
+  var H = p.height || 150, padL = 6, padR = 10, padT = 10, padB = 24;
+  var levelsOf = function (q, lev) { var out = [lev]; if (q.path) q.path.forEach(function (pt) { out.push(lev + pt[1]); }); return out; };
+  var all = [0];
+  ghost.forEach(function (q) { all = all.concat(levelsOf(q, q.s)); });
+  mine.forEach(function (q) { if (q.lev !== null && q.lev !== undefined) all = all.concat(shaped && q.path ? q.path.map(function (pt) { return q.lev + pt[1]; }) : [q.lev]); });
+  var lo = Math.min.apply(null, all) - 1.5, hi = Math.max.apply(null, all) + 1.5;
+  if (hi - lo < 10) { var c = (hi + lo) / 2; lo = c - 5; hi = c + 5; }
+  var T = Math.max(1, Math.max.apply(null, ghost.map(function (q) { return q.t + q.d; }).concat(mine.map(function (q) { return q.t + q.d; }))) + 0.15);
+  var x = function (t) { return padL + (W - padL - padR) * t / T; };
+  var y = function (s) { return padT + (H - padT - padB) * (hi - s) / (hi - lo); };
+  var step = T > 6 ? 2 : T > 2.5 ? 1 : 0.5, ticks = [];
+  for (var t = 0; t <= T + 1e-6; t += step) ticks.push(t);
+  var lane = 12, bar = 7;
+  // target paths are [fraction of the note, half-steps]; your paths are [seconds into the note, half-steps]
+  var noteLine = function (q, lev, inSeconds) {
+    if (!q.path || !q.path.length) return null;
+    var pts = q.path.map(function (pt) { return [x(q.t + (inSeconds ? pt[0] : pt[0] * q.d)), y(lev + pt[1])]; });
+    return pts.map(function (pt) { return pt[0].toFixed(1) + "," + pt[1].toFixed(1); }).join(" ");
+  };
+  var s = sel[0], picked = s >= 0 ? mine[s] : null;
+  return html`<div className="chart" ref=${ref}>
+    <svg width=${W} height=${H} role="img" aria-label=${p.label || "Your notes compared with the target pattern"}>
+      ${ticks.map(function (tk) { return html`<g key=${"t" + tk}><line x1=${x(tk)} x2=${x(tk)} y1=${padT} y2=${H - padB} stroke="var(--line)" strokeWidth="1"/>
+        <text x=${x(tk)} y=${H - 7} fontSize="11" fill="var(--ink-3)" textAnchor=${tk === 0 ? "start" : "middle"}>${tk === 0 ? "0" : (tk % 1 ? tk.toFixed(1) : tk) + " s"}</text></g>`; })}
+      ${ghost.map(function (q, i) {
+        var line = noteLine(q, q.s);
+        if (line) return html`<polyline key=${"g" + i} points=${line} fill="none" stroke="var(--ghost)" strokeWidth=${lane} strokeLinecap="round" strokeLinejoin="round"/>`;
+        return html`<rect key=${"g" + i} x=${x(q.t)} y=${y(q.s) - lane / 2} width=${Math.max(lane, x(q.t + q.d) - x(q.t))} height=${lane} rx="4" fill="var(--ghost)"/>`;
+      })}
+      ${mine.map(function (q, i) {
+        if (q.lev === null || q.lev === undefined) {
+          // a note too rough to place: drawn on the baseline, hollow
+          return html`<rect key=${"m" + i} x=${x(q.t)} y=${y(0) - bar / 2} width=${Math.max(4, x(q.t + q.d) - x(q.t))} height=${bar} rx="3" fill="none" stroke="var(--data)" strokeWidth="1.5" opacity=${s === -1 || s === i ? 1 : 0.45}/>`;
+        }
+        var line = shaped && q.path && q.path.length > 1 ? noteLine(q, q.lev, true) : null, op = s === -1 || s === i ? 1 : 0.45;
+        if (line) return html`<polyline key=${"m" + i} points=${line} fill="none" stroke="var(--data)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity=${op}/>`;
+        return html`<rect key=${"m" + i} x=${x(q.t)} y=${y(q.lev) - bar / 2} width=${Math.max(4, x(q.t + q.d) - x(q.t))} height=${bar} rx="3.5" fill="var(--data)" opacity=${op}/>`;
+      })}
+      <text x=${W - padR} y=${padT + 9} fontSize="11" fill="var(--ink-3)" textAnchor="end" stroke="var(--surface)" strokeWidth="3" paintOrder="stroke">higher ↑</text>
+      <text x=${W - padR} y=${H - padB - 4} fontSize="11" fill="var(--ink-3)" textAnchor="end" stroke="var(--surface)" strokeWidth="3" paintOrder="stroke">lower ↓</text>
+      ${mine.map(function (q, i) {
+        var lv = q.lev === null || q.lev === undefined ? 0 : q.lev;
+        return html`<rect key=${"h" + i} x=${x(q.t) - 4} y=${y(lv) - 14} width=${Math.max(14, x(q.t + q.d) - x(q.t)) + 8} height="28" fill="transparent"
+          tabIndex="0" role="button" aria-label=${"Note " + (i + 1)}
+          onPointerEnter=${function () { sel[1](i); }} onPointerLeave=${function () { sel[1](-1); }} onFocus=${function () { sel[1](i); }} onBlur=${function () { sel[1](-1); }}
+          onClick=${function () { sel[1](s === i ? -1 : i); }}/>`;
+      })}
+    </svg>
+    ${mine.length ? html`<div className="readout" aria-live="polite">${picked ? "Note " + (s + 1) + " · " + Math.round(picked.d * 1000) + " ms long · " +
+      (picked.lev === null || picked.lev === undefined ? "too rough to place" : Math.abs(picked.lev) < 0.5 ? "level with your first note" : Math.abs(picked.lev).toFixed(1) + " half-steps " + (picked.lev > 0 ? "above" : "below") + " your first note")
+      : "Tap a note for its numbers."}</div>` : null}
+  </div>`;
+}
+
+/* The colours of the sound pictures, from the theme: in the dark, a thermal
+   scope's ramp (quiet is the background, loud runs hot through red and orange
+   to white); in daylight, paper to ink. 256 RGB steps. */
+function specRamp() {
+  var stops = (css("--spec-stops") || "#000000 0, #ffffff 1").split(",").map(function (t) {
+    var m = t.trim().split(/\s+/); return [hex2rgb(m[0]), parseFloat(m[1])];
+  }), out = new Uint8ClampedArray(768);
+  for (var i = 0; i < 256; i++) {
+    var v = i / 255, k = 0;
+    while (k < stops.length - 2 && v > stops[k + 1][1]) k++;
+    var a = stops[k], b = stops[k + 1], f = b[1] > a[1] ? Math.max(0, Math.min(1, (v - a[1]) / (b[1] - a[1]))) : 0;
+    for (var ch = 0; ch < 3; ch++) out[i * 3 + ch] = a[0][ch] + (b[0][ch] - a[0][ch]) * f;
+  }
+  return out;
+}
+
+/* A picture of the sound (a spectrogram): low pitches at the bottom, high
+   at the top, hotter where it is louder. */
+function SoundPicture(p) {
+  var wr = useWidth(), ref = wr[0], W = wr[1] || 320, cv = useRef(null), H = p.height || 104, tick = useThemeTick();
+  var playing = usePlaying(), raf = useRef(0), headRef = useRef(null);
+  var spec = useMemo(function () { return p.samples ? CA.spectrogram(p.samples, p.rate, { fMax: p.fMax || 4000, dyn: 62 }) : null; }, [p.samples, p.rate, p.fMax]);
+  var dur = p.samples ? p.samples.length / p.rate : 0;
+  useEffect(function () {
+    var c = cv.current; if (!c || !spec || !W) return;
+    var dpr = Math.min(2, window.devicePixelRatio || 1), plotH = H - 18;
+    c.width = Math.round(W * dpr); c.height = Math.round(plotH * dpr); c.style.width = W + "px"; c.style.height = plotH + "px";
+    var g = c.getContext("2d"), img = g.createImageData(c.width, c.height), ramp = specRamp();
+    for (var px = 0; px < c.width; px++) {
+      var col = Math.min(spec.cols - 1, Math.floor(px / c.width * spec.cols));
+      for (var py = 0; py < c.height; py++) {
+        var row = Math.min(spec.rows - 1, Math.floor((1 - py / c.height) * spec.rows));
+        var k = 3 * Math.min(255, Math.round(255 * Math.pow(spec.data[col * spec.rows + row] / 255, 1.15))), o = (py * c.width + px) * 4;
+        img.data[o] = ramp[k]; img.data[o + 1] = ramp[k + 1]; img.data[o + 2] = ramp[k + 2]; img.data[o + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }, [spec, W, H, tick]);
+  // the playhead
+  useEffect(function () {
+    cancelAnimationFrame(raf.current);
+    var el = headRef.current; if (!el) return;
+    if (playing !== p.playId) { el.style.opacity = 0; return; }
+    var loop = function () {
+      var f = Math.min(1, Player.startedAt() / (dur || 1));
+      el.style.opacity = 1; el.style.transform = "translateX(" + (f * W) + "px)";
+      if (f < 1 && Player.cur && Player.cur.id === p.playId) raf.current = requestAnimationFrame(loop);
+    };
+    loop();
+    return function () { cancelAnimationFrame(raf.current); };
+  }, [playing, W, dur]);
+  var plotH = H - 18, step = dur > 6 ? 2 : dur > 2.5 ? 1 : 0.5, ticks = [];
+  for (var t = 0; t <= dur + 1e-6; t += step) ticks.push(t);
+  var band = p.mark ? [p.mark[0] / dur, p.mark[1] / dur] : null;
+  return html`<div className="chart" ref=${ref} style=${{ height: H + "px" }}>
+    ${spec ? null : html`<div className="muted small" style=${{ position: "absolute", top: "40%", width: "100%", textAlign: "center" }}>Loading…</div>`}
+    <canvas ref=${cv} role="img" aria-label=${p.label || "Picture of the sound"} style=${{ borderRadius: "3px", background: "var(--bg)", outline: "1px solid var(--line)" }}></canvas>
+    ${band ? html`<div style=${{ position: "absolute", top: 0, height: "3px", borderRadius: "2px", background: "var(--blaze)", left: (band[0] * 100) + "%", width: Math.max(1, (band[1] - band[0]) * 100) + "%" }} title="The part that was scored"></div>` : null}
+    <div ref=${headRef} style=${{ position: "absolute", top: 0, left: 0, width: "2px", height: plotH + "px", background: "var(--data)", opacity: 0, pointerEvents: "none" }}></div>
+    <svg width=${W} height="18" style=${{ position: "absolute", left: 0, top: plotH + "px" }} aria-hidden="true">
+      ${ticks.map(function (tk) { return html`<text key=${tk} x=${Math.min(W - 2, Math.max(0, tk / (dur || 1) * W))} y="13" fontSize="11" fill="var(--ink-3)" textAnchor=${tk === 0 ? "start" : "middle"}>${tk === 0 ? "0" : (tk % 1 ? tk.toFixed(1) : tk) + " s"}</text>`; })}
+    </svg>
+  </div>`;
+}
+
+function Sparkline(p) {
+  var v = p.values, W = p.width || 96, H = p.height || 30;
+  if (!v.length) return null;
+  var x = function (i) { return v.length === 1 ? W - 5 : 4 + (W - 9) * i / (v.length - 1); }, y = function (s) { return 4 + (H - 8) * (1 - s / 100); };
+  var pts = v.map(function (s, i) { return x(i).toFixed(1) + "," + y(s).toFixed(1); }).join(" ");
+  return html`<svg width=${W} height=${H} aria-hidden="true">
+    <line x1="0" x2=${W} y1=${y(70)} y2=${y(70)} stroke="var(--line)" strokeWidth="1"/>
+    ${v.length > 1 ? html`<polyline points=${pts} fill="none" stroke="var(--data)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>` : null}
+    <circle cx=${x(v.length - 1)} cy=${y(v[v.length - 1])} r="4" fill="var(--data)" stroke="var(--surface)" strokeWidth="2"/>
+  </svg>`;
+}
+
+function Meter(p) {
+  var b = p.band || band(p.value);
+  return html`<div className=${"meter" + (p.small ? " meter-s" : "") + (p.seg ? " meter-seg" : "")} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(p.value)} aria-label=${p.label}>
+    <i style=${{ width: (p.value > 0 ? Math.max(2, Math.min(100, p.value)) : 0) + "%", background: bandColor(b) }}></i></div>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pieces of the lesson                                                 */
+/* ------------------------------------------------------------------ */
+function ClipPlayer(p) {
+  var meta = DATA.sounds[p.clip], playing = usePlaying(), id = "clip:" + p.clip, on = playing === id;
+  var st = useState(null), clip = st[0];
+  useEffect(function () { var live = true; loadClip(p.clip).then(function (c) { if (live) st[1](c); }).catch(function () {}); return function () { live = false; }; }, [p.clip]);
+  return html`<div className="stack-s">
+    <button className="play" onClick=${function () { Sound.unlock(); if (on) Player.stop(); else Player.url(id, "sounds/" + p.clip + ".mp3"); }} aria-pressed=${on}>
+      <span className="disc"><${Icon} name=${on ? "stop" : "play"} size="18"/></span>
+      <span className="grow"><b>${p.label}</b><br/><span className="small muted">${meta ? meta.ref + " · " + meta.by + " · " + meta.license : ""}</span></span>
+    </button>
+    ${clip ? html`<${SoundPicture} samples=${clip.samples} rate=${clip.rate} playId=${id} label=${"Picture of the sound: " + p.label}/>` : html`<div style=${{ height: "104px" }}></div>`}
+  </div>`;
+}
+
+/* Where the real animal's call sits, in Hz, when it holds a clear pitch —
+   measured from its recording (the call's "level" target). */
+function realPitch(call) {
+  var row = (call.spec.score || []).filter(function (r) { return r[0] === "level"; })[0];
+  return row && row[2] && row[2].f0 ? row[2].f0 : 0;
+}
+
+function GuidePlayer(p) {
+  var playing = usePlaying(), id = "guide:" + p.call.id, on = playing === id;
+  // at the real call's own pitch where it has one, so the guide sits where you
+  // should. That pitch is the call's typical note; the guide's notes are laid
+  // out from its first, so step back from the middle note to the first.
+  var real = realPitch(p.call), g = (p.call.ghost || []).map(function (q) { return q.s || 0; }).sort(function (a, b) { return a - b; });
+  var mid = g.length ? g[(g.length - 1) >> 1] : 0;
+  var base = real ? real / Math.pow(2, mid / 12) : (p.call.tone || SPECIES[p.call.species].tone || 600);
+  return html`<button className="play ghosty" onClick=${function () { if (on) Player.stop(); else Player.pattern(id, p.call.ghost, base); }} aria-pressed=${on}>
+    <span className="disc"><${Icon} name=${on ? "stop" : "play"} size="18"/></span>
+    <span className="grow"><b>Rhythm guide</b><br/><span className="small muted">The real call's timing and pitch shape, played as tones — not an animal.</span></span>
+  </button>`;
+}
+
+/* "the honk" for a call of the lesson's own animal, "Canada geese: the honk"
+   for another's, so a goose cluck is never mistaken for a turkey's */
+function otherName(lesson, id) {
+  var o = DATA.calls[id];
+  if (!o) return "another call";
+  return (o.species === lesson.species ? "the " : SPECIES[o.species].name + ": the ") + o.name.toLowerCase();
+}
+
+/* Did the caller blow a different call than the lesson's? Checked only when
+   the lesson's own score is low, against every call in the same group (a goose
+   honk blown in a duck lesson should be named as a goose honk) — but never a
+   cousin: calls whose real recordings the scorer itself cannot tell apart
+   (a mallard hen's greeting and a black duck hen's call). And only on a clear
+   margin, so the app never guesses out loud. */
+function likeOther(call, got, res) {
+  if (!res.ok || res.score >= 60) return;
+  var group = SPECIES[call.species].group, near = call.near || [], best = null;
+  Object.keys(DATA.calls).forEach(function (id) {
+    var c = DATA.calls[id];
+    if (id === call.id || !listed(c) || SPECIES[c.species].group !== group || near.indexOf(id) >= 0) return;
+    var r2;
+    try { r2 = CA.analyze(got.samples, got.rate, c.spec); } catch (e) { return; }
+    if (r2.ok && (!best || r2.score > best.score)) best = { id: id, score: r2.score };
+  });
+  if (best && best.score >= 85 && best.score >= res.score + 25)
+    res.likeOther = { id: best.id, name: DATA.calls[best.id].name, score: best.score };
+}
+
+function isShaped(call) {
+  return (call.spec.score || []).some(function (r) { return ["breakUp", "breakDown", "riseFall", "waver"].indexOf(r[0]) >= 0; });
+}
+
+/* ------------------------------------------------------------------ */
+/* Recorder                                                             */
+/* ------------------------------------------------------------------ */
+function Recorder(p) {
+  var call = p.call, maxSec = call.spec.maxSec || 10;
+  var ph = useState("ready"), phase = ph[0], setPhase = ph[1];
+  var er = useState(null), el = useState(0);
+  var cap = useRef(null), timer = useRef(0), canvas = useRef(null), levels = useRef([]), t0 = useRef(0);
+  var wr = useWidth(), wref = wr[0], W = wr[1] || 320;
+
+  function draw() {
+    var c = canvas.current; if (!c) return;
+    var dpr = Math.min(2, window.devicePixelRatio || 1), Hh = 80;
+    if (c.width !== Math.round(W * dpr)) { c.width = Math.round(W * dpr); c.height = Hh * dpr; c.style.width = W + "px"; c.style.height = Hh + "px"; }
+    var g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, Hh);
+    var bars = Math.floor(W / 5), lv = levels.current.slice(-bars), col = css("--blaze") || "#C2410C";
+    g.fillStyle = col;
+    for (var i = 0; i < lv.length; i++) {
+      var v = Math.max(0, Math.min(1, (lv[i] + 60) / 60)), bh = Math.max(2, v * (Hh - 4));
+      g.globalAlpha = 0.35 + 0.65 * v;
+      g.fillRect(W - (lv.length - i) * 5, (Hh - bh) / 2, 3, bh);
+    }
+    g.globalAlpha = 1;
+  }
+  function start() {
+    Sound.unlock(); Player.stop();
+    setPhase("starting");
+    Capture.start().then(function (c) {
+      cap.current = c; levels.current = [];
+      c.onLevel(function (db) { levels.current.push(db); draw(); });
+      t0.current = performance.now(); setPhase("rec");
+      timer.current = setInterval(function () {
+        var s = (performance.now() - t0.current) / 1000; el[1](s);
+        if (s >= maxSec) stop();
+      }, 100);
+    }).catch(function (e) {
+      var code = e && (e.code || e.name);
+      er[1](code === "NotAllowedError" || code === "SecurityError" || code === "PermissionDeniedError" ? "denied" :
+        code === "NotFoundError" || code === "DevicesNotFoundError" ? "nomic" : code === "insecure" ? "insecure" : "unsupported");
+      setPhase("error");
+    });
+  }
+  function stop() {
+    clearInterval(timer.current);
+    var c = cap.current; if (!c) return; cap.current = null;
+    var got = c.stop();
+    setPhase("busy");
+    // let the "listening" screen paint before the analysis takes the main thread
+    setTimeout(function () {
+      var res;
+      try { res = CA.analyze(got.samples, got.rate, call.spec); likeOther(call, got, res); }
+      catch (e) { res = { ok: false, problem: "error", warnings: [] }; }
+      p.onResult(res, got.samples, got.rate);
+    }, 60);
+  }
+  useEffect(function () { return function () { clearInterval(timer.current); if (cap.current) cap.current.cancel(); }; }, []);
+  useEffect(function () {
+    var k = function (e) { if (e.key === "Escape" && phase !== "busy") { if (cap.current) { cap.current.cancel(); cap.current = null; clearInterval(timer.current); } p.onClose(); } };
+    window.addEventListener("keydown", k); return function () { window.removeEventListener("keydown", k); };
+  }, [phase]);
+
+  var sec = el[0], left = Math.max(0, maxSec - sec);
+  var errText = {
+    denied: "The microphone is blocked for this page. Allow it in your browser's site settings (on iPhone: Settings › Safari › Microphone), then try again.",
+    nomic: "No microphone was found on this device.",
+    insecure: "Phones only allow the microphone on secure (https) pages. Open the app from its https address.",
+    unsupported: "This browser can't record audio. Try Safari on iPhone or Chrome on Android."
+  }[er[0]];
+  var close = function () { if (cap.current) { cap.current.cancel(); cap.current = null; clearInterval(timer.current); } p.onClose(); };
+  var mm = function (t) { return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0"); };
+  return html`<div className="sheet" role="dialog" aria-modal="true" aria-label=${"Record your " + call.name}>
+    <div className="sheet-in">
+      <div className="row between">
+        <span className="eyebrow">${SPECIES[call.species].name} · Record</span>
+        <button className="icon-btn" aria-label="Close" onClick=${close} disabled=${phase === "busy"}><${Icon} name="close" size="22"/></button>
+      </div>
+      <div className="stack-s">
+        <h1 style=${{ fontSize: "2.3rem" }}>${call.name}</h1>
+        <p className="muted">Say it like <span className="say">${call.say}</span>. ${call.drill}</p>
+      </div>
+      <div ref=${wref} style=${{ height: "80px", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
+        ${phase === "rec" ? html`<canvas ref=${canvas} aria-hidden="true"></canvas>` : null}
+      </div>
+      <div style=${{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.2rem", textAlign: "center" }}>
+        ${phase === "ready" || phase === "starting" ? html`
+          <button className="rec-btn" onClick=${start} disabled=${phase === "starting"} aria-label="Start recording"><${Icon} name="mic" size="46" w="2.2"/></button>
+          <p className="muted" style=${{ maxWidth: "22rem" }}>Tap, wait a beat, then call. Arm's length from the phone, in a quiet spot. ${Math.round(maxSec)} seconds max.</p>` : null}
+        ${phase === "rec" ? html`
+          <div className="timer" aria-live="off"><span className="rec-dot" aria-hidden="true"></span>${mm(sec)}<span className="hero-of"> / ${mm(maxSec)}</span></div>
+          <button className="rec-btn on" onClick=${stop} aria-label="Stop recording"><${Icon} name="stop" size="40"/></button>
+          <p className="muted">Listening — tap to stop. Stops by itself in ${Math.ceil(left)} s.</p>` : null}
+        ${phase === "busy" ? html`<div className="spinner" role="status" aria-label="Scoring"></div><p className="eyebrow" style=${{ color: "var(--ink-2)" }}>Scoring your call</p>` : null}
+        ${phase === "error" ? html`<div className="card stack-s" style=${{ textAlign: "left", borderLeft: "3px solid var(--bad)" }}><h3>No microphone</h3><p>${errText}</p>
+          <button className="btn btn-olive" onClick=${function () { setPhase("ready"); }}>Try again</button></div>` : null}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Screens                                                              */
+/* ------------------------------------------------------------------ */
+/* What's worth practising this month: a nudge, not a regulation — seasons
+   vary by state and year. [animal, headline] for each month, January first. */
+var SEASONS = [
+  [["predator", "Winter coyotes"], ["duck", "Late-season ducks"]],
+  [["predator", "Coyote breeding season"], ["goose", "Late-season geese"]],
+  [["turkey", "Spring gobblers"], ["predator", "Late predator calling"]],
+  [["turkey", "Spring gobblers"], ["locator", "Locate a gobbler"]],
+  [["turkey", "Late-season gobblers"], ["locator", "Locate a gobbler"]],
+  [["elk", "Off-season elk"], ["duck", "Off-season reps"]],
+  [["elk", "Elk prep"], ["dove", "Dove opener is coming"]],
+  [["elk", "Archery elk"], ["dove", "Dove season"]],
+  [["elk", "The elk rut"], ["teal", "Early teal season"]],
+  [["deer", "Whitetail pre-rut"], ["duck", "Duck season"]],
+  [["deer", "The whitetail rut"], ["duck", "Peak duck migration"]],
+  [["goose", "Late-season geese"], ["predator", "Predator season"]]
+];
+var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+var GROUP_ICON = { waterfowl: "duck", turkey: "turkey", biggame: "elk", upland: "quail", predators: "predator" };
+var GROUP_SHORT = { waterfowl: "Waterfowl", turkey: "Turkey", biggame: "Big game", upland: "Upland", predators: "Predators" };
+
+function SeasonBanner(p) {
+  var sp = SPECIES[p.id], names = callsOf(sp).slice(0, 3).map(function (id) { return DATA.calls[id].name; }).join(" · ");
+  return html`<button className="banner" onClick=${function () { go("/s/" + sp.id); }}>
+    <span className="ic"><${Critter} id=${sp.id} size="30"/></span>
+    <span className="grow"><span className="eyebrow hot">${p.kicker}</span><b>${p.title}</b><span className="small muted">${names}</span></span>
+    <span className="chev"><${Icon} name="chev" size="20"/></span>
+  </button>`;
+}
+
+function Home(p) {
+  var store = p.store, at = store.attempts, last = at[at.length - 1];
+  var lastCall = last ? DATA.calls[last.call] : null;
+  var board = scoreBoard(at), total = board.animals.reduce(function (t, x) { return t + x.n; }, 0), tried = Object.keys(board.best).length;
+  var animal = {}; board.animals.forEach(function (x) { animal[x.id] = x; });
+  var bestEver = at.reduce(function (m, a) { return Math.max(m, a.score || 0); }, 0);
+  var best = function (id) { var b = null; at.forEach(function (a) { if (a.call === id && (b === null || a.score > b)) b = a.score; }); return b; };
+  var month = new Date().getMonth();
+  var season = (SEASONS[month] || []).filter(function (x) { return SPECIES[x[0]] && callsOf(SPECIES[x[0]]).length; }).slice(0, 2);
+  var jump = function (gid) { var el = document.getElementById("g-" + gid); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  var rank = rankOf(board.overall);
+  return html`<${R.Fragment}>
+    <${TopBar} right=${html`<button className="tb-score" onClick=${function () { go("/progress"); }} aria-label=${"Caller score " + board.overall + ", " + rank}><b>${board.overall}</b><span>${rank}</span></button>`}/>
+    <div className="wrap stack">
+      <section className="card hero topo stack-s" aria-label="Caller card">
+        <div className="row between"><span className="eyebrow">Caller card</span><span className="chip chip-olive">${rank}</span></div>
+        <div className="row" style=${{ alignItems: "flex-end", gap: "0.85rem", margin: "0.3rem 0 0.35rem" }}>
+          <div style=${{ whiteSpace: "nowrap" }}><span className="big">${board.overall}</span><span className="big-of">/100</span></div>
+          <div className="grow" style=${{ paddingBottom: "0.15rem" }}><span className="eyebrow" style=${{ color: "var(--ink-2)" }}>Caller score</span><br/>
+            <span className="small muted">${at.length ? "Your best on every call, averaged across the animals" : "Record your first call to start your card"}</span></div>
+        </div>
+        <div className="stats">
+          <div className="stat"><span className="v">${tried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${total}</span></span><span className="l">Calls tried</span></div>
+          <div className="stat"><span className="v">${at.length}</span><span className="l">Attempts</span></div>
+          <div className="stat"><span className="v">${at.length ? bestEver : "—"}</span><span className="l">Best score</span></div>
+        </div>
+      </section>
+
+      <nav className="tools" aria-label="Jump to a group">${GROUPS.filter(function (g) { return GROUP_SHORT[g.id]; }).map(function (g) {
+        return html`<button key=${g.id} className="tool" onClick=${function () { jump(g.id); }}><${Critter} id=${GROUP_ICON[g.id]} size="30"/><span>${GROUP_SHORT[g.id]}</span></button>`;
+      })}</nav>
+
+      ${!store.intro ? html`<section className="card stack-s" aria-label="How it works">
+        <div className="row between"><span className="eyebrow hot">First time out</span><button className="link" style=${{ padding: 0 }} onClick=${p.setIntro}>Hide</button></div>
+        <ol className="steps">
+          <li><span><b>Pick a call.</b> Read the lesson and hear the real animal.</span></li>
+          <li><span><b>Record.</b> Blow your call at the phone.</span></li>
+          <li><span><b>Get scored.</b> See how close you are, and what to fix first.</span></li>
+        </ol>
+        <button className="btn btn-blaze" onClick=${function () { p.setIntro(); go("/c/duck-quack"); }}>Start with the basic quack</button>
+      </section>` : null}
+
+      ${lastCall ? html`<button className="banner plain" onClick=${function () { go("/c/" + lastCall.id); }}>
+        <span className="ic"><${Critter} id=${lastCall.species} size="30"/></span>
+        <span className="grow"><span className="eyebrow">Pick up where you left off</span><b>${lastCall.name}</b>
+          <span className="small muted">Last ${last.score} · best ${best(lastCall.id)} · ${ago(last.at)}</span></span>
+        <span className="chev"><${Icon} name="chev" size="20"/></span>
+      </button>` : null}
+
+      ${season.length ? html`<section className="stack-s" aria-label="In season">
+        ${season.map(function (x, k) { return html`<${SeasonBanner} key=${x[0]} id=${x[0]} title=${x[1]} kicker=${k ? "Also in season" : "Prime time · " + MONTHS[month]}/>`; })}
+        <p className="small muted" style=${{ padding: "0 2px" }}>A rough guide — seasons vary by state.</p>
+      </section>` : null}
+
+      ${GROUPS.map(function (g) {
+        var list = DATA.species.filter(function (s) { return (s.group || "all") === g.id && callsOf(s).length; });
+        if (!list.length) return null;
+        var n = list.reduce(function (t, s) { return t + callsOf(s).length; }, 0);
+        return html`<section key=${g.id} id=${"g-" + g.id} className="stack-s" aria-label=${g.name}>
+          <div className="sec-head"><h2>${g.name}</h2><span className="eyebrow">${n} calls</span></div>
+          <div className="card list divide">${list.map(function (s) {
+            var k = callsOf(s).length, sc = animal[s.id];
+            return html`<button key=${s.id} className="tile" onClick=${function () { go("/s/" + s.id); }}>
+              <span className="badge"><${Critter} id=${s.id} size="32"/></span>
+              <span className="grow"><b>${s.name}</b><span className="sub">${k} ${k === 1 ? "call" : "calls"} · ${s.tag.split(":")[0].split(" — ")[0]}</span></span>
+              ${sc && sc.tried ? html`<span className="score-pill" aria-label=${"Your score " + sc.score}>${sc.score}</span>` : null}
+              <span className="chev"><${Icon} name="chev" size="18"/></span>
+            </button>`;
+          })}</div>
+        </section>`;
+      })}
+    </div>
+  <//>`;
+}
+
+function SpeciesPage(p) {
+  var s = SPECIES[p.id];
+  if (!s) return html`<${NotFound}/>`;
+  var store = p.store, g = GROUPS.filter(function (x) { return x.id === s.group; })[0];
+  var stat = function (id) {
+    var n = 0, b = null; store.attempts.forEach(function (a) { if (a.call === id) { n++; if (b === null || a.score > b) b = a.score; } });
+    return { n: n, best: b };
+  };
+  var mine = scoreBoard(store.attempts).animals.filter(function (x) { return x.id === s.id; })[0] || { score: 0, tried: 0, n: callsOf(s).length };
+  var tries = store.attempts.filter(function (a) { return DATA.calls[a.call] && DATA.calls[a.call].species === s.id; }).length;
+  return html`<${R.Fragment}>
+    <${TopBar} back="/" title=${g ? g.name : "All animals"}/>
+    <div className="wrap stack">
+      <header className="lesson-head topo stack">
+        <div className="row" style=${{ gap: "0.9rem" }}>
+          <span style=${{ width: "4.3rem", height: "4.3rem", borderRadius: "5px", display: "grid", placeItems: "center", background: "var(--tint)", color: "var(--olive-ink)", flex: "none", border: "1px solid var(--line-2)" }}><${Critter} id=${s.id} size="52"/></span>
+          <div className="grow stack-s" style=${{ gap: "0.35rem" }}><h1 style=${{ fontSize: "2.15rem" }}>${s.name}</h1><p className="muted small">${s.tag}</p></div>
+        </div>
+        <div className="stats">
+          <div className="stat"><span className="v">${mine.tried ? mine.score : "—"}</span><span className="l">Your score</span></div>
+          <div className="stat"><span className="v">${mine.tried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${mine.n}</span></span><span className="l">Calls tried</span></div>
+          <div className="stat"><span className="v">${tries}</span><span className="l">Attempts</span></div>
+        </div>
+      </header>
+      <p>${s.intro}</p>
+      ${(function () {
+        var ids = callsOf(s), out = [], cur = null, rows = [];
+        var flush = function () {
+          if (!rows.length) return;
+          out.push(html`<section key=${"sec" + out.length} className="stack-s" aria-label=${cur || "Calls"}>
+            <div className="sec-head"><h2>${cur || "Calls"}</h2><span className="eyebrow">${rows.length} ${rows.length === 1 ? "call" : "calls"}</span></div>
+            <div className="card list divide">${rows}</div></section>`);
+          rows = [];
+        };
+        ids.forEach(function (id) {
+          var c = DATA.calls[id], st = stat(id);
+          if ((c.section || null) !== cur) { flush(); cur = c.section || null; }
+          rows.push(html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
+            <span className="grow stack-s" style=${{ gap: "0.3rem" }}>
+              <span className="nm">${c.name}</span>
+              <${Pips} level=${c.level}/>
+              <span className="small muted">${c.what}</span>
+            </span>
+            ${st.n ? html`<span className="score-pill" aria-label=${"Best score " + st.best}>${st.best}</span>` : null}
+            <span className="chev"><${Icon} name="chev" size="18"/></span>
+          </button>`);
+        });
+        flush();
+        return out;
+      })()}
+      <section className="card stack-s" aria-label="What you need">
+        <div className="row" style=${{ gap: "0.5rem" }}><span style=${{ color: "var(--olive-ink)", display: "flex" }}><${Icon} name="bag" size="20"/></span><h3>What you need</h3></div>
+        <p>${s.gear}</p>
+      </section>
+      <p className="small muted note-box">Every call is scored against the real recording in its lesson: match it and you score near 100. Real animals vary, so a seasoned caller's ear is still the final word.</p>
+    </div>
+  <//>`;
+}
+
+function CallPage(p) {
+  var c = DATA.calls[p.id], rec = useState(false);
+  useEffect(function () { return function () { Player.stop(); }; }, [p.id]);
+  if (!c) return html`<${NotFound}/>`;
+  var s = SPECIES[c.species], store = p.store;
+  var mine = store.attempts.filter(function (a) { return a.call === c.id; });
+  var best = mine.reduce(function (b, a) { return b === null || a.score > b ? a.score : b; }, null);
+  return html`<${R.Fragment}>
+    <${TopBar} back=${"/s/" + s.id} title=${s.name}/>
+    <div className="wrap stack" style=${{ paddingBottom: "12rem" }}>
+      <header className="lesson-head topo stack-s">
+        <div className="row" style=${{ gap: "0.75rem", flexWrap: "wrap" }}><${Pips} level=${c.level}/>${best !== null ? html`<span className="chip chip-olive">Your best ${best}</span>` : null}</div>
+        <h1>${c.name}</h1>
+        <p className="lead">${c.what}</p>
+        <div><span className="chip chip-hot">Say it: ${c.say}</span></div>
+      </header>
+      <div className="kv"><${Icon} name="clock" size="20"/><p><span className="eyebrow" style=${{ marginRight: "0.45rem", color: "var(--ink-2)" }}>When</span>${c.when}</p></div>
+
+      <section className="card stack" aria-label="Listen">
+        <div className="row between"><h3>The real thing</h3><span className="eyebrow">Field recording</span></div>
+        ${c.listen.length ? c.listen.map(function (l) { return html`<${ClipPlayer} key=${l.clip} clip=${l.clip} label=${l.label}/>`; }) :
+          html`<p className="small muted">${c.noClip || "No free recording of a real one yet."} A good caller's recording can be added here later.</p>`}
+        <${GuidePlayer} call=${c}/>
+        <div className="stack-s">
+          <div className="row between"><span className="eyebrow">The real call's pattern</span><span className="legend"><span><i style=${{ width: "18px", height: "10px", background: "var(--ghost)" }}></i>Real call</span></span></div>
+          <${NoteMap} ghost=${c.ghost} mine=${[]} shaped=${isShaped(c)} height=${120} label=${"Target pattern for the " + c.name}/>
+        </div>
+      </section>
+
+      <section className="stack-s" aria-label="How to do it">
+        <div className="sec-head"><h2>How to call it</h2></div>
+        <ol className="steps">${c.steps.map(function (t, i) { return html`<li key=${i}><span>${t}</span></li>`; })}</ol>
+      </section>
+      <section className="stack-s" aria-label="Common mistakes">
+        <div className="sec-head"><h2>Common mistakes</h2></div>
+        <ul className="miss">${c.mistakes.map(function (t, i) { return html`<li key=${i}><${Icon} name="cross" size="18" w="2.4"/><span>${t}</span></li>`; })}</ul>
+      </section>
+      <section className="card drill stack-s" aria-label="Practice drill">
+        <div className="row" style=${{ gap: "0.5rem" }}><span style=${{ color: "var(--blaze-ink)", display: "flex" }}><${Icon} name="timer" size="20"/></span><span className="eyebrow hot">Practice drill</span></div>
+        <p>${c.drill}</p>
+      </section>
+
+      ${mine.length ? html`<section className="stack-s" aria-label="Your attempts">
+        <div className="sec-head"><h2>Your attempts</h2><span className="eyebrow">${mine.length} total</span></div>
+        <div className="card list divide">
+          ${mine.slice(-6).reverse().map(function (a) {
+            var col = bandColor(band(a.score));
+            return html`<button key=${a.id} className="call-row" onClick=${function () { go("/r/" + a.id); }}>
+              <span className="score-pill" style=${{ background: "color-mix(in srgb, " + col + " 18%, transparent)" }}>${a.score}</span>
+              <span className="grow"><span className="nm" style=${{ fontSize: "1.05rem" }}>${a.verdict}</span><br/><span className="small muted">${ago(a.at)}</span></span>
+              <span className="chev"><${Icon} name="chev" size="18"/></span></button>`;
+          })}
+        </div>
+      </section>` : null}
+
+      <div className="sticky-cta"><div>
+        <button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22" w="2.4"/> Record yourself</button>
+      </div></div>
+      ${rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null}
+    </div>
+  <//>`;
+}
+
+var PROBLEMS = {
+  quiet: { h: "I couldn't hear a call", t: "The recording was too quiet. Get closer to the phone — about an arm's length — and blow with some air behind it." },
+  noisy: { h: "Too much background noise", t: "I couldn't pick your call out of the noise. Find a quieter spot (no TV, fan or wind) and try again." },
+  nothing: { h: "No clear notes", t: "There was sound, but no clear notes. Wait a beat after tapping record, then blow the call with clean starts and stops." },
+  short: { h: "Too short", t: "The recording stopped before anything was heard. Tap record, then call." },
+  error: { h: "Something went wrong", t: "The scoring hit an error on this recording. Please try again." }
+};
+
+function bandInk(b) { return b === "good" ? "var(--good-ink)" : b === "warn" ? "var(--warn-ink)" : "var(--bad-ink)"; }
+
+function ResultPage(p) {
+  var a = p.attempt, c = a ? DATA.calls[a.call] : null;
+  var aud = useState(p.audio || null), audio = aud[0];
+  var rec = useState(false), playing = usePlaying();
+  useEffect(function () {
+    if (audio || !a || !a.id || a.id === "tmp" || a.audio === false) return;
+    var live = true;
+    IDB.get(a.id).then(function (blob) { if (blob && live) fromWav(blob).then(function (x) { if (live) aud[1](Object.assign(x, { blob: blob })); }); });
+    return function () { live = false; };
+  }, [a && a.id]);
+  // your call plays back as an ordinary audio file, the same way the reference clips do
+  var audioUrl = useMemo(function () { return audio ? URL.createObjectURL(audio.blob || toWav(audio.samples, audio.rate)) : null; }, [audio]);
+  useEffect(function () { return function () { if (audioUrl) URL.revokeObjectURL(audioUrl); }; }, [audioUrl]);
+  useEffect(function () { return function () { Player.stop(); }; }, []);
+  if (!a || !c) return html`<${NotFound}/>`;
+  var s = SPECIES[c.species], myId = "mine:" + a.id;
+  var problem = a.problem ? PROBLEMS[a.problem] || PROBLEMS.error : null;
+  var again = html`<button className="btn btn-blaze" onClick=${function () { Sound.unlock(); Player.stop(); rec[1](true); }}><${Icon} name="mic" size="22" w="2.4"/> Try again</button>`;
+  var playMine = audio ? html`<button className="play" onClick=${function () { if (playing === myId) Player.stop(); else Player.url(myId, audioUrl); }} aria-pressed=${playing === myId}>
+      <span className="disc" style=${{ background: "var(--data)", color: "#06121b" }}><${Icon} name=${playing === myId ? "stop" : "play"} size="18"/></span>
+      <span className="grow"><b>Play your call</b><br/><span className="small muted">${secs(audio.samples.length / audio.rate)} recorded</span></span></button>` : null;
+  var recorder = rec[0] ? html`<${Recorder} call=${c} onClose=${function () { rec[1](false); }} onResult=${function (res, x, rate) { rec[1](false); p.onResult(c, res, x, rate); }}/>` : null;
+  var head = html`<${TopBar} back=${"/c/" + c.id} title=${c.name}/>`;
+
+  if (problem) {
+    return html`<${R.Fragment}>${head}<div className="wrap stack">
+      <section className="card stack-s" style=${{ borderLeft: "3px solid var(--warn)" }}><div className="eyebrow">No score this time</div><h2>${problem.h}</h2><p>${problem.t}</p></section>
+      ${audio ? html`<section className="card stack-s">${playMine}<${SoundPicture} samples=${audio.samples} rate=${audio.rate} playId=${myId} label="Picture of your recording"/></section>` : null}
+      ${again}
+      ${recorder}
+    </div><//>`;
+  }
+
+  var sc = a.score, b = band(sc), parts = a.parts || [];
+  // attempts saved before the sound check have no `sound` flags: one plain list
+  var soundParts = parts.filter(function (pt) { return pt.sound; }), shapeParts = parts.filter(function (pt) { return !pt.sound; });
+  function partRow(pt) {
+    var pb = partBand(pt.score);
+    return html`<div key=${pt.key} className="part">
+      <span className=${"st-" + pb} aria-hidden="true"><${Icon} name=${pb === "good" ? "check" : pb === "warn" ? "bang" : "cross"} size="18" w="2.6"/></span>
+      <div className="lab"><b>${pt.label}</b><span className="val">${pt.value}${pt.target ? html` <span style=${{ color: "var(--ink-3)" }}>· aim ${pt.target}</span>` : null}</span></div>
+      <${Meter} small=${true} value=${pt.score * 100} band=${pb} label=${pt.label + ": " + Math.round(pt.score * 100) + " out of 100"}/>
+    </div>`;
+  }
+  var shaped = isShaped(c), mark = audio && a.span ? [a.span[0], a.span[1]] : null;
+  return html`<${R.Fragment}>${head}<div className="wrap stack">
+    <section className="card hero topo stack-s" aria-label="Score">
+      <div className="eyebrow">${s.name} · ${c.name} · ${ago(a.at)}</div>
+      <div className="row" style=${{ alignItems: "flex-end", gap: "1rem", margin: "0.35rem 0 0.25rem" }}>
+        <div style=${{ whiteSpace: "nowrap" }}><span className="hero-num">${sc}</span><span className="hero-of">/100</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.2rem" }}><span className="verdict" style=${{ color: bandInk(b) }}>${a.verdict}</span><br/><span className="eyebrow">Match to the real call</span></div>
+      </div>
+      <${Meter} seg=${true} value=${sc} band=${b} label=${"Score " + sc + " out of 100"}/>
+      ${a.groups > 1 ? html`<p className="small muted">You blew ${a.groups} separate calls; this scores the best one (marked in orange on the picture below).</p>` : null}
+      ${a.likeOther && DATA.calls[a.likeOther.id] ? html`<div className="note-box hot stack-s">
+        <p><b>That sounded more like ${otherName(c, a.likeOther.id)}</b> (it would score ${a.likeOther.score} as that). This lesson is the ${c.name.toLowerCase()}: ${c.what.charAt(0).toLowerCase() + c.what.slice(1)}</p>
+        <button className="link" style=${{ alignSelf: "flex-start" }} onClick=${function () { go("/c/" + a.likeOther.id); }}>Open that lesson</button></div>` : null}
+      ${(a.warnings || []).indexOf("clipped") >= 0 ? html`<p className="small st-warn">Your recording distorted — it was too loud for the mic. Hold the phone farther away next time.</p>` : null}
+    </section>
+
+    ${a.tips && a.tips.length ? html`<section className="stack-s" aria-label="What to fix">
+      <div className="sec-head"><h2>${sc >= 85 ? "To make it even better" : "What to fix"}</h2></div>
+      ${a.tips.map(function (t, i) { return html`<div key=${i} className="tip"><span className="n">${String(i + 1).padStart(2, "0")}</span><p>${t.text}</p></div>`; })}
+    </section>` : html`<section className="card stack-s" style=${{ borderLeft: "3px solid var(--good)" }}><h3>Nothing to fix on this one</h3><p>Every part of the pattern is on target. Now make it sound like this every time — and practice it soft and loud.</p></section>`}
+    ${a.good && a.good.length ? html`<div className="good-chips" aria-label="What you got right">${a.good.map(function (g) { return html`<span key=${g} className="chip"><${Icon} name="check" size="14" w="2.6"/> ${g}</span>`; })}</div>` : null}
+
+    <section className="card stack-s" aria-label="Your call against the target">
+      <div className="row between" style=${{ flexWrap: "wrap", gap: "0.4rem" }}>
+        <h3>Your call vs the real one</h3>
+        <span className="legend"><span><i style=${{ width: "16px", height: "7px", background: "var(--data)" }}></i>You</span><span><i style=${{ width: "16px", height: "10px", background: "var(--ghost)" }}></i>Real call</span></span>
+      </div>
+      <${NoteMap} mine=${a.view || []} ghost=${c.ghost} shaped=${shaped} height=${160}/>
+      <details><summary>Note by note</summary>
+        <table className="notes"><thead><tr><th>#</th><th>Starts</th><th>Length</th><th>Pitch vs 1st</th></tr></thead>
+          <tbody>${(a.view || []).map(function (q, i) { return html`<tr key=${i}><td>${i + 1}</td><td>${q.t.toFixed(2)} s</td><td>${Math.round(q.d * 1000)} ms</td>
+            <td>${q.lev === null || q.lev === undefined ? "—" : (q.lev > 0 ? "+" : "") + q.lev.toFixed(1)}</td></tr>`; })}</tbody></table>
+      </details>
+    </section>
+
+    <section className="card stack-s" aria-label="Breakdown">
+      <h3>Breakdown</h3>
+      ${soundParts.length ? html`
+        <div className="eyebrow" style=${{ marginTop: ".3rem" }}>How it sounds</div>
+        <div className="divide">${soundParts.map(partRow)}</div>
+        <p className="small muted">Compared with the real recording. The score is the timing below times this, so the right rhythm on the wrong sound can't score well.</p>
+        <div className="eyebrow" style=${{ marginTop: ".3rem" }}>Timing and shape</div>
+        <div className="divide">${shapeParts.map(partRow)}</div>` :
+        html`<div className="divide">${parts.map(partRow)}</div>`}
+    </section>
+
+    <section className="card stack" aria-label="Listen back">
+      <h3>Listen back</h3>
+      ${playMine}
+      ${audio ? html`<${SoundPicture} samples=${audio.samples} rate=${audio.rate} playId=${myId} mark=${mark} label="Picture of your call"/>` :
+        html`<p className="small muted">The recording for this attempt is no longer kept on this phone.</p>`}
+      ${c.listen[0] ? html`<${ClipPlayer} clip=${c.listen[0].clip} label=${c.listen[0].label}/>` : null}
+    </section>
+
+    ${again}
+    <button className="btn btn-line" onClick=${function () { go("/c/" + c.id); }}>Back to the lesson</button>
+    ${recorder}
+  </div><//>`;
+}
+
+/* Scores for bragging rights. An animal's score is the average of your best
+   score on every call it has, untried calls counting zero, so the only way up
+   is to learn all of them. The caller score averages the animals. */
+function scoreBoard(attempts) {
+  var best = {};
+  attempts.forEach(function (a) { if (DATA.calls[a.call] && (best[a.call] === undefined || a.score > best[a.call])) best[a.call] = a.score; });
+  var animals = DATA.species.map(function (s) {
+    var ids = callsOf(s), tried = ids.filter(function (id) { return best[id] !== undefined; });
+    var sum = ids.reduce(function (t, id) { return t + (best[id] || 0); }, 0);
+    return { id: s.id, name: s.name, n: ids.length, tried: tried.length, score: ids.length ? Math.round(sum / ids.length) : 0 };
+  }).filter(function (x) { return x.n; });
+  var overall = animals.length ? Math.round(animals.reduce(function (t, x) { return t + x.score; }, 0) / animals.length) : 0;
+  return { best: best, animals: animals, overall: overall };
+}
+var RANKS = [[90, "Legend"], [75, "Pro caller"], [55, "Seasoned"], [35, "Woods-wise"], [15, "Apprentice"], [0, "Greenhorn"]];
+function rankOf(n) { for (var i = 0; i < RANKS.length; i++) if (n >= RANKS[i][0]) return RANKS[i][1]; return "Greenhorn"; }
+
+function shareScores(board, flash) {
+  var tried = board.animals.filter(function (x) { return x.tried; });
+  var lines = ["Call of the Wild — my caller score: " + board.overall + " (" + rankOf(board.overall) + ")"];
+  (tried.length ? tried : board.animals.slice(0, 4)).forEach(function (x) { lines.push(x.name + " " + x.score + " (" + x.tried + "/" + x.n + " calls)"); });
+  lines.push("Think you can call better? " + location.href.split("#")[0]);
+  var text = lines.join("\n");
+  if (navigator.share) { navigator.share({ title: "My Call of the Wild scores", text: text }).catch(function () {}); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(function () { flash("Scores copied — paste them to a friend."); }, function () { flash("Couldn't copy on this browser."); }); return; }
+  flash("Sharing isn't available on this browser.");
+}
+
+function ProgressPage(p) {
+  var at = p.store.attempts;
+  var byCall = {};
+  at.forEach(function (a) { (byCall[a.call] = byCall[a.call] || []).push(a); });
+  var ids = Object.keys(byCall).filter(function (id) { return DATA.calls[id]; }).sort(function (x, y) { return byCall[y][byCall[y].length - 1].at - byCall[x][byCall[x].length - 1].at; });
+  var board = scoreBoard(at), total = board.animals.reduce(function (t, x) { return t + x.n; }, 0);
+  var rank = rankOf(board.overall), next = null;
+  for (var k = RANKS.length - 1; k >= 0; k--) if (RANKS[k][0] > board.overall) { next = RANKS[k]; break; }
+  var animalsTried = board.animals.filter(function (x) { return x.tried; }).length;
+  return html`<${R.Fragment}><${TopBar} title=${html`<h1 style=${{ font: "inherit", letterSpacing: "inherit" }}>Scores</h1>`}/><div className="wrap stack">
+    <section className="card hero topo stack-s" aria-label="Caller score">
+      <div className="row between"><span className="eyebrow">Caller score</span><span className="chip chip-olive">${rank}</span></div>
+      <div className="row" style=${{ alignItems: "flex-end", gap: "0.9rem", margin: "0.3rem 0 0.3rem" }}>
+        <div style=${{ whiteSpace: "nowrap" }}><span className="big">${board.overall}</span><span className="big-of">/100</span></div>
+        <div className="grow" style=${{ paddingBottom: "0.15rem" }}><span className="rank">${rank}</span><br/>
+          <span className="small muted">${next ? (next[0] - board.overall) + " points to " + next[1] : "Top rank. Keep it there."}</span></div>
+      </div>
+      <${Meter} seg=${true} value=${board.overall} band=${band(board.overall)} label=${"Caller score " + board.overall + " out of 100"}/>
+      <div className="stats">
+        <div className="stat"><span className="v">${ids.length}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${total}</span></span><span className="l">Calls tried</span></div>
+        <div className="stat"><span className="v">${at.length}</span><span className="l">Attempts</span></div>
+        <div className="stat"><span className="v">${animalsTried}<span style=${{ color: "var(--ink-3)", fontSize: "0.85rem" }}>/${board.animals.length}</span></span><span className="l">Animals</span></div>
+      </div>
+      <button className="btn btn-olive" style=${{ marginTop: "0.2rem" }} onClick=${function () { shareScores(board, p.flash); }}><${Icon} name="share" size="20"/> Share my scores</button>
+    </section>
+
+    <section className="stack-s" aria-label="Scores by animal">
+      <div className="sec-head"><h2>By animal</h2></div>
+      <div className="card list divide">
+        ${board.animals.map(function (x) {
+          return html`<button key=${x.id} className="tile" onClick=${function () { go("/s/" + x.id); }}>
+            <span className="badge" style=${{ width: "2.7rem", height: "2.7rem" }}><${Critter} id=${x.id} size="28"/></span>
+            <span className="grow stack-s" style=${{ gap: "0.35rem" }}>
+              <span className="row between"><b style=${{ fontSize: "1.05rem", color: x.tried ? "var(--ink)" : "var(--ink-2)" }}>${x.name}</b><span className="num" style=${{ fontSize: "1.2rem", fontWeight: 700, color: x.tried ? "var(--ink)" : "var(--ink-3)" }}>${x.tried ? x.score : "—"}</span></span>
+              <${Meter} small=${true} value=${x.score} band=${band(x.score)} label=${x.name + ": " + x.score + " out of 100"}/>
+              <span className="sub">${x.tried}/${x.n} ${x.n === 1 ? "call" : "calls"} tried</span>
+            </span>
+          </button>`;
+        })}
+      </div>
+      <p className="small muted">An animal's score is the average of your best score on each of its calls; calls you haven't tried count as zero. The caller score averages the animals.</p>
+    </section>
+
+    ${ids.length ? html`<section className="stack-s" aria-label="Calls you have practiced">
+      <div className="sec-head"><h2>Call history</h2><span className="eyebrow">${ids.length} ${ids.length === 1 ? "call" : "calls"}</span></div>
+      <div className="card list divide">
+        ${ids.map(function (id) {
+          var list = byCall[id], c = DATA.calls[id]; if (!c) return null;
+          var scores = list.slice(-12).map(function (a) { return a.score; }), last = list[list.length - 1];
+          var b = list.reduce(function (m, a) { return Math.max(m, a.score); }, 0);
+          return html`<button key=${id} className="call-row" onClick=${function () { go("/c/" + id); }}>
+            <span className="grow"><span className="nm" style=${{ fontSize: "1.1rem" }}>${c.name}</span><br/>
+              <span className="small muted">${SPECIES[c.species].name} · ${list.length} ${list.length === 1 ? "try" : "tries"} · best ${b} · last ${last.score}, ${ago(last.at)}</span></span>
+            <${Sparkline} values=${scores}/>
+          </button>`;
+        })}
+      </div>
+      <p className="small muted">Each line is your last 12 scores on that call; the faint rule marks 70.</p>
+    </section>` : html`<section className="card stack-s"><h3>Nothing yet</h3><p>Record a call and your scores will show up here.</p>
+      <button className="btn btn-blaze" onClick=${function () { go("/c/duck-quack"); }}>Start with the basic quack</button></section>`}
+  </div><//>`;
+}
+
+function AboutPage(p) {
+  var st = p.store.settings || {}, conf = useState(false), theme = themeOf(st);
+  var setTheme = function (t) { p.setSettings(Object.assign({}, st, { theme: t })); };
+  var credits = Object.keys(DATA.sounds).map(function (k) { return Object.assign({ id: k }, DATA.sounds[k]); });
+  return html`<${R.Fragment}><${TopBar} title=${html`<h1 style=${{ font: "inherit", letterSpacing: "inherit" }}>About</h1>`}/><div className="wrap stack">
+    <header className="stack-s" style=${{ paddingTop: "0.3rem" }}>
+      <div className="row" style=${{ gap: "0.7rem" }}><${Mark} size="44"/><span className="wordmark" style=${{ fontSize: "1.9rem" }}>Call <small>of the</small> Wild</span></div>
+      <p className="muted">A working demo: lessons for ${Object.keys(DATA.calls).length} calls across ${DATA.species.length} kinds of game, recording, and scoring with tips.</p>
+    </header>
+
+    <section className="card stack-s"><h2>How the scoring works</h2>
+      <p>Your phone splits the recording into notes and measures what a caller controls: how many notes, how long each one is, how evenly they're spaced, which way the pitch and volume move, whether each note stops clean, and the shape inside a note — a goose honk's break, a turkey yelp's drop, a bugle's climb.</p>
+      <p><b>The real recording in each lesson is the bullseye.</b> Every target is measured from it: its speed, its note lengths and spacing, where its pitch sits, how clean or raspy it is, and its shape. Sound exactly like it and you score near 100. Every way you differ costs points, and the further off, the more it costs — being roughly right isn't enough any more.</p>
+      <p>As a guide: a half-step off or a few percent fast still scores in the 90s. Three half-steps off, or 12% fast, lands in the high 80s. Six half-steps off or a quarter too fast drops to the 60s and 70s, and several misses at once lower still. 90 and up means you sound like the real thing.</p>
+      <p>For calls that are a caller's craft — the greeting call, the feeding chuckle, a goose's honk — what calling instruction teaches still counts as acceptable, but the closer you are to the real bird, the higher you score.</p>
+      <p>How it sounds is checked against the real recording too: where the pitch sits, and whether it's a clean note, a raspy one, or just air. That part multiplies the score rather than averaging into it, so the right rhythm on the wrong sound — a whistle in a quack's rhythm, or clapping — can't score well. And when what you blew is clearly a different call — a goose honk in a duck lesson — the result says so.</p>
+      <p className="note-box">The score is a match to one real animal, not a promise that a duck will land. Real animals vary, and nobody has the data to score "would an animal answer this." A good caller's ear is still the final word.</p>
+      <p className="muted small">Only calls with a real recording to hear are listed. Some favorites aren't here yet because no free, clearly labelled recording of them could be found: the hail, comeback, highball and pleading calls; buck grunts, doe bleats, the snort-wheeze and rattling; the elk lip bawl and estrous and assembly mews; and a gobbler's spit and drum.</p>
+      <p className="muted small">Everything happens on this phone. Nothing is uploaded.</p>
+    </section>
+
+    <section className="card stack-s"><h2>Recording tips</h2>
+      <ul className="dots"><li>Quiet spot: no TV, fan, wind or running water.</li><li>Hold the phone about an arm's length from the call. Too close and it distorts.</li>
+        <li>Tap record, wait a beat, then call. One call per recording.</li><li>Don't cover the mic (on the bottom edge of most phones).</li>
+        <li>Mind the echo. A bathroom, garage or empty room stretches every note and costs you points. A furnished room, a truck cab or outdoors is best.</li></ul>
+    </section>
+
+    <section className="card stack-s"><h2>Calls and the law</h2>
+      <p>Practice with recordings all you want. In the field, US federal rules ban recorded or electronically amplified calls for ducks, geese and other migratory birds (50 CFR 20.21), apart from special light-goose seasons, and many states restrict electronic calls for other game. This app is a practice tool — don't play it in the field. Check your state's rules.</p>
+    </section>
+
+    <section className="card stack-s"><h2>Look</h2>
+      <p className="small muted">Dark is easiest on the eyes in a blind before light. Daylight reads better in bright sun.</p>
+      <div className="seg" role="group" aria-label="Theme">${[["field", "Dark"], ["day", "Daylight"], ["phone", "Match phone"]].map(function (t) {
+        return html`<button key=${t[0]} aria-pressed=${theme === t[0]} onClick=${function () { setTheme(t[0]); }}>${t[1]}</button>`; })}</div>
+    </section>
+
+    <section className="stack-s"><div className="sec-head"><h2>Sounds</h2><span className="eyebrow">${credits.length} recordings</span></div>
+      <p className="muted small">Real recordings, free to use with credit. Clips were trimmed, rumble-filtered and level-matched. The CC BY-NC-SA ones may not be used commercially — they would need replacing or licensing before this app is sold.</p>
+      <div className="card list divide">
+        ${credits.map(function (cr) { return html`<p key=${cr.id} className="credit" style=${{ padding: "0.6rem 0" }}><b>${cr.what}</b><br/>
+          ${cr.by} · <a href=${cr.url} target="_blank" rel="noopener">${cr.ref}</a> · ${cr.where} · <a href=${cr.licenseUrl} target="_blank" rel="noopener">${cr.license}</a></p>`; })}
+      </div>
+    </section>
+
+    <section className="card stack-s"><h2>Your data</h2>
+      <p className="muted">Your scores and recordings stay on this phone, in this browser. ${p.store.attempts.length} attempts saved.</p>
+      ${conf[0] ? html`<div className="row"><button className="btn btn-small btn-tint" onClick=${function () { conf[1](false); }}>Keep them</button>
+        <button className="btn btn-small" style=${{ background: "var(--bad)", color: "#fff" }} onClick=${function () { p.wipe(); conf[1](false); }}><${Icon} name="trash" size="18"/> Delete everything</button></div>` :
+        html`<button className="btn btn-small btn-line" style=${{ alignSelf: "flex-start" }} onClick=${function () { conf[1](true); }}>Delete my scores and recordings</button>`}
+    </section>
+    <p className="small muted">Working title. Built as a demo; the name is shared with a well-known hunting video game, so it may want a new one before going public.</p>
+  </div><//>`;
+}
+
+function NotFound() {
+  return html`<${R.Fragment}><${TopBar} back="/" title="Not found"/><div className="wrap stack"><h2>Not found</h2><p className="muted">That page doesn't exist.</p>
+    <button className="btn btn-olive" onClick=${function () { go("/"); }}>Home</button></div><//>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* App                                                                  */
+/* ------------------------------------------------------------------ */
+function parseRoute() {
+  var parts = (location.hash.replace(/^#\/?/, "") || "").split("/");
+  return { name: parts[0] || "home", arg: parts[1] || null };
+}
+
+var memAudio = {}; // recordings from this session, ready without a trip to IndexedDB
+var tmpAttempt = null;
+
+function App() {
+  var rs = useState(parseRoute()), route = rs[0];
+  var ss = useState(loadStore), store = ss[0], setStore = ss[1];
+  var toast = useState(null);
+  useEffect(function () {
+    var f = function () { rs[1](parseRoute()); Player.stop(); window.scrollTo(0, 0); };
+    window.addEventListener("hashchange", f); return function () { window.removeEventListener("hashchange", f); };
+  }, []);
+  useEffect(function () {
+    document.documentElement.setAttribute("data-theme", themeOf(store.settings));
+    // the phone's status bar takes the page's own background
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", css("--bg") || "#0E100D");
+    bumpTheme();
+  }, [store.settings && store.settings.theme]);
+  var update = function (fn) { setStore(function (s) { var n = fn(s); saveStore(n); return n; }); };
+  var flash = function (msg) { toast[1](msg); setTimeout(function () { toast[1](null); }, 2600); };
+
+  function onResult(call, res, x, rate) {
+    if (!res.ok) {
+      tmpAttempt = { id: "tmp", call: call.id, at: Date.now(), problem: res.problem || "error" };
+      memAudio.tmp = { samples: x, rate: rate, blob: toWav(x, rate) };
+      if (location.hash === "#/r/tmp") rs[1]({ name: "r", arg: "tmp", k: Date.now() }); else go("/r/tmp");
+      return;
+    }
+    var id = "a" + Date.now().toString(36);
+    var span = res.groups && res.groups[res.best] ? [res.groups[res.best].t0, res.groups[res.best].t1] : null;
+    var a = {
+      id: id, call: call.id, at: Date.now(), score: res.score, verdict: res.verdict,
+      parts: res.parts.map(function (q) { return { key: q.key, label: q.label, score: Math.round(q.score * 100) / 100, value: q.value, target: q.target, sound: !!q.sound }; }),
+      // pitch paths are only drawn for calls whose shape is scored; dropping the rest keeps history small
+      tips: res.tips, good: res.good, groups: res.groups.length, span: span, warnings: res.warnings,
+      view: res.view.map(function (q) { return isShaped(call) ? q : { t: q.t, d: q.d, lev: q.lev, path: null }; }),
+      dur: x.length / rate, likeOther: res.likeOther || null
+    };
+    var wav = toWav(x, rate);
+    memAudio[id] = { samples: x, rate: rate, blob: wav };
+    IDB.put(id, wav);
+    update(function (s) {
+      var attempts = s.attempts.concat([a]);
+      // keep recordings for the last 6 tries of each call plus its best; the scores themselves are kept regardless
+      var mine = attempts.filter(function (q) { return q.call === call.id && q.audio !== false; });
+      var bestA = mine.reduce(function (b, q) { return !b || q.score > b.score ? q : b; }, null);
+      mine.slice(0, -6).forEach(function (q) { if (q !== bestA) { q.audio = false; IDB.del(q.id); delete memAudio[q.id]; } });
+      if (attempts.length > 400) attempts.slice(0, attempts.length - 400).forEach(function (q) { IDB.del(q.id); });
+      if (attempts.length > 400) attempts = attempts.slice(-400);
+      return Object.assign({}, s, { attempts: attempts });
+    });
+    go("/r/" + id);
+  }
+
+  var page;
+  if (route.name === "home") page = html`<${Home} store=${store} setIntro=${function () { update(function (s) { return Object.assign({}, s, { intro: true }); }); }}/>`;
+  else if (route.name === "s") page = html`<${SpeciesPage} key=${route.arg} id=${route.arg} store=${store}/>`;
+  else if (route.name === "c") page = html`<${CallPage} key=${route.arg} id=${route.arg} store=${store} onResult=${onResult}/>`;
+  else if (route.name === "r") {
+    var att = route.arg === "tmp" ? tmpAttempt : store.attempts.filter(function (q) { return q.id === route.arg; })[0];
+    page = html`<${ResultPage} key=${route.arg + (route.k || "")} attempt=${att} audio=${memAudio[route.arg]} onResult=${onResult}/>`;
+  }
+  else if (route.name === "progress") page = html`<${ProgressPage} store=${store} flash=${flash}/>`;
+  else if (route.name === "about") page = html`<${AboutPage} store=${store}
+      setSettings=${function (st) { update(function (s) { return Object.assign({}, s, { settings: st }); }); }}
+      wipe=${function () { IDB.clear(); memAudio = {}; update(function (s) { return Object.assign({}, s, { attempts: [] }); }); flash("Deleted."); }}/>`;
+  else page = html`<${NotFound}/>`;
+
+  var tab = route.name === "progress" ? "progress" : route.name === "about" ? "about" : "learn";
+  var tabs = [["learn", "Calls", "/", "calls"], ["progress", "Scores", "/progress", "scores"], ["about", "About", "/about", "info"]];
+  return html`<${R.Fragment}>
+    <main>${page}</main>
+    <div className="tabs"><nav aria-label="Main">${tabs.map(function (t) {
+      return html`<button key=${t[0]} aria-current=${tab === t[0] ? "page" : null} onClick=${function () { go(t[2]); }}><${Icon} name=${t[3]} size="24"/>${t[1]}</button>`;
+    })}</nav></div>
+    ${toast[0] ? html`<div className="toast" role="status">${toast[0]}</div>` : null}
+  <//>`;
+}
+
+window.CallWildDebug = { Player: Player };
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
+})();
+</script>
+</body>
+</html>
