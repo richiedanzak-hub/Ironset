@@ -4317,8 +4317,33 @@ function freshCorrect(obs, s, sets, rsc) {
 //               beaten-up lift reads in the 40s-50s instead of hovering in the high 80s.
 const TRIM_CAP = 0.10;
 const READY_SPAN = 0.22;
-function trimFor(raw, scale) {
-  return Math.max(0, Math.min(TRIM_CAP, (scale || 1) * raw));
+/* The cap is the engine's default, not a law: how much a rough week should take
+   off the bar is a judgement, and ten percent is a lot to some lifters and not
+   enough for others. `cap` lets a caller use the lifter's own figure.
+
+   Only the two callers that decide what goes on the bar, and what the app says
+   it took off, pass one. The estimator and the recovery forecast stay on the
+   engine's number on purpose: this is a preference about prescriptions, and a
+   preference must never quietly rewrite what your logged sets are worth. */
+const TRIM_CAPS = [{
+  v: 0,
+  t: "Off"
+}, {
+  v: 0.05,
+  t: "5%"
+}, {
+  v: 0.10,
+  t: "10%"
+}, {
+  v: 0.15,
+  t: "15%"
+}];
+const trimCapOf = settings => {
+  const v = (settings || {}).trimCap;
+  return v == null ? TRIM_CAP : v;
+};
+function trimFor(raw, scale, cap) {
+  return Math.max(0, Math.min(cap == null ? TRIM_CAP : cap, (scale || 1) * raw));
 }
 function readinessFor(raw, scale) {
   const d = Math.max(0, Math.min(READY_SPAN, (scale || 1) * raw));
@@ -6523,7 +6548,8 @@ function LoadSheet({
 function ReadinessSheet({
   open,
   onClose,
-  rows
+  rows,
+  cap
 }) {
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
@@ -6536,7 +6562,7 @@ function ReadinessSheet({
       lineHeight: 1.6,
       marginBottom: 14
     }
-  }, "Readiness is built per lift from work you logged above roughly RPE 8. Each hard session leaves a debt that decays over the days after it, and IRONSET learns how fast you personally clear it. It trims prescribed loads by at most ", Math.round(TRIM_CAP * 100), "%."), rows.map(r => /*#__PURE__*/React.createElement("div", {
+  }, "Readiness is built per lift from work you logged above roughly RPE 8. Each hard session leaves a debt that decays over the days after it, and IRONSET learns how fast you personally clear it.", " ", cap === 0 ? "You have told it not to act on that: prescriptions come out at full strength either way." : `It trims prescribed loads by at most ${Math.round((cap == null ? TRIM_CAP : cap) * 100)}%.`), rows.map(r => /*#__PURE__*/React.createElement("div", {
     key: r.name,
     style: {
       borderTop: `1px solid ${C.line}`,
@@ -6567,7 +6593,7 @@ function ReadinessSheet({
       marginTop: 5,
       lineHeight: 1.5
     }
-  }, r.trim >= 0.01 ? `Loads trimmed ${fmt(Math.round(r.trim * 1000) / 10)}%${r.peak ? ` — hardest recent work was RPE ${fmt(r.peak)}${r.days ? `, ${r.days}d ago` : ""}` : ""}.` : "Nothing recent still weighing on this lift — prescriptions run at full strength."))), /*#__PURE__*/React.createElement("div", {
+  }, r.trim >= 0.01 ? `Loads trimmed ${fmt(Math.round(r.trim * 1000) / 10)}%${r.peak ? ` — hardest recent work was RPE ${fmt(r.peak)}${r.days ? `, ${r.days}d ago` : ""}` : ""}.` : cap === 0 ? `Trimming is off, so nothing comes off the bar${r.peak ? ` — hardest recent work was RPE ${fmt(r.peak)}${r.days ? `, ${r.days}d ago` : ""}` : ""}.` : "Nothing recent still weighing on this lift — prescriptions run at full strength."))), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11.5,
       color: C.faint,
@@ -6905,6 +6931,45 @@ function CustomizeSheet({
     }
   }, "Back to the standard layout"), rule, /*#__PURE__*/React.createElement("div", {
     style: head
+  }, "Readiness"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 7,
+      fontWeight: 700
+    }
+  }, "How much a hard week takes off the bar"), /*#__PURE__*/React.createElement(Segmented, {
+    value: trimCapOf(S),
+    onChange: v => set("trimCap", v),
+    options: TRIM_CAPS.map(c => ({
+      value: c.v,
+      label: c.t
+    }))
+  }), /*#__PURE__*/React.createElement("div", {
+    style: note
+  }, trimCapOf(S) === 0 ? "Nothing gets trimmed. Prescriptions come out at full strength whatever the app thinks you are carrying, and pulling a session back is on you." : /*#__PURE__*/React.createElement(React.Fragment, null, "At most ", Math.round(trimCapOf(S) * 100), "% off a prescription on your most beaten-up day, and less than that the fresher you are. This is only what goes on the bar: your estimated maxes are worked out from what you actually lifted and do not move because of it.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      margin: "14px 0 7px",
+      fontWeight: 700
+    }
+  }, "What the readiness number counts"), /*#__PURE__*/React.createElement(Segmented, {
+    value: S.checkinInScore === false ? "train" : "both",
+    onChange: v => set("checkinInScore", v !== "train"),
+    options: [{
+      value: "both",
+      label: "Training + check-in"
+    }, {
+      value: "train",
+      label: "Training only"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: note
+  }, S.checkinInScore === false ? "The dial reads what your training did to you and nothing else. A rough night still trims your loads — it just stops moving the number." : "A bad night pulls the dial down alongside your training debt, so one figure answers the whole question."), /*#__PURE__*/React.createElement("div", {
+    style: note
+  }, "The lifts that get a bar follow the choice below."), rule, /*#__PURE__*/React.createElement("div", {
+    style: head
   }, "Charts"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10.5,
@@ -7006,14 +7071,24 @@ function DashboardTab({
   const [showLoad, setShowLoad] = useState(false);
   const [deep, setDeep] = useState(false);
   const now = Date.now();
-  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && !isAccessory(n, state));
+  /* Everything you have ever logged is not the same thing as everything you want
+     to look at. A lifter with twenty movements on file wants four of them on the
+     front page, and the rest a tap away in History. */
+  const SET = state.settings || {};
+  const shownLifts = SET.dashLifts && SET.dashLifts.length ? SET.dashLifts : null;
+  const onDash = n => !shownLifts || shownLifts.indexOf(n) >= 0;
+  const win = SET.window == null ? 90 : SET.window;
+  // Readiness obeys the same choice of lifts as the cards and the trend: one
+  // answer to "which lifts am I watching", not three.
+  const mains = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && !isAccessory(n, state) && onDash(n));
+  const cap = trimCapOf(SET);
   const fresh = mains.map(([name, ex]) => {
     const rr = residualFatigue(ex.sets, now, true),
       sc = learnRecoveryScale(ex.sets);
     return {
       name,
       pct: readinessFor(rr.raw, sc),
-      trim: trimFor(rr.raw, sc),
+      trim: trimFor(rr.raw, sc, cap),
       peak: rr.peak,
       days: rr.days
     };
@@ -7024,7 +7099,7 @@ function DashboardTab({
   // one number answers the question the card is actually asking. Kit is deliberately
   // left out of it: forgetting a belt says nothing about how recovered you are.
   const ckToday = checkinOn(state, todayStr());
-  const lifeM = ckToday ? readyInfo(ckToday.score).m : 1;
+  const lifeM = ckToday && SET.checkinInScore !== false ? readyInfo(ckToday.score).m : 1;
   const score = Math.max(15, Math.min(100, Math.round(trainScore - Math.max(0, 1 - lifeM) / READY_SPAN * 62)));
   const sc = freshColor(score);
   // Copy reads the individual lifts, not just the average — a 90 overall means nothing
@@ -7080,13 +7155,6 @@ function DashboardTab({
       labels: lbl
     };
   })();
-  /* Everything you have ever logged is not the same thing as everything you
-     want to look at. A lifter with twenty movements on file wants four of them
-     on the front page, and the rest a tap away in History. */
-  const SET = state.settings || {};
-  const shown = SET.dashLifts && SET.dashLifts.length ? SET.dashLifts : null;
-  const onDash = n => !shown || shown.indexOf(n) >= 0;
-  const win = SET.window == null ? 90 : SET.window;
   const liftCards = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state) && onDash(n)).map(([n]) => ({
     name: n,
     e1rm: models[n].e1rm,
@@ -7598,7 +7666,8 @@ function DashboardTab({
   }, "Start training \u2192"), /*#__PURE__*/React.createElement(ReadinessSheet, {
     open: why,
     onClose: () => setWhy(false),
-    rows: fresh
+    rows: fresh,
+    cap: cap
   }), /*#__PURE__*/React.createElement(TotalSheet, {
     open: showTotal,
     onClose: () => setShowTotal(false),
@@ -13219,7 +13288,7 @@ function TrainTab({
     const carry = sessionCarry(state, sel, logDate, logDate === today ? Date.now() : null);
     // One cap over both, then split back out for display — otherwise two separate
     // caps could stack into a trim bigger than either is allowed to be.
-    const drop = trimFor(prior + carry.raw, scale);
+    const drop = trimFor(prior + carry.raw, scale, trimCapOf(settings));
     const sum = prior + carry.raw;
     return {
       drop,
@@ -13230,7 +13299,7 @@ function TrainTab({
       carryDrop: sum > 0 ? drop * (carry.raw / sum) : 0,
       priorDrop: sum > 0 ? drop * (prior / sum) : 0
     };
-  }, [selEx, sel, state.exercises, e1rm, logDate]);
+  }, [selEx, sel, state.exercises, e1rm, logDate, settings.trimCap]);
   // Declared conditions ride on top of predicted training debt: independent causes
   // of the same shortfall, so they multiply. Everything downstream — the top set,
   // every back-off, the strong/tough-day bracket, the plate maths — reads this one
