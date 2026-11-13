@@ -381,6 +381,35 @@ function sessionForDay(state, models, dateStr) {
   return { lifts, totalSets, backoffs, anyUp: lifts.some((l) => l.up) };
 }
 
+/* Which lifts stand for the squat, the bench and the deadlift in your total.
+
+   It used to be the first main lift whose name contained the word, which is
+   fine right up until there are two of them: an empty "Low Bar Squat" left from
+   a typo and the "Low-Bar Squat" you actually train. Object key order decided
+   it, the empty one won, and the total was built from a lift with no sets in
+   it — so it came out blank and there was nothing on the screen to say why.
+
+   Now: only lifts you have actually logged are eligible, and among those the
+   one you trained most recently wins, ties broken by how much of it there is.
+   And because that is still a guess, it is only the default — settings.totalLifts
+   names them outright, and the app says which three it used either way. */
+function pickTotalLifts(state, models, mains) {
+  const named = ((state.settings || {}).totalLifts) || null;
+  const live = (n) => models[n] && models[n].e1rm != null;
+  if (named && named.length) return named.filter(live);
+  const trained = (n) => {
+    const sets = ((state.exercises[n] || {}).sets || []);
+    if (!sets.length || !live(n)) return null;
+    return { n, sets: sets.length, last: sets.reduce((a, x) => Math.max(a, x.ts), 0) };
+  };
+  const bestFor = (kw) => mains.filter((n) => n.toLowerCase().includes(kw))
+    .map(trained).filter(Boolean)
+    .sort((a, b) => (b.last - a.last) || (b.sets - a.sets))[0];
+  const out = [bestFor("squat"), bestFor("bench"), bestFor("deadlift")].filter(Boolean).map((x) => x.n);
+  // A total is three lifts. Two is not a total, and guessing at one would be worse.
+  return out.length === 3 ? out : [];
+}
+
 function analyze(state, models, unit) {
   const ex = state.exercises;
   const U = unit || "lb";
@@ -393,16 +422,21 @@ function analyze(state, models, unit) {
   const add = (sev, title, detail, scope) => out.push({ id: (scope || "g") + "|" + title, sev, title, detail });
 
   // projected total + per-lift estimates
-  const find = (kw) => mains.find((n) => n.toLowerCase() === kw) || mains.find((n) => n.toLowerCase().includes(kw));
-  const S = find("squat"), B = find("bench"), D = find("deadlift");
+  const named = !!((state.settings || {}).totalLifts || []).length;
+  const totalNames = pickTotalLifts(state, models, mains);
+  // The three the total is built from, by name, for the reads that compare them.
+  const [S, B, D] = totalNames.length === 3 ? totalNames : [null, null, null];
   const parts = mains.filter((n) => models[n] && models[n].e1rm != null).map((n) => {
     const m = models[n]; const ago = valueAt(m.points, now - 30 * DAY);
-    return { name: n, e1rm: m.e1rm, delta: ago != null ? m.e1rm - ago : null };
+    return { name: n, e1rm: m.e1rm, delta: ago != null ? m.e1rm - ago : null,
+      counts: totalNames.indexOf(n) >= 0 };
   });
   let total = null, totalDelta = null;
-  if (S && B && D && models[S].e1rm != null && models[B].e1rm != null && models[D].e1rm != null) {
-    total = models[S].e1rm + models[B].e1rm + models[D].e1rm;
-    totalDelta = [S, B, D].reduce((acc, n) => { const a = valueAt(models[n].points, now - 30 * DAY); return acc + (a != null ? models[n].e1rm - a : 0); }, 0);
+  // Naming them yourself means whatever you named, however many. Guessing means
+  // all three or nothing.
+  if (totalNames.length && (named || totalNames.length === 3)) {
+    total = totalNames.reduce((a, n) => a + models[n].e1rm, 0);
+    totalDelta = totalNames.reduce((acc, n) => { const a = valueAt(models[n].points, now - 30 * DAY); return acc + (a != null ? models[n].e1rm - a : 0); }, 0);
   }
 
   for (const M of mains) {
@@ -487,7 +521,7 @@ function analyze(state, models, unit) {
     bench: B ? { name: B, e1rm: models[B].e1rm } : null,
     deadlift: D ? { name: D, e1rm: models[D].e1rm } : null,
   };
-  return { total, totalDelta, parts, insights: out.slice(0, 8), big, session: sessionToday(state, models) };
+  return { total, totalDelta, totalNames, parts, insights: out.slice(0, 8), big, session: sessionToday(state, models) };
 }
 
 /* ----------------------------------------------------------------------------
@@ -1439,8 +1473,16 @@ function ArcGauge({ value, max = 100, color = C.red, size = 168, ticks = 36, chi
 
 // The workhorse: a figure, its unit, its name, and optionally the shape behind it.
 function StatTile({ value, unit, label, color = C.red, spark, bars, barLabels, segments, sub, action, onClick, style }) {
+  /* A tile that opens something has to say so. It cannot be a <button>: the share
+     control sits inside it, and a button inside a button is invalid markup that
+     breaks the inner one. So it carries the role, the tab stop and the keyboard
+     itself — which is what a screen reader and a keyboard were missing here. */
+  const act = onClick ? {
+    role: "button", tabIndex: 0, "aria-label": label,
+    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } },
+  } : {};
   return (
-    <div onClick={onClick} style={{ position: "relative", overflow: "hidden", background: G.card,
+    <div onClick={onClick} {...act} style={{ position: "relative", overflow: "hidden", background: G.card,
       border: `1px solid ${C.line}`, borderRadius: R.surface, padding: "14px 15px 13px",
       cursor: onClick ? "pointer" : undefined, boxShadow: ELEV, minWidth: 0, ...style }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
@@ -1626,18 +1668,21 @@ function smoothPath(pts) {
   }
   return d;
 }
-function LineChart({ data, color = C.red, height = 176, unit = "" }) {
+function LineChart({ data, color = C.red, height = 176, unit = "", zero }) {
   const uid = useMemo(() => "c" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0)
     return <div style={{ color: C.faint, fontSize: 13, padding: "36px 4px", textAlign: "center" }}>No data yet — log a set to start your trend.</div>;
   const W = 320, H = height, gutter = 38, padR = 14, padT = 28, padB = 26;
   const xs = data.map((d) => d.ts), ys = data.map((d) => d.value);
   const lo = Math.min(...ys), hi = Math.max(...ys), mid = (lo + hi) / 2;
-  // Keep small changes from looking like a cliff, then snap the window to round numbers.
+  /* Two honest ways to draw the same line. Fitted, the axis covers the range the
+     data actually spans, so ten pounds across a block is a visible climb — and a
+     bad week looks like a cliff. From zero, the proportions are true and most
+     training looks like a flat line, which is also the truth. The lifter picks. */
   const half = Math.max(((hi - lo) / 2) * 1.3, mid * 0.045, 5);
-  const step = niceStep(half * 2, 4);
-  const minY = Math.floor((mid - half) / step) * step;
-  const maxY = Math.ceil((mid + half) / step) * step;
+  const step = zero ? niceStep(hi || 1, 4) : niceStep(half * 2, 4);
+  const minY = zero ? 0 : Math.floor((mid - half) / step) * step;
+  const maxY = zero ? Math.max(step, Math.ceil(hi / step) * step) : Math.ceil((mid + half) / step) * step;
   const ticks = [];
   for (let v = minY; v <= maxY + 0.001; v += step) ticks.push(v);
   const minX = Math.min(...xs), maxX = Math.max(...xs), spanX = maxX - minX || 1;
@@ -1726,7 +1771,10 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 
 function App() {
   const [state, setState] = useState(loadState);
-  const [tab, setTab] = useState("dash");
+  // Where the app opens. The dashboard is a reasonable guess and the wrong one
+  // for anybody who reads it after training rather than before.
+  const [tab, setTab] = useState(() => ((loadState().settings || {}).homeTab) || "dash");
+  const [custom, setCustom] = useState(false);
   // Noticing you can't train today happens on Train, not Plan. This carries that
   // one intent across: open Plan on that date with the day's tools already up.
   const [focusDay, setFocusDay] = useState(null);
@@ -2008,7 +2056,7 @@ function App() {
 
         <div style={{ padding: 16 }}>
           {tab === "dash" && (
-            <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel }} />
+            <DashboardTab {...{ state, models, analysis, unit, setTab, setState, setSel, openCustomize: () => setCustom(true) }} />
           )}
           {tab === "train" && (
             <TrainTab {...{ state, setState, sel, setSel, models, addExercise, updateExercise, logSet, updateSet, deleteSet, settings: state.settings, setSetting, denoms, meetDays, meetName, plan: state.plan || {}, onEditPlan: () => setShowPlan(true), setTab, openDayTools, saveClip, dropClip }} />
@@ -2045,7 +2093,10 @@ function App() {
         </div>
       </div>
 
-      <SettingsSheet {...{ open: showSettings, onClose: () => setShowSettings(false), settings: state.settings, setSetting, state, setState }} />
+      <SettingsSheet {...{ open: showSettings, onClose: () => setShowSettings(false), settings: state.settings,
+        setSetting, state, setState, openCustomize: () => { setShowSettings(false); setCustom(true); } }} />
+      <CustomizeSheet open={custom} onClose={() => setCustom(false)} state={state} setState={setState}
+        models={models} analysis={analysis} />
       <BlockSheet open={showPlan} onClose={() => setShowPlan(false)} plan={state.plan || {}}
         setPlan={(p) => setState((s) => ({ ...s, plan: p }))} exNames={Object.keys(state.exercises)}
         inputMode={state.settings.inputMode} />
@@ -3937,15 +3988,25 @@ function Onboarding({ onDone, unit }) {
   );
 }
 
-function TotalSheet({ open, onClose, parts, models, total, unit }) {
+/* This used to list every main lift you had an estimate for, while the figure
+   above it added up three — so the shares did not come to a hundred and there
+   was no way to tell which three it had chosen. It shows the lifts that are
+   actually in the total, says how they were chosen, and opens the picker. */
+function TotalSheet({ open, onClose, analysis, models, unit, onEdit }) {
   const now = Date.now(), CUT = now - 30 * 86400000;
+  const names = (analysis && analysis.totalNames) || [];
+  const total = analysis && analysis.total;
+  const parts = ((analysis && analysis.parts) || []).filter((p) => names.indexOf(p.name) >= 0);
   return (
     <Sheet open={open} onClose={onClose} title="Projected total">
       <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
-        Your squat, bench and deadlift estimates added together — each one built from the sets you've
-        logged, weighted toward your hardest and most recent work.
+        {names.length
+          ? <>These {names.length === 3 ? "three" : names.length} added together — each estimate built from the
+              sets you have logged, weighted toward your hardest and most recent work.</>
+          : <>Nothing is being added up yet. A total wants a squat, a bench and a deadlift with sets
+              against them — or you can name whichever lifts you want counted.</>}
       </div>
-      {(parts || []).map((p) => {
+      {parts.map((p) => {
         const m = models[p.name], pts = m ? m.points : [];
         let then = null;
         for (const q of pts) { if (q.ts <= CUT) then = q.value; }
@@ -3972,6 +4033,9 @@ function TotalSheet({ open, onClose, parts, models, total, unit }) {
           </div>
         );
       })}
+      <Btn kind="ghost" onClick={onEdit} style={{ width: "100%", marginTop: 16 }}>
+        Choose which lifts count
+      </Btn>
     </Sheet>
   );
 }
@@ -4051,7 +4115,202 @@ function ReadinessSheet({ open, onClose, rows }) {
     </Sheet>
   );
 }
-function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel }) {
+/* ----------------------------- THE DASHBOARD -------------------------------
+   A stack of cards, and which of them earn their place is not the same answer
+   for everybody. A lifter eight weeks out from a meet wants attempts and
+   readiness at the top; somebody in an off-season block wants the trend and
+   nothing else. Rather than guess once and make everyone live with it, the
+   stack is a list you can reorder and switch off.                           */
+const DASH_CARDS = [
+  { k: "readiness", t: "Readiness", d: "The recovery ring, and how fresh each lift is" },
+  { k: "checkin", t: "Today's check-in", d: "Sleep, stress and kit, as one number" },
+  { k: "stats", t: "Total and 7-day load", d: "The two headline figures" },
+  { k: "maxes", t: "Estimated maxes", d: "A card per lift, each with its own line" },
+  { k: "trend", t: "Strength trend", d: "Every lift against where it started" },
+  { k: "reads", t: "Today, and what changed", d: "The session so far, and what the data noticed" },
+  { k: "score", t: "Strength score", d: "DOTS and Wilks against your bodyweight" },
+  { k: "meet", t: "Meet prep", d: "Nine attempts off your current strength" },
+  { k: "deeper", t: "Deeper reads", d: "Variations, accessories, profile, recent sessions" },
+];
+const DASH_DEFAULT = DASH_CARDS.map((c) => c.k);
+/* How far back a chart looks. Ninety days is the right default for a block and
+   the wrong one for somebody three years in who wants to see the whole climb,
+   so it is a setting rather than a number baked into each chart. Zero is all
+   of it. */
+const WINDOWS = [
+  { v: 30, t: "30 days" }, { v: 90, t: "90 days" }, { v: 180, t: "6 months" },
+  { v: 365, t: "1 year" }, { v: 0, t: "All time" },
+];
+const winLabel = (v) => (WINDOWS.find((w) => w.v === v) || WINDOWS[1]).t;
+const winDays = (settings) => { const v = (settings || {}).window; return v == null ? 90 : v; };
+/* The saved order is a list of what you have already sorted, not a whitelist of
+   what may appear: a card added to the app after you last touched this lands on
+   the end rather than vanishing because an older list never knew to mention it.
+   Hiding is its own list for the same reason. */
+const dashOrder = (settings) => {
+  const saved = Array.isArray((settings || {}).cards) ? settings.cards : [];
+  const seen = saved.filter((k) => DASH_DEFAULT.indexOf(k) >= 0);
+  return seen.concat(DASH_DEFAULT.filter((k) => seen.indexOf(k) < 0));
+};
+const dashHidden = (settings) => ((settings || {}).cardsOff) || [];
+
+/* One place to shape the app, rather than a preference buried in whichever
+   screen it happens to affect. Everything here is a stored choice with a sane
+   default, so the app out of the box is still the app — this is for when the
+   default is wrong for you specifically. */
+function CustomizeSheet({ open, onClose, state, setState, models, analysis }) {
+  const S = state.settings || {};
+  const set = (k, v) => setState((st) => ({ ...st, settings: { ...st.settings, [k]: v } }));
+  const order = dashOrder(S), off = dashHidden(S);
+  const move = (k, d) => {
+    const i = order.indexOf(k), j = i + d;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    const next = order.slice();
+    next.splice(j, 0, next.splice(i, 1)[0]);
+    set("cards", next);
+  };
+  const toggleCard = (k) => set("cardsOff", off.indexOf(k) >= 0 ? off.filter((x) => x !== k) : off.concat([k]));
+  // Busiest first: the lift you train most is the one you are looking for.
+  const mains = Object.keys(state.exercises)
+    .filter((n) => !state.exercises[n].parent && !isAccessory(n, state))
+    .sort((a, b) => (state.exercises[b].sets.length - state.exercises[a].sets.length) || a.localeCompare(b));
+  const auto = !((S.totalLifts || []).length);
+  const counts = (analysis && analysis.totalNames) || [];
+  const head = { ...label, fontSize: 10, marginBottom: 9 };
+  const note = { fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginTop: 8 };
+  const rule = <div style={{ height: 1, background: C.line, margin: "20px 0" }} />;
+  const mvBtn = (on) => ({ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: "grid",
+    placeItems: "center", border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)",
+    color: on ? C.muted : "rgba(255,255,255,0.13)", cursor: on ? "pointer" : "default", padding: 0,
+    WebkitTapHighlightColor: "transparent" });
+  /* A lift picker that shows how much is behind each name. Two lifts a letter
+     apart — "Low Bar Squat" with nothing in it and "Low-Bar Squat" with two
+     years — look identical in a list until you put the set count on them. */
+  const lifts = (sel, onToggle, empty) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {!mains.length && <div style={{ fontSize: 12.5, color: C.faint }}>{empty}</div>}
+      {mains.map((n) => {
+        const on = sel.indexOf(n) >= 0;
+        const k = state.exercises[n].sets.length;
+        return (
+          <button key={n} onClick={() => onToggle(n)} style={{ width: "100%", display: "flex",
+            alignItems: "center", gap: 10, textAlign: "left", cursor: "pointer", padding: "10px 12px",
+            borderRadius: R.ctrl, color: C.text, WebkitTapHighlightColor: "transparent",
+            background: on ? tint(hueFor(n, state), 0.12) : "rgba(255,255,255,0.03)",
+            border: `1px solid ${on ? tint(hueFor(n, state), 0.45) : C.line}` }}>
+            <span style={{ width: 18, height: 18, borderRadius: 6, flexShrink: 0, display: "grid",
+              placeItems: "center", border: `1px solid ${on ? "transparent" : C.line2}`,
+              background: on ? hueFor(n, state) : "rgba(255,255,255,0.03)" }}>
+              {on && <Check size={12} style={{ color: "#fff" }} />}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 13, overflow: "hidden",
+              textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, flexShrink: 0,
+              color: k ? C.faint : C.gold }}>{k ? `${k} set${k === 1 ? "" : "s"}` : "never logged"}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const dashSel = (S.dashLifts && S.dashLifts.length) ? S.dashLifts : mains;
+  const toggleDash = (n) => {
+    const next = dashSel.indexOf(n) >= 0 ? dashSel.filter((x) => x !== n) : dashSel.concat([n]);
+    // Everything selected is the same as no filter at all, and storing it as no
+    // filter means a lift added later shows up instead of being silently left out.
+    set("dashLifts", next.length && next.length < mains.length ? next : null);
+  };
+  const totSel = auto ? counts : S.totalLifts;
+  const toggleTotal = (n) =>
+    set("totalLifts", totSel.indexOf(n) >= 0 ? totSel.filter((x) => x !== n) : totSel.concat([n]));
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Customize">
+      <div style={head}>What is on the dashboard</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {order.map((k, i) => {
+          const card = DASH_CARDS.find((c) => c.k === k);
+          if (!card) return null;
+          const on = off.indexOf(k) < 0;
+          return (
+            <div key={k} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 11px",
+              background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`, borderRadius: R.ctrl }}>
+              <button onClick={() => toggleCard(k)} aria-label={on ? `Hide ${card.t}` : `Show ${card.t}`}
+                style={{ width: 18, height: 18, borderRadius: 6, flexShrink: 0, display: "grid", padding: 0,
+                  placeItems: "center", cursor: "pointer", WebkitTapHighlightColor: "transparent",
+                  border: `1px solid ${on ? "transparent" : C.line2}`,
+                  background: on ? C.red : "rgba(255,255,255,0.03)" }}>
+                {on && <Check size={12} style={{ color: "#fff" }} />}
+              </button>
+              <span style={{ flex: 1, minWidth: 0, opacity: on ? 1 : 0.45 }}>
+                <span style={{ display: "block", fontWeight: 700, fontSize: 13 }}>{card.t}</span>
+                <span style={{ display: "block", fontSize: 10.5, color: C.faint, marginTop: 2,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.d}</span>
+              </span>
+              <button aria-label="Move up" disabled={i === 0} onClick={() => move(k, -1)} style={mvBtn(i > 0)}>
+                <ChevronDown size={13} style={{ transform: "rotate(180deg)" }} />
+              </button>
+              <button aria-label="Move down" disabled={i === order.length - 1} onClick={() => move(k, 1)}
+                style={mvBtn(i < order.length - 1)}><ChevronDown size={13} /></button>
+            </div>
+          );
+        })}
+      </div>
+      {(off.length > 0 || JSON.stringify(order) !== JSON.stringify(DASH_DEFAULT)) && (
+        <button onClick={() => { set("cards", null); set("cardsOff", []); }}
+          style={{ background: "none", border: "none", color: C.faint, fontWeight: 800, fontSize: 11.5,
+            cursor: "pointer", padding: "10px 0 0" }}>Back to the standard layout</button>
+      )}
+
+      {rule}
+      <div style={head}>Charts</div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 7, fontWeight: 700 }}>How far back they look</div>
+      <Segmented value={winDays(S)} onChange={(v) => set("window", v)}
+        options={WINDOWS.map((w) => ({ value: w.v, label: w.t.replace(" time", "").replace("days", "d").replace("months", "mo").replace("year", "yr") }))} />
+      <div style={{ fontSize: 10.5, color: C.muted, margin: "14px 0 7px", fontWeight: 700 }}>Vertical scale</div>
+      <Segmented value={S.chartZero ? "zero" : "fit"} onChange={(v) => set("chartZero", v === "zero")}
+        options={[{ value: "fit", label: "Fit the data" }, { value: "zero", label: "From zero" }]} />
+      <div style={note}>
+        {S.chartZero
+          ? "Every chart starts at zero. Honest about proportion, and flat-looking when the change is small."
+          : "Charts zoom to the range they cover, so ten pounds across a block is visible. Good for reading progress, easy to mistake for a cliff."}
+      </div>
+
+      {rule}
+      <div style={head}>Lifts on the dashboard</div>
+      <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 10 }}>
+        Which lifts get a card and a line on the trend. Everything you log is still in History.
+      </div>
+      {lifts(dashSel, toggleDash, "Nothing logged yet.")}
+
+      {rule}
+      <div style={head}>Lifts in your total</div>
+      <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 10 }}>
+        {auto
+          ? (counts.length
+              ? <>Picked for you: <b style={{ color: C.text }}>{counts.join(", ")}</b> — the squat, bench and
+                  deadlift you have trained most recently. Tap to name them yourself.</>
+              : <>Nothing is being added up yet. A total needs a squat, a bench and a deadlift with sets
+                  against them — or name whichever lifts you want counted.</>)
+          : <>You picked these. They are what the projected total adds up.</>}
+      </div>
+      {lifts(totSel, toggleTotal, "Nothing logged yet.")}
+      {!auto && (
+        <button onClick={() => set("totalLifts", null)} style={{ background: "none", border: "none",
+          color: C.faint, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: "10px 0 0" }}>
+          Back to picking them for me
+        </button>
+      )}
+
+      {rule}
+      <div style={head}>Open the app on</div>
+      <Segmented value={S.homeTab || "dash"} onChange={(v) => set("homeTab", v)}
+        options={[{ value: "dash", label: "Dashboard" }, { value: "train", label: "Train" }, { value: "plan", label: "Plan" }]} />
+      <div style={note}>Where you land when you open IRONSET. Straight to Train if the dashboard is something you read afterwards rather than before.</div>
+    </Sheet>
+  );
+}
+
+function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel, openCustomize }) {
   const [share, setShare] = useState(null);
   const [why, setWhy] = useState(false);
   const [showTotal, setShowTotal] = useState(false);
@@ -4116,16 +4375,32 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
     }
     return { values: out, labels: lbl };
   })();
+  /* Everything you have ever logged is not the same thing as everything you
+     want to look at. A lifter with twenty movements on file wants four of them
+     on the front page, and the rest a tap away in History. */
+  const SET = state.settings || {};
+  const shown = (SET.dashLifts && SET.dashLifts.length) ? SET.dashLifts : null;
+  const onDash = (n) => !shown || shown.indexOf(n) >= 0;
+  const win = SET.window == null ? 90 : SET.window;
   const liftCards = Object.entries(state.exercises)
-    .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state))
+    .filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null
+      && !isAccessory(n, state) && onDash(n))
     .map(([n]) => ({ name: n, e1rm: models[n].e1rm, points: models[n].points }))
     .sort((a2, b2) => b2.e1rm - a2.e1rm);
+  // The trend was buried inside the insights block, which meant it could not be
+  // moved, hidden or pointed at a different stretch of time. It is a card now.
+  const trendSeries = Object.keys(state.exercises)
+    .filter((n) => !state.exercises[n].parent && !isAccessory(n, state) && onDash(n)
+      && models[n] && models[n].points.length > 1)
+    .map((n) => ({ name: n, color: hueFor(n, state), points: models[n].points }));
   const bwKg = state.bodyweight && state.bodyweight.length ? state.bodyweight[state.bodyweight.length - 1].kg : null;
   const dots = (bwKg && analysis.total != null)
     ? Math.round(toKg(analysis.total, unit) * dotsCoeff(bwKg, (state.settings && state.settings.sex) || "male")) : null;
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+  // Every card, built once. The list underneath decides which of them appear,
+  // and in what order.
+  const SECTIONS = {
+    readiness: (
       <Card accent={sc} glow={`radial-gradient(130% 95% at 10% -12%, ${sc}24, transparent 66%)`} style={{ padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
           <span style={{ ...label, fontSize: 9.5 }}>Readiness · Today</span>
@@ -4153,25 +4428,9 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>{note}</div>
           </div>
         </div>
-        {ckToday ? (
-          <div onClick={() => setTab("train")} style={{ marginTop: 12, display: "flex", alignItems: "center",
-            justifyContent: "space-between", gap: 10, cursor: "pointer", background: "rgba(255,255,255,0.03)",
-            border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
-            <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
-              Checked in <b style={{ color: C.text }}>{ckToday.score} · {readyInfo(ckToday.score).t}</b>
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: C.faint, fontWeight: 700 }}>edit</span>
-          </div>
-        ) : (
-          <div onClick={() => setTab("train")} style={{ marginTop: 12, display: "flex", alignItems: "center",
-            justifyContent: "space-between", gap: 10, cursor: "pointer", background: "rgba(255,255,255,0.03)",
-            border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
-            <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
-              No check-in today — <span style={{ color: C.text }}>how did you sleep?</span>
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: C.red, fontWeight: 700 }}>add</span>
-          </div>
-        )}
+        {/* A row here asked "how did you sleep?" and sent you to Train, which has
+            nowhere to answer it — while the card directly underneath asks the same
+            question and takes the answer. Two prompts, one of them a dead end. */}
         {fresh.length > 0 && (
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             {fresh.map((r) => (
@@ -4196,11 +4455,15 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
           </div>
         )}
       </Card>
-
-      {/* One daily question, asked on the screen about the day — not in front of
-          you again at the bar between sets. */}
-      <CheckinCard state={state} setState={setState} sel={null} dateStr={todayStr()} />
+    ),
+    /* One daily question, asked on the screen about the day — not in front of
+       you again at the bar between sets. */
+    checkin: <CheckinCard state={state} setState={setState} sel={null} dateStr={todayStr()} />,
+    stats: (
       <Grid2>
+        {/* The bar under the total is the total, so it carries the lifts that are
+            actually in it — not every main lift with an estimate, which had a
+            three-lift figure wearing four segments. */}
         <StatTile label="Projected total" color={C.blue}
           value={analysis.total != null ? fmt(Math.round(analysis.total)) : "—"} unit={analysis.total != null ? unit : ""}
           onClick={() => setShowTotal(true)}
@@ -4209,8 +4472,8 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
               {analysis.totalDelta > 0 ? "▲" : "▼"} {fmt(Math.abs(Math.round(analysis.totalDelta)))} in 30 days
             </span>
           ) : null}
-          segments={(analysis.parts || []).map((pt) => ({ value: pt.e1rm, color: hueFor(pt.name, state),
-            short: pt.name === "Deadlift" ? "Dead" : pt.name.split(" ")[0] }))}
+          segments={(analysis.parts || []).filter((pt) => pt.counts).map((pt) => ({ value: pt.e1rm,
+            color: hueFor(pt.name, state), short: shortLift(pt.name) }))}
           action={analysis.total != null ? (
             <button aria-label="Share total" onClick={(e) => { e.stopPropagation(); doShare(setShare, { type: "stat",
               label: "Projected total", value: fmt(Math.round(analysis.total)), unit,
@@ -4227,8 +4490,8 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
           bars={weekBars.values} barLabels={weekBars.labels}
           sub={`${week.sets} set${week.sets === 1 ? "" : "s"} · ${week.days} day${week.days === 1 ? "" : "s"}`} />
       </Grid2>
-
-      {liftCards.length > 0 && (
+    ),
+    maxes: liftCards.length > 0 ? (
         <div>
           <SectionHead accent={C.blue} right={<button aria-label="Share maxes" onClick={() => doShare(setShare, { type: "session",
             headline: "Estimated maxes", sub: `${liftCards.length} lifts`,
@@ -4257,12 +4520,25 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
             ))}
           </div>
         </div>
-      )}
-
-      <Analysis view="today" analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
-      <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />
-      <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />
-
+    ) : null,
+    trend: trendSeries.length > 0 ? (
+      <Card accent={C.red}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+          <span style={{ ...label, fontSize: 9.5 }}>Strength trend</span>
+          <button onClick={openCustomize} style={{ background: "none", border: "none", padding: 0,
+            cursor: "pointer", fontSize: 10.5, color: C.faint, fontFamily: MONO,
+            WebkitTapHighlightColor: "transparent" }}>{winLabel(win)} ⌄</button>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, margin: "6px 0 10px" }}>
+          Each lift against where it started, so they share one axis and you can see which is still climbing.
+        </div>
+        <MultiTrend series={trendSeries} days={win} />
+      </Card>
+    ) : null,
+    reads: <Analysis view="today" analysis={analysis} unit={unit} state={state} setState={setState} models={models} />,
+    score: <ScoreCard analysis={analysis} unit={unit} state={state} setState={setState} />,
+    meet: <MeetCard analysis={analysis} unit={unit} state={state} setState={setState} />,
+    deeper: (<>
       {/* Variations against their main lift, accessory progress, the strength
           profile, the last sessions. Cross-lift reads, all four of them — which is
           why they never belonged under one lift's history. One tap, from the screen
@@ -4284,10 +4560,23 @@ function DashboardTab({ state, models, analysis, unit, setTab, setState, setSel 
       <Sheet open={deep} onClose={() => setDeep(false)} title="Deeper reads">
         <Analysis view="deep" analysis={analysis} unit={unit} state={state} setState={setState} models={models} />
       </Sheet>
+    </>),
+  };
+  const order = dashOrder(SET), off = dashHidden(SET);
 
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {order.filter((k) => off.indexOf(k) < 0).map((k) => (
+        <React.Fragment key={k}>{SECTIONS[k]}</React.Fragment>
+      ))}
+
+      <button onClick={openCustomize} style={{ background: "none", border: "none", color: C.faint,
+        fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: "2px 0", alignSelf: "center",
+        WebkitTapHighlightColor: "transparent" }}>Customize this screen</button>
       <Btn kind="primary" onClick={() => setTab("train")} style={{ width: "100%" }}>Start training →</Btn>
       <ReadinessSheet open={why} onClose={() => setWhy(false)} rows={fresh} />
-      <TotalSheet open={showTotal} onClose={() => setShowTotal(false)} parts={analysis.parts} models={models} total={analysis.total} unit={unit} />
+      <TotalSheet open={showTotal} onClose={() => setShowTotal(false)} analysis={analysis} models={models}
+        unit={unit} onEdit={() => { setShowTotal(false); openCustomize(); }} />
       <LoadSheet open={showLoad} onClose={() => setShowLoad(false)} state={state} unit={unit} />
       {share && <ShareSheet data={share} onClose={() => setShare(null)} />}
     </div>
@@ -8078,7 +8367,10 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
   const sets = [...ex.sets].sort((a, b) => b.ts - a.ts);
 
   const best = model.points.length ? Math.max(...model.points.map((p) => p.value)) : null;
-  const cutoff = Date.now() - 30 * 864e5;
+  const HS = state.settings || {};
+  const hWin = winDays(HS);
+  const cutoff = hWin ? Date.now() - hWin * 864e5 : 0;
+  const winT = hWin ? winLabel(hWin) : "All time";
   const before = model.points.filter((p) => p.ts <= cutoff).slice(-1)[0]?.value;
   const delta = before != null && model.e1rm != null ? model.e1rm - before : null;
   // Accessories read out in the reps they are trained in, not as a one-rep max, and
@@ -8089,9 +8381,11 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
   const accDelta = accMode && delta != null && before != null
     ? workingWeight(model.e1rm, accReps) - workingWeight(before, accReps) : null;
   const top = accMode ? bestSet(ex.sets) : null;
-  const chartPoints = accMode
-    ? model.points.map((pt) => ({ ts: pt.ts, value: workingWeight(pt.value, accReps) }))
-    : model.points;
+  // The chart covers the same stretch of time as the figure beside it.
+  const inWin = (pt) => !cutoff || pt.ts >= cutoff;
+  const windowed = model.points.filter(inWin);
+  const chartPoints = (windowed.length > 1 ? windowed : model.points).map((pt) => accMode
+    ? { ts: pt.ts, value: workingWeight(pt.value, accReps) } : pt);
   /* The set log was every set you have ever done on this lift in one unbroken
      reverse-chronological column, which is a ledger rather than a history: you
      could not see where one session ended and the next began, so you could not
@@ -8138,17 +8432,17 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           {(accMode
             ? [[`Working × ${accReps}`, accWork != null ? roundTo(accWork, 1) : null, hueFor(cur, state), true],
                ["Best set", top ? `${fmt(roundTo(top.weight, 1))}×${top.reps}` : null, C.text, false],
-               ["30-day", accDelta != null ? roundTo(accDelta, 1) : null, accDelta > 0 ? C.good : accDelta < 0 ? C.red : C.muted, false]]
+               [winT, accDelta != null ? roundTo(accDelta, 1) : null, accDelta > 0 ? C.good : accDelta < 0 ? C.red : C.muted, false]]
             : [["Current 1RM", model.e1rm, hueFor(cur, state), true],
                ["Best", best, C.text, false],
-               ["30-day", delta, delta > 0 ? C.good : delta < 0 ? C.red : C.muted, false]]
+               [winT, delta, delta > 0 ? C.good : delta < 0 ? C.red : C.muted, false]]
           ).map(([l, v, col, lead], i) => (
             <div key={l} style={{ flex: 1, minWidth: 0, paddingLeft: i ? 12 : 0, marginLeft: i ? 12 : 0,
               borderLeft: i ? `1px solid ${C.line}` : "none" }}>
               <div style={{ ...label2, color: C.faint }}>{l}</div>
               <div style={{ fontFamily: MONO, fontSize: lead ? 25 : 19, fontWeight: 700, marginTop: 6, color: col,
                 letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-                {l === "30-day" && v != null && v > 0 ? "+" : ""}{v == null ? "—" : typeof v === "string" ? v : fmt(v)}
+                {l === winT && v != null && v > 0 ? "+" : ""}{v == null ? "—" : typeof v === "string" ? v : fmt(v)}
               </div>
             </div>
           ))}
@@ -8168,7 +8462,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
             {accMode ? `Working weight for ${accReps} (${unit})` : `Strength trend (${unit})`}
           </span>
         </span>
-        <LineChart data={chartPoints} height={176} unit={unit} color={hueFor(cur, state)} />
+        <LineChart data={chartPoints} height={176} unit={unit} color={hueFor(cur, state)} zero={!!HS.chartZero} />
       </Card>
 
       <FilmStrip ex={cur} sets={sets} clips={clips} unit={unit} hue={hueFor(cur, state)}
@@ -8807,7 +9101,7 @@ function RecentCard({ state, unit, inputMode }) {
 // them is still moving.
 function MultiTrend({ series, height = 184, days = 90 }) {
   const uid = useMemo(() => "mt" + Math.random().toString(36).slice(2, 7), []);
-  const cut = Date.now() - days * 86400000;
+  const cut = days ? Date.now() - days * 86400000 : 0;   // 0 days means all of it
   const live = (series || [])
     .map((s2) => ({ ...s2, pts: (s2.points || []).filter((p) => p.ts >= cut) }))
     .filter((s2) => s2.pts.length > 1);
@@ -8910,11 +9204,6 @@ function Analysis({ analysis, unit, state, setState, models, view }) {
         </Card>
       </div>
     );
-  // Main lifts for the trend, variations for the ratio bars — two different questions,
-  // so two different charts rather than one that half-answers both.
-  const trendSeries = Object.keys(state.exercises || {})
-    .filter((n) => !state.exercises[n].parent && !isAccessory(n, state) && models && models[n] && models[n].points.length > 1)
-    .map((n) => ({ name: n, color: hueFor(n, state), points: models[n].points }));
   // Accessories were left out of everything here, which made them invisible: you can
   // only push what you can see. They get their own read, in their own unit.
   const accProgress = Object.keys(state.exercises || {})
@@ -8949,19 +9238,6 @@ function Analysis({ analysis, unit, state, setState, models, view }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {today && (<>
       <SessionCard session={analysis.session} unit={unit} inputMode={state.settings.inputMode} />
-
-      {trendSeries.length > 0 && (
-        <Card accent={C.red}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-            <span style={{ ...label, fontSize: 9.5 }}>Strength trend</span>
-            <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO }}>90 days</span>
-          </div>
-          <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, margin: "6px 0 10px" }}>
-            Each lift against where it started, so they share one axis and you can see which is still climbing.
-          </div>
-          <MultiTrend series={trendSeries} />
-        </Card>
-      )}
 
       {shownInsights.length > 0 && (
         <SectionHead accent={C.red} right={Object.keys(dismissed).length > 0 ? (
@@ -9543,7 +9819,7 @@ function DeviceRow({ on, title, note, action }) {
   );
 }
 
-function SettingsSheet({ open, onClose, settings, setSetting, state, setState }) {
+function SettingsSheet({ open, onClose, settings, setSetting, state, setState, openCustomize }) {
   const restoreExercise = (name) => setState((s) => {
     const item = (s.trash || []).find((x) => x.name === name);
     if (!item) return s;
@@ -9642,6 +9918,26 @@ function SettingsSheet({ open, onClose, settings, setSetting, state, setState })
   return (
     <Sheet open={open} onClose={onClose} title="Settings">
       <div style={row}>
+        {/* Preferences about the training live here; preferences about the app
+            itself live one tap away, because they are a different question. */}
+        {openCustomize && (
+          <>
+            <button onClick={openCustomize} style={{ width: "100%", display: "flex", alignItems: "center",
+              gap: 10, background: G.card, border: `1px solid ${C.line2}`, borderRadius: R.surface,
+              padding: "13px 14px", cursor: "pointer", color: C.text, textAlign: "left",
+              marginBottom: 20, WebkitTapHighlightColor: "transparent" }}>
+              <span style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: C.violet,
+                boxShadow: `0 0 10px ${tint(C.violet, 0.5)}` }} />
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontWeight: 800, fontSize: 14 }}>Customize the app</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.faint, marginTop: 3 }}>
+                  Dashboard layout · charts · which lifts count · where it opens
+                </span>
+              </span>
+              <ChevronDown size={16} style={{ color: C.faint, flexShrink: 0, transform: "rotate(-90deg)" }} />
+            </button>
+          </>
+        )}
         <div style={{ ...label, fontSize: 10, marginBottom: 8 }}>Training style</div>
         <Segmented value={settings.trainingMode || "rpe"} onChange={(v) => {
             if (v === "percent") { setSetting("trainingMode", "percent"); setSetting("inputMode", "rir"); }

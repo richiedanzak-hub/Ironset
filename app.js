@@ -536,6 +536,37 @@ function sessionForDay(state, models, dateStr) {
     anyUp: lifts.some(l => l.up)
   };
 }
+
+/* Which lifts stand for the squat, the bench and the deadlift in your total.
+
+   It used to be the first main lift whose name contained the word, which is
+   fine right up until there are two of them: an empty "Low Bar Squat" left from
+   a typo and the "Low-Bar Squat" you actually train. Object key order decided
+   it, the empty one won, and the total was built from a lift with no sets in
+   it — so it came out blank and there was nothing on the screen to say why.
+
+   Now: only lifts you have actually logged are eligible, and among those the
+   one you trained most recently wins, ties broken by how much of it there is.
+   And because that is still a guess, it is only the default — settings.totalLifts
+   names them outright, and the app says which three it used either way. */
+function pickTotalLifts(state, models, mains) {
+  const named = (state.settings || {}).totalLifts || null;
+  const live = n => models[n] && models[n].e1rm != null;
+  if (named && named.length) return named.filter(live);
+  const trained = n => {
+    const sets = (state.exercises[n] || {}).sets || [];
+    if (!sets.length || !live(n)) return null;
+    return {
+      n,
+      sets: sets.length,
+      last: sets.reduce((a, x) => Math.max(a, x.ts), 0)
+    };
+  };
+  const bestFor = kw => mains.filter(n => n.toLowerCase().includes(kw)).map(trained).filter(Boolean).sort((a, b) => b.last - a.last || b.sets - a.sets)[0];
+  const out = [bestFor("squat"), bestFor("bench"), bestFor("deadlift")].filter(Boolean).map(x => x.n);
+  // A total is three lifts. Two is not a total, and guessing at one would be worse.
+  return out.length === 3 ? out : [];
+}
 function analyze(state, models, unit) {
   const ex = state.exercises;
   const U = unit || "lb";
@@ -560,24 +591,27 @@ function analyze(state, models, unit) {
   });
 
   // projected total + per-lift estimates
-  const find = kw => mains.find(n => n.toLowerCase() === kw) || mains.find(n => n.toLowerCase().includes(kw));
-  const S = find("squat"),
-    B = find("bench"),
-    D = find("deadlift");
+  const named = !!((state.settings || {}).totalLifts || []).length;
+  const totalNames = pickTotalLifts(state, models, mains);
+  // The three the total is built from, by name, for the reads that compare them.
+  const [S, B, D] = totalNames.length === 3 ? totalNames : [null, null, null];
   const parts = mains.filter(n => models[n] && models[n].e1rm != null).map(n => {
     const m = models[n];
     const ago = valueAt(m.points, now - 30 * DAY);
     return {
       name: n,
       e1rm: m.e1rm,
-      delta: ago != null ? m.e1rm - ago : null
+      delta: ago != null ? m.e1rm - ago : null,
+      counts: totalNames.indexOf(n) >= 0
     };
   });
   let total = null,
     totalDelta = null;
-  if (S && B && D && models[S].e1rm != null && models[B].e1rm != null && models[D].e1rm != null) {
-    total = models[S].e1rm + models[B].e1rm + models[D].e1rm;
-    totalDelta = [S, B, D].reduce((acc, n) => {
+  // Naming them yourself means whatever you named, however many. Guessing means
+  // all three or nothing.
+  if (totalNames.length && (named || totalNames.length === 3)) {
+    total = totalNames.reduce((a, n) => a + models[n].e1rm, 0);
+    totalDelta = totalNames.reduce((acc, n) => {
       const a = valueAt(models[n].points, now - 30 * DAY);
       return acc + (a != null ? models[n].e1rm - a : 0);
     }, 0);
@@ -680,6 +714,7 @@ function analyze(state, models, unit) {
   return {
     total,
     totalDelta,
+    totalNames,
     parts,
     insights: out.slice(0, 8),
     big,
@@ -2450,8 +2485,24 @@ function StatTile({
   onClick,
   style
 }) {
-  return /*#__PURE__*/React.createElement("div", {
-    onClick: onClick,
+  /* A tile that opens something has to say so. It cannot be a <button>: the share
+     control sits inside it, and a button inside a button is invalid markup that
+     breaks the inner one. So it carries the role, the tab stop and the keyboard
+     itself — which is what a screen reader and a keyboard were missing here. */
+  const act = onClick ? {
+    role: "button",
+    tabIndex: 0,
+    "aria-label": label,
+    onKeyDown: e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onClick(e);
+      }
+    }
+  } : {};
+  return /*#__PURE__*/React.createElement("div", _extends({
+    onClick: onClick
+  }, act, {
     style: {
       position: "relative",
       overflow: "hidden",
@@ -2464,7 +2515,7 @@ function StatTile({
       minWidth: 0,
       ...style
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -2840,7 +2891,8 @@ function LineChart({
   data,
   color = C.red,
   height = 176,
-  unit = ""
+  unit = "",
+  zero
 }) {
   const uid = useMemo(() => "c" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0) return /*#__PURE__*/React.createElement("div", {
@@ -2862,11 +2914,14 @@ function LineChart({
   const lo = Math.min(...ys),
     hi = Math.max(...ys),
     mid = (lo + hi) / 2;
-  // Keep small changes from looking like a cliff, then snap the window to round numbers.
+  /* Two honest ways to draw the same line. Fitted, the axis covers the range the
+     data actually spans, so ten pounds across a block is a visible climb — and a
+     bad week looks like a cliff. From zero, the proportions are true and most
+     training looks like a flat line, which is also the truth. The lifter picks. */
   const half = Math.max((hi - lo) / 2 * 1.3, mid * 0.045, 5);
-  const step = niceStep(half * 2, 4);
-  const minY = Math.floor((mid - half) / step) * step;
-  const maxY = Math.ceil((mid + half) / step) * step;
+  const step = zero ? niceStep(hi || 1, 4) : niceStep(half * 2, 4);
+  const minY = zero ? 0 : Math.floor((mid - half) / step) * step;
+  const maxY = zero ? Math.max(step, Math.ceil(hi / step) * step) : Math.ceil((mid + half) / step) * step;
   const ticks = [];
   for (let v = minY; v <= maxY + 0.001; v += step) ticks.push(v);
   const minX = Math.min(...xs),
@@ -3091,7 +3146,10 @@ const PRESETS = ["Squat", "Bench Press", "Deadlift", "Overhead Press"];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 function App() {
   const [state, setState] = useState(loadState);
-  const [tab, setTab] = useState("dash");
+  // Where the app opens. The dashboard is a reasonable guess and the wrong one
+  // for anybody who reads it after training rather than before.
+  const [tab, setTab] = useState(() => (loadState().settings || {}).homeTab || "dash");
+  const [custom, setCustom] = useState(false);
   // Noticing you can't train today happens on Train, not Plan. This carries that
   // one intent across: open Plan on that date with the day's tools already up.
   const [focusDay, setFocusDay] = useState(null);
@@ -3654,7 +3712,8 @@ function App() {
     unit,
     setTab,
     setState,
-    setSel
+    setSel,
+    openCustomize: () => setCustom(true)
   }), tab === "train" && /*#__PURE__*/React.createElement(TrainTab, {
     state,
     setState,
@@ -3763,7 +3822,18 @@ function App() {
     settings: state.settings,
     setSetting,
     state,
-    setState
+    setState,
+    openCustomize: () => {
+      setShowSettings(false);
+      setCustom(true);
+    }
+  }), /*#__PURE__*/React.createElement(CustomizeSheet, {
+    open: custom,
+    onClose: () => setCustom(false),
+    state: state,
+    setState: setState,
+    models: models,
+    analysis: analysis
   }), /*#__PURE__*/React.createElement(BlockSheet, {
     open: showPlan,
     onClose: () => setShowPlan(false),
@@ -6226,16 +6296,24 @@ function Onboarding({
     }
   }, "Skip \u2014 I'll log as I go"))));
 }
+
+/* This used to list every main lift you had an estimate for, while the figure
+   above it added up three — so the shares did not come to a hundred and there
+   was no way to tell which three it had chosen. It shows the lifts that are
+   actually in the total, says how they were chosen, and opens the picker. */
 function TotalSheet({
   open,
   onClose,
-  parts,
+  analysis,
   models,
-  total,
-  unit
+  unit,
+  onEdit
 }) {
   const now = Date.now(),
     CUT = now - 30 * 86400000;
+  const names = analysis && analysis.totalNames || [];
+  const total = analysis && analysis.total;
+  const parts = (analysis && analysis.parts || []).filter(p => names.indexOf(p.name) >= 0);
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
     onClose: onClose,
@@ -6247,7 +6325,7 @@ function TotalSheet({
       lineHeight: 1.6,
       marginBottom: 14
     }
-  }, "Your squat, bench and deadlift estimates added together \u2014 each one built from the sets you've logged, weighted toward your hardest and most recent work."), (parts || []).map(p => {
+  }, names.length ? /*#__PURE__*/React.createElement(React.Fragment, null, "These ", names.length === 3 ? "three" : names.length, " added together \u2014 each estimate built from the sets you have logged, weighted toward your hardest and most recent work.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Nothing is being added up yet. A total wants a squat, a bench and a deadlift with sets against them \u2014 or you can name whichever lifts you want counted.")), parts.map(p => {
     const m = models[p.name],
       pts = m ? m.points : [];
     let then = null;
@@ -6318,7 +6396,14 @@ function TotalSheet({
         borderRadius: 2
       }
     })));
-  }));
+  }), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    onClick: onEdit,
+    style: {
+      width: "100%",
+      marginTop: 16
+    }
+  }, "Choose which lifts count"));
 }
 // Where the week's tonnage came from — day by day, and which lifts carried it.
 function LoadSheet({
@@ -6491,6 +6576,420 @@ function ReadinessSheet({
     }
   }, "100 means fully recovered. The scale is deliberately sensitive, so a genuinely hard week shows up rather than hiding in the high 90s."));
 }
+/* ----------------------------- THE DASHBOARD -------------------------------
+   A stack of cards, and which of them earn their place is not the same answer
+   for everybody. A lifter eight weeks out from a meet wants attempts and
+   readiness at the top; somebody in an off-season block wants the trend and
+   nothing else. Rather than guess once and make everyone live with it, the
+   stack is a list you can reorder and switch off.                           */
+const DASH_CARDS = [{
+  k: "readiness",
+  t: "Readiness",
+  d: "The recovery ring, and how fresh each lift is"
+}, {
+  k: "checkin",
+  t: "Today's check-in",
+  d: "Sleep, stress and kit, as one number"
+}, {
+  k: "stats",
+  t: "Total and 7-day load",
+  d: "The two headline figures"
+}, {
+  k: "maxes",
+  t: "Estimated maxes",
+  d: "A card per lift, each with its own line"
+}, {
+  k: "trend",
+  t: "Strength trend",
+  d: "Every lift against where it started"
+}, {
+  k: "reads",
+  t: "Today, and what changed",
+  d: "The session so far, and what the data noticed"
+}, {
+  k: "score",
+  t: "Strength score",
+  d: "DOTS and Wilks against your bodyweight"
+}, {
+  k: "meet",
+  t: "Meet prep",
+  d: "Nine attempts off your current strength"
+}, {
+  k: "deeper",
+  t: "Deeper reads",
+  d: "Variations, accessories, profile, recent sessions"
+}];
+const DASH_DEFAULT = DASH_CARDS.map(c => c.k);
+/* How far back a chart looks. Ninety days is the right default for a block and
+   the wrong one for somebody three years in who wants to see the whole climb,
+   so it is a setting rather than a number baked into each chart. Zero is all
+   of it. */
+const WINDOWS = [{
+  v: 30,
+  t: "30 days"
+}, {
+  v: 90,
+  t: "90 days"
+}, {
+  v: 180,
+  t: "6 months"
+}, {
+  v: 365,
+  t: "1 year"
+}, {
+  v: 0,
+  t: "All time"
+}];
+const winLabel = v => (WINDOWS.find(w => w.v === v) || WINDOWS[1]).t;
+const winDays = settings => {
+  const v = (settings || {}).window;
+  return v == null ? 90 : v;
+};
+/* The saved order is a list of what you have already sorted, not a whitelist of
+   what may appear: a card added to the app after you last touched this lands on
+   the end rather than vanishing because an older list never knew to mention it.
+   Hiding is its own list for the same reason. */
+const dashOrder = settings => {
+  const saved = Array.isArray((settings || {}).cards) ? settings.cards : [];
+  const seen = saved.filter(k => DASH_DEFAULT.indexOf(k) >= 0);
+  return seen.concat(DASH_DEFAULT.filter(k => seen.indexOf(k) < 0));
+};
+const dashHidden = settings => (settings || {}).cardsOff || [];
+
+/* One place to shape the app, rather than a preference buried in whichever
+   screen it happens to affect. Everything here is a stored choice with a sane
+   default, so the app out of the box is still the app — this is for when the
+   default is wrong for you specifically. */
+function CustomizeSheet({
+  open,
+  onClose,
+  state,
+  setState,
+  models,
+  analysis
+}) {
+  const S = state.settings || {};
+  const set = (k, v) => setState(st => ({
+    ...st,
+    settings: {
+      ...st.settings,
+      [k]: v
+    }
+  }));
+  const order = dashOrder(S),
+    off = dashHidden(S);
+  const move = (k, d) => {
+    const i = order.indexOf(k),
+      j = i + d;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    const next = order.slice();
+    next.splice(j, 0, next.splice(i, 1)[0]);
+    set("cards", next);
+  };
+  const toggleCard = k => set("cardsOff", off.indexOf(k) >= 0 ? off.filter(x => x !== k) : off.concat([k]));
+  // Busiest first: the lift you train most is the one you are looking for.
+  const mains = Object.keys(state.exercises).filter(n => !state.exercises[n].parent && !isAccessory(n, state)).sort((a, b) => state.exercises[b].sets.length - state.exercises[a].sets.length || a.localeCompare(b));
+  const auto = !(S.totalLifts || []).length;
+  const counts = analysis && analysis.totalNames || [];
+  const head = {
+    ...label,
+    fontSize: 10,
+    marginBottom: 9
+  };
+  const note = {
+    fontSize: 11.5,
+    color: C.faint,
+    lineHeight: 1.5,
+    marginTop: 8
+  };
+  const rule = /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      background: C.line,
+      margin: "20px 0"
+    }
+  });
+  const mvBtn = on => ({
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    flexShrink: 0,
+    display: "grid",
+    placeItems: "center",
+    border: `1px solid ${C.line}`,
+    background: "rgba(255,255,255,0.03)",
+    color: on ? C.muted : "rgba(255,255,255,0.13)",
+    cursor: on ? "pointer" : "default",
+    padding: 0,
+    WebkitTapHighlightColor: "transparent"
+  });
+  /* A lift picker that shows how much is behind each name. Two lifts a letter
+     apart — "Low Bar Squat" with nothing in it and "Low-Bar Squat" with two
+     years — look identical in a list until you put the set count on them. */
+  const lifts = (sel, onToggle, empty) => /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, !mains.length && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: C.faint
+    }
+  }, empty), mains.map(n => {
+    const on = sel.indexOf(n) >= 0;
+    const k = state.exercises[n].sets.length;
+    return /*#__PURE__*/React.createElement("button", {
+      key: n,
+      onClick: () => onToggle(n),
+      style: {
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        textAlign: "left",
+        cursor: "pointer",
+        padding: "10px 12px",
+        borderRadius: R.ctrl,
+        color: C.text,
+        WebkitTapHighlightColor: "transparent",
+        background: on ? tint(hueFor(n, state), 0.12) : "rgba(255,255,255,0.03)",
+        border: `1px solid ${on ? tint(hueFor(n, state), 0.45) : C.line}`
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 18,
+        height: 18,
+        borderRadius: 6,
+        flexShrink: 0,
+        display: "grid",
+        placeItems: "center",
+        border: `1px solid ${on ? "transparent" : C.line2}`,
+        background: on ? hueFor(n, state) : "rgba(255,255,255,0.03)"
+      }
+    }, on && /*#__PURE__*/React.createElement(Check, {
+      size: 12,
+      style: {
+        color: "#fff"
+      }
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        fontWeight: 700,
+        fontSize: 13,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, n), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 10.5,
+        flexShrink: 0,
+        color: k ? C.faint : C.gold
+      }
+    }, k ? `${k} set${k === 1 ? "" : "s"}` : "never logged"));
+  }));
+  const dashSel = S.dashLifts && S.dashLifts.length ? S.dashLifts : mains;
+  const toggleDash = n => {
+    const next = dashSel.indexOf(n) >= 0 ? dashSel.filter(x => x !== n) : dashSel.concat([n]);
+    // Everything selected is the same as no filter at all, and storing it as no
+    // filter means a lift added later shows up instead of being silently left out.
+    set("dashLifts", next.length && next.length < mains.length ? next : null);
+  };
+  const totSel = auto ? counts : S.totalLifts;
+  const toggleTotal = n => set("totalLifts", totSel.indexOf(n) >= 0 ? totSel.filter(x => x !== n) : totSel.concat([n]));
+  return /*#__PURE__*/React.createElement(Sheet, {
+    open: open,
+    onClose: onClose,
+    title: "Customize"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: head
+  }, "What is on the dashboard"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, order.map((k, i) => {
+    const card = DASH_CARDS.find(c => c.k === k);
+    if (!card) return null;
+    const on = off.indexOf(k) < 0;
+    return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        padding: "9px 11px",
+        background: "rgba(255,255,255,0.03)",
+        border: `1px solid ${C.line}`,
+        borderRadius: R.ctrl
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => toggleCard(k),
+      "aria-label": on ? `Hide ${card.t}` : `Show ${card.t}`,
+      style: {
+        width: 18,
+        height: 18,
+        borderRadius: 6,
+        flexShrink: 0,
+        display: "grid",
+        padding: 0,
+        placeItems: "center",
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+        border: `1px solid ${on ? "transparent" : C.line2}`,
+        background: on ? C.red : "rgba(255,255,255,0.03)"
+      }
+    }, on && /*#__PURE__*/React.createElement(Check, {
+      size: 12,
+      style: {
+        color: "#fff"
+      }
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        opacity: on ? 1 : 0.45
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontWeight: 700,
+        fontSize: 13
+      }
+    }, card.t), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 10.5,
+        color: C.faint,
+        marginTop: 2,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, card.d)), /*#__PURE__*/React.createElement("button", {
+      "aria-label": "Move up",
+      disabled: i === 0,
+      onClick: () => move(k, -1),
+      style: mvBtn(i > 0)
+    }, /*#__PURE__*/React.createElement(ChevronDown, {
+      size: 13,
+      style: {
+        transform: "rotate(180deg)"
+      }
+    })), /*#__PURE__*/React.createElement("button", {
+      "aria-label": "Move down",
+      disabled: i === order.length - 1,
+      onClick: () => move(k, 1),
+      style: mvBtn(i < order.length - 1)
+    }, /*#__PURE__*/React.createElement(ChevronDown, {
+      size: 13
+    })));
+  })), (off.length > 0 || JSON.stringify(order) !== JSON.stringify(DASH_DEFAULT)) && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      set("cards", null);
+      set("cardsOff", []);
+    },
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 800,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: "10px 0 0"
+    }
+  }, "Back to the standard layout"), rule, /*#__PURE__*/React.createElement("div", {
+    style: head
+  }, "Charts"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 7,
+      fontWeight: 700
+    }
+  }, "How far back they look"), /*#__PURE__*/React.createElement(Segmented, {
+    value: winDays(S),
+    onChange: v => set("window", v),
+    options: WINDOWS.map(w => ({
+      value: w.v,
+      label: w.t.replace(" time", "").replace("days", "d").replace("months", "mo").replace("year", "yr")
+    }))
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      margin: "14px 0 7px",
+      fontWeight: 700
+    }
+  }, "Vertical scale"), /*#__PURE__*/React.createElement(Segmented, {
+    value: S.chartZero ? "zero" : "fit",
+    onChange: v => set("chartZero", v === "zero"),
+    options: [{
+      value: "fit",
+      label: "Fit the data"
+    }, {
+      value: "zero",
+      label: "From zero"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: note
+  }, S.chartZero ? "Every chart starts at zero. Honest about proportion, and flat-looking when the change is small." : "Charts zoom to the range they cover, so ten pounds across a block is visible. Good for reading progress, easy to mistake for a cliff."), rule, /*#__PURE__*/React.createElement("div", {
+    style: head
+  }, "Lifts on the dashboard"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginBottom: 10
+    }
+  }, "Which lifts get a card and a line on the trend. Everything you log is still in History."), lifts(dashSel, toggleDash, "Nothing logged yet."), rule, /*#__PURE__*/React.createElement("div", {
+    style: head
+  }, "Lifts in your total"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginBottom: 10
+    }
+  }, auto ? counts.length ? /*#__PURE__*/React.createElement(React.Fragment, null, "Picked for you: ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.text
+    }
+  }, counts.join(", ")), " \u2014 the squat, bench and deadlift you have trained most recently. Tap to name them yourself.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Nothing is being added up yet. A total needs a squat, a bench and a deadlift with sets against them \u2014 or name whichever lifts you want counted.") : /*#__PURE__*/React.createElement(React.Fragment, null, "You picked these. They are what the projected total adds up.")), lifts(totSel, toggleTotal, "Nothing logged yet."), !auto && /*#__PURE__*/React.createElement("button", {
+    onClick: () => set("totalLifts", null),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 800,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: "10px 0 0"
+    }
+  }, "Back to picking them for me"), rule, /*#__PURE__*/React.createElement("div", {
+    style: head
+  }, "Open the app on"), /*#__PURE__*/React.createElement(Segmented, {
+    value: S.homeTab || "dash",
+    onChange: v => set("homeTab", v),
+    options: [{
+      value: "dash",
+      label: "Dashboard"
+    }, {
+      value: "train",
+      label: "Train"
+    }, {
+      value: "plan",
+      label: "Plan"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: note
+  }, "Where you land when you open IRONSET. Straight to Train if the dashboard is something you read afterwards rather than before."));
+}
 function DashboardTab({
   state,
   models,
@@ -6498,7 +6997,8 @@ function DashboardTab({
   unit,
   setTab,
   setState,
-  setSel
+  setSel,
+  openCustomize
 }) {
   const [share, setShare] = useState(null);
   const [why, setWhy] = useState(false);
@@ -6580,327 +7080,63 @@ function DashboardTab({
       labels: lbl
     };
   })();
-  const liftCards = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state)).map(([n]) => ({
+  /* Everything you have ever logged is not the same thing as everything you
+     want to look at. A lifter with twenty movements on file wants four of them
+     on the front page, and the rest a tap away in History. */
+  const SET = state.settings || {};
+  const shown = SET.dashLifts && SET.dashLifts.length ? SET.dashLifts : null;
+  const onDash = n => !shown || shown.indexOf(n) >= 0;
+  const win = SET.window == null ? 90 : SET.window;
+  const liftCards = Object.entries(state.exercises).filter(([n, e]) => !e.parent && e.sets.length && models[n] && models[n].e1rm != null && !isAccessory(n, state) && onDash(n)).map(([n]) => ({
     name: n,
     e1rm: models[n].e1rm,
     points: models[n].points
   })).sort((a2, b2) => b2.e1rm - a2.e1rm);
+  // The trend was buried inside the insights block, which meant it could not be
+  // moved, hidden or pointed at a different stretch of time. It is a card now.
+  const trendSeries = Object.keys(state.exercises).filter(n => !state.exercises[n].parent && !isAccessory(n, state) && onDash(n) && models[n] && models[n].points.length > 1).map(n => ({
+    name: n,
+    color: hueFor(n, state),
+    points: models[n].points
+  }));
   const bwKg = state.bodyweight && state.bodyweight.length ? state.bodyweight[state.bodyweight.length - 1].kg : null;
   const dots = bwKg && analysis.total != null ? Math.round(toKg(analysis.total, unit) * dotsCoeff(bwKg, state.settings && state.settings.sex || "male")) : null;
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 12
-    }
-  }, /*#__PURE__*/React.createElement(Card, {
-    accent: sc,
-    glow: `radial-gradient(130% 95% at 10% -12%, ${sc}24, transparent 66%)`,
-    style: {
-      padding: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label,
-      fontSize: 9.5
-    }
-  }, "Readiness \xB7 Today"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 2
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    "aria-label": "Share readiness",
-    onClick: () => doShare(setShare, {
-      type: "stat",
-      label: "Readiness",
-      value: String(score),
-      unit: "/100",
-      sub: fresh.slice(0, 3).map(r => `${r.name} ${r.pct}`).join("    "),
-      date: new Date().toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric"
-      })
-    }),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.faint,
-      cursor: "pointer",
-      padding: 4,
-      display: "flex"
-    }
-  }, /*#__PURE__*/React.createElement(Share, {
-    size: 14
-  })), /*#__PURE__*/React.createElement("button", {
-    "aria-label": "Why this score",
-    onClick: () => setWhy(true),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.faint,
-      cursor: "pointer",
-      padding: 4,
-      display: "flex"
-    }
-  }, /*#__PURE__*/React.createElement(Info, {
-    size: 15
-  })))), /*#__PURE__*/React.createElement("div", {
-    onClick: () => setWhy(true),
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 16,
-      marginTop: 12,
-      cursor: "pointer"
-    }
-  }, /*#__PURE__*/React.createElement(Ring, {
-    value: score,
-    max: 100,
-    color: sc,
-    size: 96,
-    stroke: 8
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 27,
-      fontWeight: 700,
-      letterSpacing: "-0.04em",
-      lineHeight: 1
-    }
-  }, score), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 9,
-      color: C.faint,
-      fontWeight: 600
-    }
-  }, "/100")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 0,
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: SANS,
-      fontWeight: 800,
-      fontSize: 16.5,
-      color: sc,
-      letterSpacing: "-0.015em"
-    }
-  }, status), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12.5,
-      color: C.muted,
-      marginTop: 5,
-      lineHeight: 1.5
-    }
-  }, note))), ckToday ? /*#__PURE__*/React.createElement("div", {
-    onClick: () => setTab("train"),
-    style: {
-      marginTop: 12,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 10,
-      cursor: "pointer",
-      background: "rgba(255,255,255,0.03)",
-      border: `1px solid ${C.line}`,
-      borderRadius: 12,
-      padding: "9px 12px"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11.5,
-      color: C.muted,
-      fontWeight: 600
-    }
-  }, "Checked in ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: C.text
-    }
-  }, ckToday.score, " \xB7 ", readyInfo(ckToday.score).t)), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 11,
-      color: C.faint,
-      fontWeight: 700
-    }
-  }, "edit")) : /*#__PURE__*/React.createElement("div", {
-    onClick: () => setTab("train"),
-    style: {
-      marginTop: 12,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 10,
-      cursor: "pointer",
-      background: "rgba(255,255,255,0.03)",
-      border: `1px solid ${C.line}`,
-      borderRadius: 12,
-      padding: "9px 12px"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11.5,
-      color: C.muted,
-      fontWeight: 600
-    }
-  }, "No check-in today \u2014 ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.text
-    }
-  }, "how did you sleep?")), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 11,
-      color: C.red,
-      fontWeight: 700
-    }
-  }, "add")), fresh.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 14,
-      display: "flex",
-      flexDirection: "column",
-      gap: 8
-    }
-  }, fresh.map(r => /*#__PURE__*/React.createElement("div", {
-    key: r.name
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 5
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 7,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 5,
-      height: 5,
-      borderRadius: 99,
-      background: hueFor(r.name, state),
-      flexShrink: 0
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: C.muted,
-      textTransform: "uppercase",
-      letterSpacing: "0.11em",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap"
-    }
-  }, r.name)), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 11.5,
-      color: freshColor(r.pct),
-      fontWeight: 700
-    }
-  }, r.pct)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 5,
-      borderRadius: 3,
-      background: "rgba(255,255,255,0.05)",
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: `${Math.max(5, Math.min(100, r.pct))}%`,
-      height: "100%",
-      borderRadius: 3,
-      background: `linear-gradient(90deg, ${tint(freshColor(r.pct), 0.5)}, ${freshColor(r.pct)})`,
-      transition: "width .4s ease"
-    }
-  })))))), /*#__PURE__*/React.createElement(CheckinCard, {
-    state: state,
-    setState: setState,
-    sel: null,
-    dateStr: todayStr()
-  }), /*#__PURE__*/React.createElement(Grid2, null, /*#__PURE__*/React.createElement(StatTile, {
-    label: "Projected total",
-    color: C.blue,
-    value: analysis.total != null ? fmt(Math.round(analysis.total)) : "—",
-    unit: analysis.total != null ? unit : "",
-    onClick: () => setShowTotal(true),
-    sub: analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 ? /*#__PURE__*/React.createElement("span", {
+
+  // Every card, built once. The list underneath decides which of them appear,
+  // and in what order.
+  const SECTIONS = {
+    readiness: /*#__PURE__*/React.createElement(Card, {
+      accent: sc,
+      glow: `radial-gradient(130% 95% at 10% -12%, ${sc}24, transparent 66%)`,
       style: {
-        color: analysis.totalDelta > 0 ? C.good : C.red,
-        fontWeight: 700
+        padding: 16
       }
-    }, analysis.totalDelta > 0 ? "▲" : "▼", " ", fmt(Math.abs(Math.round(analysis.totalDelta))), " in 30 days") : null,
-    segments: (analysis.parts || []).map(pt => ({
-      value: pt.e1rm,
-      color: hueFor(pt.name, state),
-      short: pt.name === "Deadlift" ? "Dead" : pt.name.split(" ")[0]
-    })),
-    action: analysis.total != null ? /*#__PURE__*/React.createElement("button", {
-      "aria-label": "Share total",
-      onClick: e => {
-        e.stopPropagation();
-        doShare(setShare, {
-          type: "stat",
-          label: "Projected total",
-          value: fmt(Math.round(analysis.total)),
-          unit,
-          delta: analysis.totalDelta != null ? Math.round(analysis.totalDelta) : null,
-          sub: (analysis.parts || []).slice(0, 3).map(pt => `${pt.name} ${fmt(Math.round(pt.e1rm))}`).join("    "),
-          date: new Date().toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric"
-          })
-        });
-      },
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
-        background: "none",
-        border: "none",
-        color: C.faint,
-        cursor: "pointer",
-        padding: 0,
-        display: "flex"
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10
       }
-    }, /*#__PURE__*/React.createElement(Share, {
-      size: 13
-    })) : null
-  }), /*#__PURE__*/React.createElement(StatTile, {
-    label: "7-day load",
-    color: C.amber,
-    value: week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage),
-    unit: unit,
-    onClick: () => setShowLoad(true),
-    bars: weekBars.values,
-    barLabels: weekBars.labels,
-    sub: `${week.sets} set${week.sets === 1 ? "" : "s"} · ${week.days} day${week.days === 1 ? "" : "s"}`
-  })), liftCards.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionHead, {
-    accent: C.blue,
-    right: /*#__PURE__*/React.createElement("button", {
-      "aria-label": "Share maxes",
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...label,
+        fontSize: 9.5
+      }
+    }, "Readiness \xB7 Today"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 2
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      "aria-label": "Share readiness",
       onClick: () => doShare(setShare, {
-        type: "session",
-        headline: "Estimated maxes",
-        sub: `${liftCards.length} lifts`,
-        lifts: liftCards.slice(0, 5).map(L => ({
-          name: L.name,
-          detail: "estimated 1RM",
-          e1rm: fmt(Math.round(L.e1rm))
-        })),
+        type: "stat",
+        label: "Readiness",
+        value: String(score),
+        unit: "/100",
+        sub: fresh.slice(0, 3).map(r => `${r.name} ${r.pct}`).join("    "),
         date: new Date().toLocaleDateString(undefined, {
           month: "short",
           day: "numeric"
@@ -6916,159 +7152,444 @@ function DashboardTab({
       }
     }, /*#__PURE__*/React.createElement(Share, {
       size: 14
-    }))
-  }, "Estimated maxes"), /*#__PURE__*/React.createElement("div", {
+    })), /*#__PURE__*/React.createElement("button", {
+      "aria-label": "Why this score",
+      onClick: () => setWhy(true),
+      style: {
+        background: "none",
+        border: "none",
+        color: C.faint,
+        cursor: "pointer",
+        padding: 4,
+        display: "flex"
+      }
+    }, /*#__PURE__*/React.createElement(Info, {
+      size: 15
+    })))), /*#__PURE__*/React.createElement("div", {
+      onClick: () => setWhy(true),
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        marginTop: 12,
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement(Ring, {
+      value: score,
+      max: 100,
+      color: sc,
+      size: 96,
+      stroke: 8
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 27,
+        fontWeight: 700,
+        letterSpacing: "-0.04em",
+        lineHeight: 1
+      }
+    }, score), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 9,
+        color: C.faint,
+        fontWeight: 600
+      }
+    }, "/100")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0,
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: SANS,
+        fontWeight: 800,
+        fontSize: 16.5,
+        color: sc,
+        letterSpacing: "-0.015em"
+      }
+    }, status), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12.5,
+        color: C.muted,
+        marginTop: 5,
+        lineHeight: 1.5
+      }
+    }, note))), fresh.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8
+      }
+    }, fresh.map(r => /*#__PURE__*/React.createElement("div", {
+      key: r.name
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 5
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 5,
+        height: 5,
+        borderRadius: 99,
+        background: hueFor(r.name, state),
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: C.muted,
+        textTransform: "uppercase",
+        letterSpacing: "0.11em",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, r.name)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 11.5,
+        color: freshColor(r.pct),
+        fontWeight: 700
+      }
+    }, r.pct)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        height: 5,
+        borderRadius: 3,
+        background: "rgba(255,255,255,0.05)",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: `${Math.max(5, Math.min(100, r.pct))}%`,
+        height: "100%",
+        borderRadius: 3,
+        background: `linear-gradient(90deg, ${tint(freshColor(r.pct), 0.5)}, ${freshColor(r.pct)})`,
+        transition: "width .4s ease"
+      }
+    })))))),
+    /* One daily question, asked on the screen about the day — not in front of
+       you again at the bar between sets. */
+    checkin: /*#__PURE__*/React.createElement(CheckinCard, {
+      state: state,
+      setState: setState,
+      sel: null,
+      dateStr: todayStr()
+    }),
+    stats: /*#__PURE__*/React.createElement(Grid2, null, /*#__PURE__*/React.createElement(StatTile, {
+      label: "Projected total",
+      color: C.blue,
+      value: analysis.total != null ? fmt(Math.round(analysis.total)) : "—",
+      unit: analysis.total != null ? unit : "",
+      onClick: () => setShowTotal(true),
+      sub: analysis.totalDelta != null && Math.round(analysis.totalDelta) !== 0 ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: analysis.totalDelta > 0 ? C.good : C.red,
+          fontWeight: 700
+        }
+      }, analysis.totalDelta > 0 ? "▲" : "▼", " ", fmt(Math.abs(Math.round(analysis.totalDelta))), " in 30 days") : null,
+      segments: (analysis.parts || []).filter(pt => pt.counts).map(pt => ({
+        value: pt.e1rm,
+        color: hueFor(pt.name, state),
+        short: shortLift(pt.name)
+      })),
+      action: analysis.total != null ? /*#__PURE__*/React.createElement("button", {
+        "aria-label": "Share total",
+        onClick: e => {
+          e.stopPropagation();
+          doShare(setShare, {
+            type: "stat",
+            label: "Projected total",
+            value: fmt(Math.round(analysis.total)),
+            unit,
+            delta: analysis.totalDelta != null ? Math.round(analysis.totalDelta) : null,
+            sub: (analysis.parts || []).slice(0, 3).map(pt => `${pt.name} ${fmt(Math.round(pt.e1rm))}`).join("    "),
+            date: new Date().toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric"
+            })
+          });
+        },
+        style: {
+          background: "none",
+          border: "none",
+          color: C.faint,
+          cursor: "pointer",
+          padding: 0,
+          display: "flex"
+        }
+      }, /*#__PURE__*/React.createElement(Share, {
+        size: 13
+      })) : null
+    }), /*#__PURE__*/React.createElement(StatTile, {
+      label: "7-day load",
+      color: C.amber,
+      value: week.tonnage >= 1000 ? (week.tonnage / 1000).toFixed(1) + "k" : fmt(week.tonnage),
+      unit: unit,
+      onClick: () => setShowLoad(true),
+      bars: weekBars.values,
+      barLabels: weekBars.labels,
+      sub: `${week.sets} set${week.sets === 1 ? "" : "s"} · ${week.days} day${week.days === 1 ? "" : "s"}`
+    })),
+    maxes: liftCards.length > 0 ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionHead, {
+      accent: C.blue,
+      right: /*#__PURE__*/React.createElement("button", {
+        "aria-label": "Share maxes",
+        onClick: () => doShare(setShare, {
+          type: "session",
+          headline: "Estimated maxes",
+          sub: `${liftCards.length} lifts`,
+          lifts: liftCards.slice(0, 5).map(L => ({
+            name: L.name,
+            detail: "estimated 1RM",
+            e1rm: fmt(Math.round(L.e1rm))
+          })),
+          date: new Date().toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric"
+          })
+        }),
+        style: {
+          background: "none",
+          border: "none",
+          color: C.faint,
+          cursor: "pointer",
+          padding: 4,
+          display: "flex"
+        }
+      }, /*#__PURE__*/React.createElement(Share, {
+        size: 14
+      }))
+    }, "Estimated maxes"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        overflowX: "auto",
+        paddingBottom: 4,
+        margin: "0 -2px",
+        padding: "0 2px 4px"
+      }
+    }, liftCards.map(L => /*#__PURE__*/React.createElement(Card, {
+      key: L.name,
+      accent: hueFor(L.name, state),
+      onClick: () => {
+        setSel(L.name);
+        setTab("history");
+      },
+      style: {
+        padding: 13,
+        flex: "0 0 auto",
+        minWidth: 132
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 7
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 5,
+        height: 5,
+        borderRadius: 99,
+        background: hueFor(L.name, state),
+        boxShadow: `0 0 8px ${tint(hueFor(L.name, state), 0.9)}`,
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...label2,
+        color: C.muted,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        maxWidth: 104
+      }
+    }, L.name)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 24,
+        fontWeight: 700,
+        letterSpacing: "-0.04em",
+        lineHeight: 1
+      }
+    }, fmt(Math.round(L.e1rm)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: SANS,
+        fontSize: 11,
+        color: C.muted,
+        marginLeft: 3,
+        fontWeight: 600
+      }
+    }, unit)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 11,
+        marginLeft: -13,
+        marginRight: -13,
+        marginBottom: -13
+      }
+    }, /*#__PURE__*/React.createElement(Spark, {
+      points: L.points,
+      color: hueFor(L.name, state),
+      h: 36
+    })))))) : null,
+    trend: trendSeries.length > 0 ? /*#__PURE__*/React.createElement(Card, {
+      accent: C.red
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "baseline",
+        marginBottom: 2
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...label,
+        fontSize: 9.5
+      }
+    }, "Strength trend"), /*#__PURE__*/React.createElement("button", {
+      onClick: openCustomize,
+      style: {
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        fontSize: 10.5,
+        color: C.faint,
+        fontFamily: MONO,
+        WebkitTapHighlightColor: "transparent"
+      }
+    }, winLabel(win), " \u2304")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: C.faint,
+        lineHeight: 1.5,
+        margin: "6px 0 10px"
+      }
+    }, "Each lift against where it started, so they share one axis and you can see which is still climbing."), /*#__PURE__*/React.createElement(MultiTrend, {
+      series: trendSeries,
+      days: win
+    })) : null,
+    reads: /*#__PURE__*/React.createElement(Analysis, {
+      view: "today",
+      analysis: analysis,
+      unit: unit,
+      state: state,
+      setState: setState,
+      models: models
+    }),
+    score: /*#__PURE__*/React.createElement(ScoreCard, {
+      analysis: analysis,
+      unit: unit,
+      state: state,
+      setState: setState
+    }),
+    meet: /*#__PURE__*/React.createElement(MeetCard, {
+      analysis: analysis,
+      unit: unit,
+      state: state,
+      setState: setState
+    }),
+    deeper: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setDeep(true),
+      style: {
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        background: G.card,
+        border: `1px solid ${C.line2}`,
+        borderRadius: R.surface,
+        padding: "14px 15px",
+        cursor: "pointer",
+        color: C.text,
+        textAlign: "left",
+        WebkitTapHighlightColor: "transparent"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 3,
+        height: 26,
+        borderRadius: 2,
+        flexShrink: 0,
+        background: C.violet,
+        boxShadow: `0 0 10px ${tint(C.violet, 0.5)}`
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        minWidth: 0,
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontWeight: 800,
+        fontSize: 14
+      }
+    }, "Deeper reads"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 11.5,
+        color: C.faint,
+        marginTop: 3
+      }
+    }, "Variations \xB7 accessories \xB7 strength profile \xB7 recent sessions")), /*#__PURE__*/React.createElement(ChevronDown, {
+      size: 16,
+      style: {
+        color: C.faint,
+        flexShrink: 0,
+        transform: "rotate(-90deg)"
+      }
+    })), /*#__PURE__*/React.createElement(Sheet, {
+      open: deep,
+      onClose: () => setDeep(false),
+      title: "Deeper reads"
+    }, /*#__PURE__*/React.createElement(Analysis, {
+      view: "deep",
+      analysis: analysis,
+      unit: unit,
+      state: state,
+      setState: setState,
+      models: models
+    })))
+  };
+  const order = dashOrder(SET),
+    off = dashHidden(SET);
+  return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 9,
-      overflowX: "auto",
-      paddingBottom: 4,
-      margin: "0 -2px",
-      padding: "0 2px 4px"
+      flexDirection: "column",
+      gap: 12
     }
-  }, liftCards.map(L => /*#__PURE__*/React.createElement(Card, {
-    key: L.name,
-    accent: hueFor(L.name, state),
-    onClick: () => {
-      setSel(L.name);
-      setTab("history");
-    },
+  }, order.filter(k => off.indexOf(k) < 0).map(k => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: k
+  }, SECTIONS[k])), /*#__PURE__*/React.createElement("button", {
+    onClick: openCustomize,
     style: {
-      padding: 13,
-      flex: "0 0 auto",
-      minWidth: 132
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      marginBottom: 7
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 5,
-      height: 5,
-      borderRadius: 99,
-      background: hueFor(L.name, state),
-      boxShadow: `0 0 8px ${tint(hueFor(L.name, state), 0.9)}`,
-      flexShrink: 0
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label2,
-      color: C.muted,
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      maxWidth: 104
-    }
-  }, L.name)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 24,
-      fontWeight: 700,
-      letterSpacing: "-0.04em",
-      lineHeight: 1
-    }
-  }, fmt(Math.round(L.e1rm)), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: SANS,
-      fontSize: 11,
-      color: C.muted,
-      marginLeft: 3,
-      fontWeight: 600
-    }
-  }, unit)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 11,
-      marginLeft: -13,
-      marginRight: -13,
-      marginBottom: -13
-    }
-  }, /*#__PURE__*/React.createElement(Spark, {
-    points: L.points,
-    color: hueFor(L.name, state),
-    h: 36
-  })))))), /*#__PURE__*/React.createElement(Analysis, {
-    view: "today",
-    analysis: analysis,
-    unit: unit,
-    state: state,
-    setState: setState,
-    models: models
-  }), /*#__PURE__*/React.createElement(ScoreCard, {
-    analysis: analysis,
-    unit: unit,
-    state: state,
-    setState: setState
-  }), /*#__PURE__*/React.createElement(MeetCard, {
-    analysis: analysis,
-    unit: unit,
-    state: state,
-    setState: setState
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDeep(true),
-    style: {
-      width: "100%",
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      background: G.card,
-      border: `1px solid ${C.line2}`,
-      borderRadius: R.surface,
-      padding: "14px 15px",
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 800,
+      fontSize: 11.5,
       cursor: "pointer",
-      color: C.text,
-      textAlign: "left",
+      padding: "2px 0",
+      alignSelf: "center",
       WebkitTapHighlightColor: "transparent"
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 3,
-      height: 26,
-      borderRadius: 2,
-      flexShrink: 0,
-      background: C.violet,
-      boxShadow: `0 0 10px ${tint(C.violet, 0.5)}`
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      minWidth: 0,
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "block",
-      fontWeight: 800,
-      fontSize: 14
-    }
-  }, "Deeper reads"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "block",
-      fontSize: 11.5,
-      color: C.faint,
-      marginTop: 3
-    }
-  }, "Variations \xB7 accessories \xB7 strength profile \xB7 recent sessions")), /*#__PURE__*/React.createElement(ChevronDown, {
-    size: 16,
-    style: {
-      color: C.faint,
-      flexShrink: 0,
-      transform: "rotate(-90deg)"
-    }
-  })), /*#__PURE__*/React.createElement(Sheet, {
-    open: deep,
-    onClose: () => setDeep(false),
-    title: "Deeper reads"
-  }, /*#__PURE__*/React.createElement(Analysis, {
-    view: "deep",
-    analysis: analysis,
-    unit: unit,
-    state: state,
-    setState: setState,
-    models: models
-  })), /*#__PURE__*/React.createElement(Btn, {
+  }, "Customize this screen"), /*#__PURE__*/React.createElement(Btn, {
     kind: "primary",
     onClick: () => setTab("train"),
     style: {
@@ -7081,10 +7602,13 @@ function DashboardTab({
   }), /*#__PURE__*/React.createElement(TotalSheet, {
     open: showTotal,
     onClose: () => setShowTotal(false),
-    parts: analysis.parts,
+    analysis: analysis,
     models: models,
-    total: analysis.total,
-    unit: unit
+    unit: unit,
+    onEdit: () => {
+      setShowTotal(false);
+      openCustomize();
+    }
   }), /*#__PURE__*/React.createElement(LoadSheet, {
     open: showLoad,
     onClose: () => setShowLoad(false),
@@ -15115,7 +15639,10 @@ function HistoryTab({
   const model = models[cur];
   const sets = [...ex.sets].sort((a, b) => b.ts - a.ts);
   const best = model.points.length ? Math.max(...model.points.map(p => p.value)) : null;
-  const cutoff = Date.now() - 30 * 864e5;
+  const HS = state.settings || {};
+  const hWin = winDays(HS);
+  const cutoff = hWin ? Date.now() - hWin * 864e5 : 0;
+  const winT = hWin ? winLabel(hWin) : "All time";
   const before = model.points.filter(p => p.ts <= cutoff).slice(-1)[0]?.value;
   const delta = before != null && model.e1rm != null ? model.e1rm - before : null;
   // Accessories read out in the reps they are trained in, not as a one-rep max, and
@@ -15125,10 +15652,13 @@ function HistoryTab({
   const accWork = accMode ? workingWeight(model.e1rm, accReps) : null;
   const accDelta = accMode && delta != null && before != null ? workingWeight(model.e1rm, accReps) - workingWeight(before, accReps) : null;
   const top = accMode ? bestSet(ex.sets) : null;
-  const chartPoints = accMode ? model.points.map(pt => ({
+  // The chart covers the same stretch of time as the figure beside it.
+  const inWin = pt => !cutoff || pt.ts >= cutoff;
+  const windowed = model.points.filter(inWin);
+  const chartPoints = (windowed.length > 1 ? windowed : model.points).map(pt => accMode ? {
     ts: pt.ts,
     value: workingWeight(pt.value, accReps)
-  })) : model.points;
+  } : pt);
   /* The set log was every set you have ever done on this lift in one unbroken
      reverse-chronological column, which is a ledger rather than a history: you
      could not see where one session ended and the next began, so you could not
@@ -15224,7 +15754,7 @@ function HistoryTab({
       display: "flex",
       marginBottom: 16
     }
-  }, (accMode ? [[`Working × ${accReps}`, accWork != null ? roundTo(accWork, 1) : null, hueFor(cur, state), true], ["Best set", top ? `${fmt(roundTo(top.weight, 1))}×${top.reps}` : null, C.text, false], ["30-day", accDelta != null ? roundTo(accDelta, 1) : null, accDelta > 0 ? C.good : accDelta < 0 ? C.red : C.muted, false]] : [["Current 1RM", model.e1rm, hueFor(cur, state), true], ["Best", best, C.text, false], ["30-day", delta, delta > 0 ? C.good : delta < 0 ? C.red : C.muted, false]]).map(([l, v, col, lead], i) => /*#__PURE__*/React.createElement("div", {
+  }, (accMode ? [[`Working × ${accReps}`, accWork != null ? roundTo(accWork, 1) : null, hueFor(cur, state), true], ["Best set", top ? `${fmt(roundTo(top.weight, 1))}×${top.reps}` : null, C.text, false], [winT, accDelta != null ? roundTo(accDelta, 1) : null, accDelta > 0 ? C.good : accDelta < 0 ? C.red : C.muted, false]] : [["Current 1RM", model.e1rm, hueFor(cur, state), true], ["Best", best, C.text, false], [winT, delta, delta > 0 ? C.good : delta < 0 ? C.red : C.muted, false]]).map(([l, v, col, lead], i) => /*#__PURE__*/React.createElement("div", {
     key: l,
     style: {
       flex: 1,
@@ -15249,7 +15779,7 @@ function HistoryTab({
       fontVariantNumeric: "tabular-nums",
       lineHeight: 1
     }
-  }, l === "30-day" && v != null && v > 0 ? "+" : "", v == null ? "—" : typeof v === "string" ? v : fmt(v))))), model.count > 0 && /*#__PURE__*/React.createElement("div", {
+  }, l === winT && v != null && v > 0 ? "+" : "", v == null ? "—" : typeof v === "string" ? v : fmt(v))))), model.count > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.faint,
@@ -15280,7 +15810,8 @@ function HistoryTab({
     data: chartPoints,
     height: 176,
     unit: unit,
-    color: hueFor(cur, state)
+    color: hueFor(cur, state),
+    zero: !!HS.chartZero
   })), /*#__PURE__*/React.createElement(FilmStrip, {
     ex: cur,
     sets: sets,
@@ -16892,7 +17423,7 @@ function MultiTrend({
   days = 90
 }) {
   const uid = useMemo(() => "mt" + Math.random().toString(36).slice(2, 7), []);
-  const cut = Date.now() - days * 86400000;
+  const cut = days ? Date.now() - days * 86400000 : 0; // 0 days means all of it
   const live = (series || []).map(s2 => ({
     ...s2,
     pts: (s2.points || []).filter(p => p.ts >= cut)
@@ -17144,13 +17675,6 @@ function Analysis({
       lineHeight: 1.6
     }
   }, "Log a few sets and I'll start reading your training here \u2014 strength trends, hidden gains from your variations, RPE calibration, weak points. No two lifters get the same reads."));
-  // Main lifts for the trend, variations for the ratio bars — two different questions,
-  // so two different charts rather than one that half-answers both.
-  const trendSeries = Object.keys(state.exercises || {}).filter(n => !state.exercises[n].parent && !isAccessory(n, state) && models && models[n] && models[n].points.length > 1).map(n => ({
-    name: n,
-    color: hueFor(n, state),
-    points: models[n].points
-  }));
   // Accessories were left out of everything here, which made them invisible: you can
   // only push what you can see. They get their own read, in their own unit.
   const accProgress = Object.keys(state.exercises || {}).filter(n => isAccessory(n, state) && models && models[n] && models[n].e1rm != null && models[n].points.length > 1 && !isTimed(n, state)).map(n => {
@@ -17194,36 +17718,7 @@ function Analysis({
     session: analysis.session,
     unit: unit,
     inputMode: state.settings.inputMode
-  }), trendSeries.length > 0 && /*#__PURE__*/React.createElement(Card, {
-    accent: C.red
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      marginBottom: 2
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label,
-      fontSize: 9.5
-    }
-  }, "Strength trend"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10.5,
-      color: C.faint,
-      fontFamily: MONO
-    }
-  }, "90 days")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11.5,
-      color: C.faint,
-      lineHeight: 1.5,
-      margin: "6px 0 10px"
-    }
-  }, "Each lift against where it started, so they share one axis and you can see which is still climbing."), /*#__PURE__*/React.createElement(MultiTrend, {
-    series: trendSeries
-  })), shownInsights.length > 0 && /*#__PURE__*/React.createElement(SectionHead, {
+  }), shownInsights.length > 0 && /*#__PURE__*/React.createElement(SectionHead, {
     accent: C.red,
     right: Object.keys(dismissed).length > 0 ? /*#__PURE__*/React.createElement("button", {
       onClick: () => setState(s => ({
@@ -18536,7 +19031,8 @@ function SettingsSheet({
   settings,
   setSetting,
   state,
-  setState
+  setState,
+  openCustomize
 }) {
   const restoreExercise = name => setState(s => {
     const item = (s.trash || []).find(x => x.name === name);
@@ -18708,7 +19204,58 @@ function SettingsSheet({
     title: "Settings"
   }, /*#__PURE__*/React.createElement("div", {
     style: row
-  }, /*#__PURE__*/React.createElement("div", {
+  }, openCustomize && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    onClick: openCustomize,
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      background: G.card,
+      border: `1px solid ${C.line2}`,
+      borderRadius: R.surface,
+      padding: "13px 14px",
+      cursor: "pointer",
+      color: C.text,
+      textAlign: "left",
+      marginBottom: 20,
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 3,
+      height: 24,
+      borderRadius: 2,
+      flexShrink: 0,
+      background: C.violet,
+      boxShadow: `0 0 10px ${tint(C.violet, 0.5)}`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontWeight: 800,
+      fontSize: 14
+    }
+  }, "Customize the app"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11.5,
+      color: C.faint,
+      marginTop: 3
+    }
+  }, "Dashboard layout \xB7 charts \xB7 which lifts count \xB7 where it opens")), /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 16,
+    style: {
+      color: C.faint,
+      flexShrink: 0,
+      transform: "rotate(-90deg)"
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       ...label,
       fontSize: 10,
