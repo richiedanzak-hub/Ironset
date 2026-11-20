@@ -1124,8 +1124,10 @@ function Btn({ children, onClick, kind = "ghost", style, disabled, as }) {
     style={{ ...base, ...kinds[kind], ...style }}>{children}</Tag>;
 }
 function Chip({ active, children, onClick, sm }) {
+  // A chip is a toggle, and a toggle that only looks selected is not selected as
+  // far as a screen reader is concerned.
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} aria-pressed={!!active} style={{
       fontFamily: SANS, fontWeight: 600, fontSize: sm ? 11.5 : 13.5, borderRadius: R.pill,
       padding: sm ? "6px 11px" : "9px 16px", minHeight: sm ? 28 : 38,
       cursor: "pointer", whiteSpace: "nowrap", WebkitTapHighlightColor: "transparent",
@@ -1753,6 +1755,7 @@ const DEFAULT = {
   clips: {}, // setId -> { ex, ts, bytes, dur, w, h, type } — the video itself lives in IndexedDB
   library: [], // saved blocks: [{ id, name, savedAt, offsets, sessions, weeks, lifts }]
   done: {},  // "YYYY-MM-DD" -> ts the session was called finished
+  ticks: {}, // "YYYY-MM-DD" -> { exerciseName: ts } — work done that carries no numbers
   settings: { unit: "lb", round: 5, bar: 45, inputMode: "rpe", sex: "male", trainingMode: "rpe", maxMode: "dynamic", topPct: 85, backoff: { sets: 1, reps: 5, rpe: 8, level: "normal", pct: 75, steps: [] } },
 };
 // Default strength ratio of a variation to its main lift, guessed from its name.
@@ -2882,8 +2885,39 @@ function bwBaseFor(name, state, unit) {
   return bw == null ? null : bw * bwShareFor(name);
 }
 
+/* --------------------------- HOW MUCH TO TRACK ----------------------------
+   Three levels, not two. A competition squat wants every pound, because the
+   estimate is built out of them. A dumbbell row wants its numbers kept but held
+   out of the one-rep max, which is what "accessory" has always meant here.
+
+   And then there is the third thing most accessory work actually is. Band
+   pull-aparts, face pulls, calf raises, ab wheel: work you want on the plan and
+   want to tick off, whose exact load is not worth a single tap — and asking for
+   one anyway is how a plan stops getting used by about week three.
+
+   So a movement can say it has no numbers worth keeping, and Train stops asking
+   for them. It still appears in the session, still counts toward the day being
+   finished, and still carries a record that you did it. */
+const isTickOnly = (name, state) => {
+  const ex = state && state.exercises && state.exercises[name];
+  return !!(ex && ex.tick);
+};
+/* A tick is a date and a movement: "I did my face pulls on the 20th". Keyed by
+   name rather than by the slot that asked for it, so it survives the plan being
+   edited, copied or regenerated underneath it — the question it answers is
+   about the training, not about the row. */
+const tickedOn = (state, dateStr, name) => !!(((state || {}).ticks || {})[dateStr] || {})[name];
+function withTick(state, dateStr, name, on) {
+  const day = { ...(((state || {}).ticks || {})[dateStr] || {}) };
+  if (on) day[name] = Date.now(); else delete day[name];
+  const ticks = { ...((state || {}).ticks || {}) };
+  if (Object.keys(day).length) ticks[dateStr] = day; else delete ticks[dateStr];
+  return { ...state, ticks };
+}
 const isAccessory = (name, state) => {
   const ex = state && state.exercises && state.exercises[name];
+  // Something you only tick is certainly not in your one-rep max.
+  if (ex && ex.tick) return true;
   if (ex && typeof ex.accessory === "boolean") return ex.accessory;
   if (TIME_MOVES.has(name)) return true;
   const L = libFind(name);
@@ -3866,8 +3900,11 @@ function programSpan(tpl, opts) {
 // Total working sets a slot asks for. A top set carries its back-offs; everything
 // else is simply sets across.
 const slotSetCount = (slot) => slot.bo ? 1 + Math.max(0, slot.bo.sets) : Math.max(1, slot.sets || 1);
-const slotSummary = (slot) => slotTimed(slot)
+const slotSummary = (slot, state) => slotTimed(slot)
   ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
+  // No load means no effort target to print: the prescription is the shape of
+  // the work, and the rest is up to the lifter on the day.
+  : isTickOnly(slot.ex, state) ? `${slot.sets > 1 ? slot.sets + " × " : ""}${slot.reps}`
   // An AMRAP still needs a load, and the load comes from the written reps and
   // effort — you just do not stop there. So the prescription keeps both: the
   // number that picks the weight, and the fact that the set runs past it.
@@ -4803,7 +4840,7 @@ const pickRow = { width: "100%", display: "flex", justifyContent: "space-between
 // One movement in one day. Collapsed it is a single readable line; a day of eight
 // movements should fit on a screen, not demand eight cards of steppers.
 function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst, groupLast, rounds,
-                   canUp, canDown, onUp, onDown, canLink, onToggleLink, state, onPickBoLift, onMoveDay }) {
+                   canUp, canDown, onUp, onDown, canLink, onToggleLink, state, onPickBoLift, onMoveDay, onTrack }) {
   const [open, setOpen] = useState(false);
   // The slot wears the lift's colour, so a day of work is scannable by movement
   // rather than by reading every line. Accessories keep their own quieter hues.
@@ -4813,6 +4850,7 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
   // Effort is a ladder with an uneven bottom rung; percent and reps are not.
   const effRungs = slot.mode === "rpe" || slot.mode === "rir" ? effortRungs(slot.mode) : null;
   const timed = slotTimed(slot);
+  const tickOnly = isTickOnly(slot.ex, state);
   const mvBtn = (enabled) => ({ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "grid",
     placeItems: "center", border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)",
     color: enabled ? C.muted : "rgba(255,255,255,0.13)", cursor: enabled ? "pointer" : "default",
@@ -4835,7 +4873,7 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
             <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
               overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
             <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-              {slotSummary(slot)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : ""}
+              {slotSummary(slot, state)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : ""}
             </span>
           </button>
           <button aria-label="Move up" disabled={!canUp} onClick={() => canUp && onUp()} style={mvBtn(canUp)}>
@@ -4847,9 +4885,20 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
         </div>
         {open && (
           <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "13px 0" }}>
-              <Chip sm active={slot.role === "main"} onClick={() => up({ role: "main" })}>Track in 1RM</Chip>
-              <Chip sm active={slot.role === "accessory"} onClick={() => up({ role: "accessory" })}>Don&rsquo;t track</Chip>
+            {/* How much of this movement is worth keeping. The third one is the
+                answer for most accessory work, and it is the one that was missing. */}
+            <div style={{ ...label, fontSize: 9.5, margin: "13px 0 8px" }}>How much to track</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 9 }}>
+              <Chip sm active={slot.role === "main" && !tickOnly} onClick={() => onTrack({ role: "main", tick: false })}>Track in 1RM</Chip>
+              <Chip sm active={slot.role === "accessory" && !tickOnly} onClick={() => onTrack({ role: "accessory", tick: false })}>Log, don&rsquo;t track</Chip>
+              <Chip sm active={tickOnly} onClick={() => onTrack({ role: "accessory", tick: true })}>Just tick it off</Chip>
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, marginBottom: 14 }}>
+              {tickOnly
+                ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates."
+                : slot.role === "main"
+                  ? "Every set feeds your estimated 1RM and your total."
+                  : "Weight and reps are kept and charted, but held out of your 1RM and your total."}
             </div>
             {canLink && (
               <div style={{ marginBottom: 14 }}>
@@ -4867,7 +4916,7 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{timed ? "Seconds" : "Reps"}</div>
                 <Stepper compact value={slot.reps} step={timed ? 5 : 1} min={timed ? 5 : 1} max={timed ? 900 : 30} onChange={(v) => up({ reps: v })} />
               </div>
-              {!timed && (
+              {!timed && !tickOnly && (
                 <div>
                   <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.mode === "pct" ? "% of max" : slot.mode.toUpperCase()}</div>
                   <Stepper compact value={slot.val} step={modeVal.step} min={modeVal.min} max={modeVal.max}
@@ -4876,7 +4925,7 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                 </div>
               )}
             </div>
-            {!timed && (
+            {!timed && !tickOnly && (
               <div style={{ marginTop: 13 }}>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Take sets to failure?</div>
                 <Segmented value={slot.amrap === "all" ? "all" : slot.amrap ? "last" : "off"}
@@ -4896,14 +4945,14 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                 </div>
               </div>
             )}
-            <div style={{ marginTop: 13 }}>
+            <div style={{ marginTop: 13, display: tickOnly ? "none" : undefined }}>
               <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Measured in</div>
               <Segmented value={timed ? "time" : slot.mode}
                 onChange={(m) => up(m === "time" ? { metric: "time", reps: 45 } : { metric: "reps", mode: m, reps: slot.metric === "time" ? 8 : slot.reps, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })}
                 options={MODES.map((m) => ({ value: m.v, label: m.t })).concat([{ value: "time", label: "Time" }])} />
             </div>
-            {!timed && <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />}
-            <div style={{ display: timed ? "none" : "flex", justifyContent: "space-between", alignItems: "center" }}>
+            {!timed && !tickOnly && <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />}
+            <div style={{ display: timed || tickOnly ? "none" : "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
               <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
                 style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
@@ -6330,12 +6379,19 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
   const swapSlot = (id, name) => writeSlots(slots.map((x) => x.id === id ? { ...newSlot(name), id: x.id, sets: x.sets, reps: x.reps, mode: x.mode, val: x.val, bo: x.bo, link: x.link, metric: x.metric } : x));
   // Writing a slot's tracked/untracked choice through to the exercise itself, so
   // the decision holds wherever that movement shows up rather than only here.
-  const setSlot = (id, next) => {
+  const setSlot = (id, next, track) => {
     writeSlots(slots.map((x) => x.id === id ? next : x));
     const prev = slots.find((x) => x.id === id);
-    if (prev && next.role !== prev.role && state.exercises[next.ex])
-      setState((st) => ({ ...st, exercises: { ...st.exercises,
-        [next.ex]: { ...st.exercises[next.ex], accessory: next.role === "accessory" } } }));
+    /* How much to track belongs to the movement, not to one row of one day: if
+       face pulls carry no numbers here they carry none anywhere. The exercise is
+       created if it does not exist yet, because a movement you only ever tick
+       never logs a set and so would otherwise have nowhere to keep the answer. */
+    if (track || (prev && next.role !== prev.role)) setState((st) => {
+      const ex = st.exercises[next.ex] || { name: next.ex, sets: [] };
+      return { ...st, exercises: { ...st.exercises, [next.ex]: { ...ex,
+        accessory: next.role === "accessory",
+        tick: track ? !!track.tick : !!ex.tick } } };
+    });
   };
 
   // Clone copies this calendar week forward into the next one, once, into dates
@@ -6577,6 +6633,7 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
                 .filter((x) => (program.days[x] || []).some((y) => y.ex === d.sl.ex)).length;
               if (later > 0 && Object.keys(patch).length) setSpreadPlan({ date: sel, fromEx: d.sl.ex, patch, n: later });
             }}
+            onTrack={(t) => setSlot(d.sl.id, { ...d.sl, role: t.role }, t)}
             onDelete={() => writeSlots(slots.filter((x) => x.id !== d.sl.id))}
             onMoveDay={() => armSlot(d.sl)}
             onRename={() => setPicking({ mode: "swap", id: d.sl.id })} />
@@ -6705,13 +6762,14 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
 // The whole day laid out. The strip is right to stay compact — six movements of
 // four sets is three phone screens — but "what is left" is a real question, and
 // one tap is the right price for it.
-function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, dateLabel, weekLabel }) {
+function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, dateLabel, weekLabel, onTick }) {
   if (!open) return null;
   const deco = decorateSlots(slots || []);
   const totals = (slots || []).reduce((a, sl) => {
     const pr = doneSlots[sl.id] || { n: 0, total: slotSetCount(sl) };
     return { done: a.done + Math.min(pr.n, pr.total), all: a.all + pr.total };
   }, { done: 0, all: 0 });
+  const anyTick = (slots || []).some((sl) => isTickOnly(sl.ex, state));
   return (
     <Sheet open={open} onClose={onClose} title={weekLabel || "Today"}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
@@ -6719,9 +6777,16 @@ function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, 
           {totals.all - totals.done}
         </span>
         <span style={{ ...label2, color: C.faint }}>
-          set{totals.all - totals.done === 1 ? "" : "s"} left of {totals.all} · {dateLabel}
+          {anyTick ? "left" : `set${totals.all - totals.done === 1 ? "" : "s"} left`} of {totals.all} · {dateLabel}
         </span>
       </div>
+      {/* The answer to "do I have to open every one of these just to tick it".
+          A movement that carries no numbers can be ticked from this list. */}
+      {anyTick && (
+        <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginBottom: 12, marginTop: -6 }}>
+          Tap a circle to tick something off from here — no need to open it.
+        </div>
+      )}
       {deco.map((d) => {
         const pr = doneSlots[d.sl.id] || { n: 0, total: slotSetCount(d.sl), done: false };
         const on = d.sl.ex === sel;
@@ -6732,7 +6797,13 @@ function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, 
                 Superset {d.tag.charAt(0)}{d.rounds ? ` · ${d.rounds} rounds` : ""}
               </div>
             )}
-            <button onClick={() => { onPick(d.sl); onClose(); }} style={{ width: "100%", textAlign: "left",
+            {/* The row opens the movement and the circle inside it ticks the movement,
+                so the row cannot be a <button> — a button inside a button is invalid
+                markup and the inner one stops working. It carries the role and the
+                keyboard instead, which it should have had anyway. */}
+            <div role="button" tabIndex={0} onClick={() => { onPick(d.sl); onClose(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(d.sl); onClose(); } }}
+              style={{ width: "100%", textAlign: "left", boxSizing: "border-box",
               display: "flex", alignItems: "center", gap: 11, marginBottom: 7, cursor: "pointer",
               marginLeft: d.grouped ? 10 : 0, borderLeft: d.grouped ? `2px solid ${tint(C.blue, 0.5)}` : undefined,
               background: on ? tint(hueFor(d.sl.ex, state), 0.12) : "rgba(255,255,255,0.025)",
@@ -6746,17 +6817,29 @@ function DaySheet2({ open, onClose, slots, doneSlots, state, sel, onPick, unit, 
                   {d.sl.ex}
                 </span>
                 <span style={{ display: "block", fontFamily: MONO, fontSize: 11, color: C.muted, marginTop: 3 }}>
-                  {slotSummary(d.sl)}{d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : ""}
+                  {slotSummary(d.sl, state)}{d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : ""}
                 </span>
               </span>
-              <span style={{ display: "inline-flex", gap: 3, flexShrink: 0 }}>
-                {Array.from({ length: Math.min(8, pr.total) }).map((_, i) => (
-                  <span key={i} style={{ width: 5, height: 5, borderRadius: 3,
-                    background: i < pr.n ? C.good : "rgba(255,255,255,0.16)" }} />
-                ))}
-              </span>
-              {pr.done && <Check size={14} style={{ color: C.good, flexShrink: 0 }} />}
-            </button>
+              {pr.tick ? (
+                <button onClick={(e) => { e.stopPropagation(); onTick && onTick(d.sl, !pr.done); }}
+                  aria-label={`${pr.done ? "Undo" : "Mark"} ${d.sl.ex} done`}
+                  style={{ width: 28, height: 28, borderRadius: 99, flexShrink: 0, display: "grid",
+                    placeItems: "center", cursor: "pointer", padding: 0,
+                    WebkitTapHighlightColor: "transparent",
+                    border: `1px solid ${pr.done ? "transparent" : C.line2}`,
+                    background: pr.done ? C.good : "rgba(255,255,255,0.04)" }}>
+                  {pr.done && <Check size={15} style={{ color: "#06121a" }} />}
+                </button>
+              ) : (<>
+                <span style={{ display: "inline-flex", gap: 3, flexShrink: 0 }}>
+                  {Array.from({ length: Math.min(8, pr.total) }).map((_, i) => (
+                    <span key={i} style={{ width: 5, height: 5, borderRadius: 3,
+                      background: i < pr.n ? C.good : "rgba(255,255,255,0.16)" }} />
+                  ))}
+                </span>
+                {pr.done && <Check size={14} style={{ color: C.good, flexShrink: 0 }} />}
+              </>)}
+            </div>
           </React.Fragment>
         );
       })}
@@ -6835,6 +6918,37 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
 // Clock-based logger: weight is optional (a weighted plank, a loaded carry), the
 // target comes from the programmed slot when there is one, and nothing here feeds
 // the one-rep-max estimator.
+/* Work with no numbers still has a shape and a state: what the plan asked for,
+   and whether you have done it. That is the whole screen. The point of it is
+   that it is one tap instead of three steppers and a log button — a movement
+   you never wanted to weigh should not cost more attention than one you did. */
+function TickLogger({ sel, slot, state, hue, done, onToggle, onPick }) {
+  const asks = slot ? slotSummary(slot, state) : null;
+  return (
+    <Card accent={hue} glow="none" style={{ padding: 16 }}>
+      <button onClick={onPick} aria-label={`${sel} — tap to change lift`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 7, maxWidth: "100%",
+          background: tint(hue, 0.14), border: `1px solid ${tint(hue, 0.42)}`, borderRadius: R.pill,
+          padding: "7px 12px 7px 14px", cursor: "pointer", color: C.text,
+          WebkitTapHighlightColor: "transparent" }}>
+        <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.025em", lineHeight: 1.15,
+          minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel}</span>
+        <ChevronDown size={14} style={{ color: C.muted, flexShrink: 0 }} />
+      </button>
+      <div style={{ ...label2, color: C.faint, marginTop: 9 }}>
+        {asks ? `The plan asks for ${asks}` : "Not on today's plan — tick it anyway"}
+      </div>
+      <Btn kind={done ? "solid" : "primary"} onClick={() => onToggle(!done)}
+        style={{ width: "100%", marginTop: 15, minHeight: 58, fontSize: 16.5 }}>
+        {done ? <><Check size={19} /> Done — tap to undo</> : "Mark done"}
+      </Btn>
+      <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, marginTop: 11 }}>
+        No weight or reps are kept for this one, so nothing about it reaches your estimates.
+        Change that under <b style={{ color: C.muted }}>How much to track</b> in Plan.
+      </div>
+    </Card>
+  );
+}
 function TimedLogger({ state, sel, logSet, logDate, setLogDate, unit, slot }) {
   const [secs, setSecs] = useState(slot ? slot.reps : 45);
   const [wt, setWt] = useState("");
@@ -6961,6 +7075,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
   // freestyle day are the same machinery with a different starting point.
   const sessionSlots = slotsFor(state.program, logDate);
   const timedSel = !!sel && isTimed(sel, state);
+  const tickSel = !!sel && isTickOnly(sel, state);
+  const setTick = (name, on) => setState((st) => withTick(st, logDate, name, on));
   const timedSlot = sessionSlots.find((x) => x.ex === sel && slotTimed(x)) || null;
   const progWeek = state.program ? "Week " + weekNoFor(state.program, logDate) : null;
   // How many sets a slot actually asks for: a top set plus its back-offs, or just the
@@ -6970,6 +7086,13 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
     const dk = new Date(tsFromDateStr(logDate)).toDateString();
     const out = {};
     for (const sl of sessionSlots) {
+      // Something you only tick is one thing, done or not — there are no sets to
+      // count because there were never any numbers to put in them.
+      if (isTickOnly(sl.ex, state)) {
+        const t = tickedOn(state, logDate, sl.ex);
+        out[sl.id] = { n: t ? 1 : 0, total: 1, done: t, started: t, tick: true };
+        continue;
+      }
       const names = [sl.ex].concat(sl.bo && sl.bo.lift && sl.bo.lift !== sl.ex ? [sl.bo.lift] : []);
       let n = 0;
       for (const nm of names) {
@@ -6980,7 +7103,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
       out[sl.id] = { n: Math.min(n, total), total, done: n >= total, started: n > 0 };
     }
     return out;
-  }, [sessionSlots, state.exercises, logDate]);
+  }, [sessionSlots, state.exercises, state.ticks, logDate]);
   // Which slot the screen is currently working through, so the cards below know
   // whether they are a top set with back-offs or plain sets across.
   const [activeSlotId, setActiveSlotId] = useState(null);
@@ -7606,7 +7729,8 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             </span>
             <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 800, flexShrink: 0,
               letterSpacing: "0.03em", color: dayProgress.left === 0 ? C.good : C.muted }}>
-              {dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} SETS`}
+              {dayProgress.left === 0 ? "SESSION DONE"
+                : `${dayProgress.done}/${dayProgress.total} ${sessionSlots.some((sl) => isTickOnly(sl.ex, state)) ? "DONE" : "SETS"}`}
             </span>
             <ChevronDown size={11} style={{ color: C.faint, flexShrink: 0, transform: "rotate(-90deg)" }} />
           </button>
@@ -7676,7 +7800,11 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
       {/* A hold, a carry or a bike interval has no one-rep max, so the whole
           prescribe-and-estimate apparatus is replaced by a plain clock logger. */}
-      {timedSel ? <TimedLogger {...{ state, sel, logSet, logDate, setLogDate, unit, slot: timedSlot }} /> : (<>
+      {timedSel ? <TimedLogger {...{ state, sel, logSet, logDate, setLogDate, unit, slot: timedSlot }} />
+        : tickSel ? <TickLogger sel={sel} slot={activeSlot} state={state} hue={selHue}
+            done={tickedOn(state, logDate, sel)} onToggle={(on) => setTick(sel, on)}
+            onPick={() => setPickingLift(true)} />
+        : (<>
 
       {/* THE SET IN FRONT OF YOU. Everything on this card is about one set: what
           it asks for, what to load, and the button that writes it down. */}
@@ -8237,6 +8365,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
 
       <DaySheet2 open={dayOpen} onClose={() => setDayOpen(false)} slots={sessionSlots}
         doneSlots={doneSlots} state={state} sel={sel} unit={unit}
+        onTick={(sl, on) => setTick(sl.ex, on)}
         weekLabel={progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today"}
         dateLabel={dayStart(logDate).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
         onPick={(sl) => loadSlot(sl)} />
@@ -8421,6 +8550,9 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
 
   const best = model.points.length ? Math.max(...model.points.map((p) => p.value)) : null;
   const HS = state.settings || {};
+  const tickOnly = isTickOnly(cur, state);
+  // Every day this movement was ticked off, newest first.
+  const tickDays = Object.keys(state.ticks || {}).filter((d) => (state.ticks[d] || {})[cur]).sort().reverse();
   const hWin = winDays(HS);
   const cutoff = hWin ? Date.now() - hWin * 864e5 : 0;
   const winT = hWin ? winLabel(hWin) : "All time";
@@ -8477,6 +8609,31 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
       <LiftSheet open={pickingLift} onClose={() => setPickingLift(false)} state={state} models={models}
         sel={cur} unit={unit} todaySlots={[]} onPick={setSel} onCreate={setSel} />
 
+      {tickOnly ? (
+        <Card accent={hueFor(cur, state)}
+          glow={`radial-gradient(120% 90% at 50% -10%, ${tint(hueFor(cur, state), 0.13)}, transparent 70%)`}>
+          <div style={{ ...label2, color: C.faint }}>Times ticked off</div>
+          <div style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, letterSpacing: "-0.04em",
+            lineHeight: 1, marginTop: 7, color: hueFor(cur, state) }}>{tickDays.length}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 9, lineHeight: 1.55 }}>
+            {tickDays.length
+              ? <>You keep no numbers on this one, so there is no trend to draw — what there is
+                  is whether you are doing it. Last done {dshort(tsFromDateStr(tickDays[0]))}.</>
+              : <>Nothing ticked off yet. It shows up in a session and takes one tap.</>}
+          </div>
+          {tickDays.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 13 }}>
+              {tickDays.slice(0, 18).map((d) => (
+                <span key={d} style={{ fontFamily: MONO, fontSize: 10.5, color: C.muted,
+                  background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line}`,
+                  borderRadius: R.pill, padding: "4px 9px" }}>
+                  {dayStart(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      ) : (
       <Card accent={hueFor(cur, state)}
         glow={`radial-gradient(120% 90% at 50% -10%, ${tint(hueFor(cur, state), 0.13)}, transparent 70%)`}>
         {/* Current sits against best and against the month's move, so the headline
@@ -8517,6 +8674,7 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
         </span>
         <LineChart data={chartPoints} height={176} unit={unit} color={hueFor(cur, state)} zero={!!HS.chartZero} />
       </Card>
+      )}
 
       <FilmStrip ex={cur} sets={sets} clips={clips} unit={unit} hue={hueFor(cur, state)}
         onPick={(s) => setFilming(s)} />
@@ -9449,6 +9607,7 @@ function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose,
   // The library knows a push-up from a bench press, but not how YOU do a given
   // movement — and it cannot know about anything you named yourself.
   const bwNow = isBodyweightMove(name, state);
+  const tickNow = isTickOnly(name, state);
   const bwRow = (
     <div style={{ marginBottom: 18, borderBottom: `1px solid ${C.line}`, paddingBottom: 16 }}>
       <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>What you load</div>
@@ -9465,10 +9624,11 @@ function LinkSheet({ name, exercise, mains, childNames, effectiveRatio, onClose,
   );
   const trackRow = (
     <div style={{ marginBottom: 18, borderBottom: `1px solid ${C.line}`, paddingBottom: 16 }}>
-      <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>Strength tracking</div>
+      <div style={{ ...label, fontSize: 9.5, marginBottom: 8 }}>How much to track</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <Chip sm active={tracked} onClick={() => onSave({ accessory: false })}>Track in 1RM</Chip>
-        <Chip sm active={!tracked} onClick={() => onSave({ accessory: true })}>Don&rsquo;t track</Chip>
+        <Chip sm active={tracked && !tickNow} onClick={() => onSave({ accessory: false, tick: false })}>Track in 1RM</Chip>
+        <Chip sm active={!tracked && !tickNow} onClick={() => onSave({ accessory: true, tick: false })}>Log, don&rsquo;t track</Chip>
+        <Chip sm active={tickNow} onClick={() => onSave({ accessory: true, tick: true })}>Just tick it off</Chip>
       </div>
       <div style={{ fontSize: 11.5, color: C.faint, marginTop: 9, lineHeight: 1.5 }}>
         Untracked movements are still logged, charted and prescribed — they just stay out of your estimated maxes, your projected total and your readiness.

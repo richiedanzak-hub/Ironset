@@ -1654,8 +1654,11 @@ function Chip({
   onClick,
   sm
 }) {
+  // A chip is a toggle, and a toggle that only looks selected is not selected as
+  // far as a screen reader is concerned.
   return /*#__PURE__*/React.createElement("button", {
     onClick: onClick,
+    "aria-pressed": !!active,
     style: {
       fontFamily: SANS,
       fontWeight: 600,
@@ -3116,6 +3119,8 @@ const DEFAULT = {
   // saved blocks: [{ id, name, savedAt, offsets, sessions, weeks, lifts }]
   done: {},
   // "YYYY-MM-DD" -> ts the session was called finished
+  ticks: {},
+  // "YYYY-MM-DD" -> { exerciseName: ts } — work done that carries no numbers
   settings: {
     unit: "lb",
     round: 5,
@@ -4752,8 +4757,47 @@ function bwBaseFor(name, state, unit) {
   const bw = bodyweightNow(state, unit);
   return bw == null ? null : bw * bwShareFor(name);
 }
+
+/* --------------------------- HOW MUCH TO TRACK ----------------------------
+   Three levels, not two. A competition squat wants every pound, because the
+   estimate is built out of them. A dumbbell row wants its numbers kept but held
+   out of the one-rep max, which is what "accessory" has always meant here.
+
+   And then there is the third thing most accessory work actually is. Band
+   pull-aparts, face pulls, calf raises, ab wheel: work you want on the plan and
+   want to tick off, whose exact load is not worth a single tap — and asking for
+   one anyway is how a plan stops getting used by about week three.
+
+   So a movement can say it has no numbers worth keeping, and Train stops asking
+   for them. It still appears in the session, still counts toward the day being
+   finished, and still carries a record that you did it. */
+const isTickOnly = (name, state) => {
+  const ex = state && state.exercises && state.exercises[name];
+  return !!(ex && ex.tick);
+};
+/* A tick is a date and a movement: "I did my face pulls on the 20th". Keyed by
+   name rather than by the slot that asked for it, so it survives the plan being
+   edited, copied or regenerated underneath it — the question it answers is
+   about the training, not about the row. */
+const tickedOn = (state, dateStr, name) => !!(((state || {}).ticks || {})[dateStr] || {})[name];
+function withTick(state, dateStr, name, on) {
+  const day = {
+    ...(((state || {}).ticks || {})[dateStr] || {})
+  };
+  if (on) day[name] = Date.now();else delete day[name];
+  const ticks = {
+    ...((state || {}).ticks || {})
+  };
+  if (Object.keys(day).length) ticks[dateStr] = day;else delete ticks[dateStr];
+  return {
+    ...state,
+    ticks
+  };
+}
 const isAccessory = (name, state) => {
   const ex = state && state.exercises && state.exercises[name];
+  // Something you only tick is certainly not in your one-rep max.
+  if (ex && ex.tick) return true;
   if (ex && typeof ex.accessory === "boolean") return ex.accessory;
   if (TIME_MOVES.has(name)) return true;
   const L = libFind(name);
@@ -5956,7 +6000,10 @@ function programSpan(tpl, opts) {
 // Total working sets a slot asks for. A top set carries its back-offs; everything
 // else is simply sets across.
 const slotSetCount = slot => slot.bo ? 1 + Math.max(0, slot.bo.sets) : Math.max(1, slot.sets || 1);
-const slotSummary = slot => slotTimed(slot) ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
+const slotSummary = (slot, state) => slotTimed(slot) ? `${slot.sets > 1 ? slot.sets + " × " : ""}${fmtDur(slot.reps)}`
+// No load means no effort target to print: the prescription is the shape of
+// the work, and the rest is up to the lifter on the day.
+: isTickOnly(slot.ex, state) ? `${slot.sets > 1 ? slot.sets + " × " : ""}${slot.reps}`
 // An AMRAP still needs a load, and the load comes from the written reps and
 // effort — you just do not stop there. So the prescription keeps both: the
 // number that picks the weight, and the fact that the set runs past it.
@@ -8102,7 +8149,8 @@ function SlotCard({
   onToggleLink,
   state,
   onPickBoLift,
-  onMoveDay
+  onMoveDay,
+  onTrack
 }) {
   const [open, setOpen] = useState(false);
   // The slot wears the lift's colour, so a day of work is scannable by movement
@@ -8126,6 +8174,7 @@ function SlotCard({
   // Effort is a ladder with an uneven bottom rung; percent and reps are not.
   const effRungs = slot.mode === "rpe" || slot.mode === "rir" ? effortRungs(slot.mode) : null;
   const timed = slotTimed(slot);
+  const tickOnly = isTickOnly(slot.ex, state);
   const mvBtn = enabled => ({
     width: 28,
     height: 28,
@@ -8209,7 +8258,7 @@ function SlotCard({
       color: C.muted,
       marginTop: 3
     }
-  }, slotSummary(slot), slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : "")), /*#__PURE__*/React.createElement("button", {
+  }, slotSummary(slot, state), slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : "")), /*#__PURE__*/React.createElement("button", {
     "aria-label": "Move up",
     disabled: !canUp,
     onClick: () => canUp && onUp(),
@@ -8233,24 +8282,46 @@ function SlotCard({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      ...label,
+      fontSize: 9.5,
+      margin: "13px 0 8px"
+    }
+  }, "How much to track"), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: "flex",
       gap: 6,
       flexWrap: "wrap",
-      margin: "13px 0"
+      marginBottom: 9
     }
   }, /*#__PURE__*/React.createElement(Chip, {
     sm: true,
-    active: slot.role === "main",
-    onClick: () => up({
-      role: "main"
+    active: slot.role === "main" && !tickOnly,
+    onClick: () => onTrack({
+      role: "main",
+      tick: false
     })
   }, "Track in 1RM"), /*#__PURE__*/React.createElement(Chip, {
     sm: true,
-    active: slot.role === "accessory",
-    onClick: () => up({
-      role: "accessory"
+    active: slot.role === "accessory" && !tickOnly,
+    onClick: () => onTrack({
+      role: "accessory",
+      tick: false
     })
-  }, "Don\u2019t track")), canLink && /*#__PURE__*/React.createElement("div", {
+  }, "Log, don\u2019t track"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: tickOnly,
+    onClick: () => onTrack({
+      role: "accessory",
+      tick: true
+    })
+  }, "Just tick it off")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginBottom: 14
+    }
+  }, tickOnly ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates." : slot.role === "main" ? "Every set feeds your estimated 1RM and your total." : "Weight and reps are kept and charted, but held out of your 1RM and your total."), canLink && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 14
     }
@@ -8296,7 +8367,7 @@ function SlotCard({
     onChange: v => up({
       reps: v
     })
-  })), !timed && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  })), !timed && !tickOnly && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10.5,
       color: C.muted,
@@ -8314,7 +8385,7 @@ function SlotCard({
     onChange: v => up({
       val: v
     })
-  }))), !timed && /*#__PURE__*/React.createElement("div", {
+  }))), !timed && !tickOnly && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 13
     }
@@ -8357,7 +8428,8 @@ function SlotCard({
     }
   }, slot.reps, " @ ", slotLabel(slot)), ". Switch this on and that stays the load; you just keep going past the reps."))), /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 13
+      marginTop: 13,
+      display: tickOnly ? "none" : undefined
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -8384,7 +8456,7 @@ function SlotCard({
       value: "time",
       label: "Time"
     }])
-  })), !timed && /*#__PURE__*/React.createElement("div", {
+  })), !timed && !tickOnly && /*#__PURE__*/React.createElement("div", {
     style: {
       height: 1,
       background: C.line,
@@ -8392,7 +8464,7 @@ function SlotCard({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: timed ? "none" : "flex",
+      display: timed || tickOnly ? "none" : "flex",
       justifyContent: "space-between",
       alignItems: "center"
     }
@@ -11656,19 +11728,30 @@ function ProgramTab({
   } : x));
   // Writing a slot's tracked/untracked choice through to the exercise itself, so
   // the decision holds wherever that movement shows up rather than only here.
-  const setSlot = (id, next) => {
+  const setSlot = (id, next, track) => {
     writeSlots(slots.map(x => x.id === id ? next : x));
     const prev = slots.find(x => x.id === id);
-    if (prev && next.role !== prev.role && state.exercises[next.ex]) setState(st => ({
-      ...st,
-      exercises: {
-        ...st.exercises,
-        [next.ex]: {
-          ...st.exercises[next.ex],
-          accessory: next.role === "accessory"
+    /* How much to track belongs to the movement, not to one row of one day: if
+       face pulls carry no numbers here they carry none anywhere. The exercise is
+       created if it does not exist yet, because a movement you only ever tick
+       never logs a set and so would otherwise have nowhere to keep the answer. */
+    if (track || prev && next.role !== prev.role) setState(st => {
+      const ex = st.exercises[next.ex] || {
+        name: next.ex,
+        sets: []
+      };
+      return {
+        ...st,
+        exercises: {
+          ...st.exercises,
+          [next.ex]: {
+            ...ex,
+            accessory: next.role === "accessory",
+            tick: track ? !!track.tick : !!ex.tick
+          }
         }
-      }
-    }));
+      };
+    });
   };
 
   // Clone copies this calendar week forward into the next one, once, into dates
@@ -12229,6 +12312,10 @@ function ProgramTab({
         n: later
       });
     },
+    onTrack: t => setSlot(d.sl.id, {
+      ...d.sl,
+      role: t.role
+    }, t),
     onDelete: () => writeSlots(slots.filter(x => x.id !== d.sl.id)),
     onMoveDay: () => armSlot(d.sl),
     onRename: () => setPicking({
@@ -12502,7 +12589,8 @@ function DaySheet2({
   onPick,
   unit,
   dateLabel,
-  weekLabel
+  weekLabel,
+  onTick
 }) {
   if (!open) return null;
   const deco = decorateSlots(slots || []);
@@ -12519,6 +12607,7 @@ function DaySheet2({
     done: 0,
     all: 0
   });
+  const anyTick = (slots || []).some(sl => isTickOnly(sl.ex, state));
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
     onClose: onClose,
@@ -12542,7 +12631,15 @@ function DaySheet2({
       ...label2,
       color: C.faint
     }
-  }, "set", totals.all - totals.done === 1 ? "" : "s", " left of ", totals.all, " \xB7 ", dateLabel)), deco.map(d => {
+  }, anyTick ? "left" : `set${totals.all - totals.done === 1 ? "" : "s"} left`, " of ", totals.all, " \xB7 ", dateLabel)), anyTick && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginBottom: 12,
+      marginTop: -6
+    }
+  }, "Tap a circle to tick something off from here \u2014 no need to open it."), deco.map(d => {
     const pr = doneSlots[d.sl.id] || {
       n: 0,
       total: slotSetCount(d.sl),
@@ -12558,14 +12655,24 @@ function DaySheet2({
         color: C.blue,
         margin: "6px 0 5px 2px"
       }
-    }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} rounds` : ""), /*#__PURE__*/React.createElement("button", {
+    }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} rounds` : ""), /*#__PURE__*/React.createElement("div", {
+      role: "button",
+      tabIndex: 0,
       onClick: () => {
         onPick(d.sl);
         onClose();
       },
+      onKeyDown: e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onPick(d.sl);
+          onClose();
+        }
+      },
       style: {
         width: "100%",
         textAlign: "left",
+        boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
         gap: 11,
@@ -12610,7 +12717,31 @@ function DaySheet2({
         color: C.muted,
         marginTop: 3
       }
-    }, slotSummary(d.sl), d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : "")), /*#__PURE__*/React.createElement("span", {
+    }, slotSummary(d.sl, state), d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : "")), pr.tick ? /*#__PURE__*/React.createElement("button", {
+      onClick: e => {
+        e.stopPropagation();
+        onTick && onTick(d.sl, !pr.done);
+      },
+      "aria-label": `${pr.done ? "Undo" : "Mark"} ${d.sl.ex} done`,
+      style: {
+        width: 28,
+        height: 28,
+        borderRadius: 99,
+        flexShrink: 0,
+        display: "grid",
+        placeItems: "center",
+        cursor: "pointer",
+        padding: 0,
+        WebkitTapHighlightColor: "transparent",
+        border: `1px solid ${pr.done ? "transparent" : C.line2}`,
+        background: pr.done ? C.good : "rgba(255,255,255,0.04)"
+      }
+    }, pr.done && /*#__PURE__*/React.createElement(Check, {
+      size: 15,
+      style: {
+        color: "#06121a"
+      }
+    })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       style: {
         display: "inline-flex",
         gap: 3,
@@ -12632,7 +12763,7 @@ function DaySheet2({
         color: C.good,
         flexShrink: 0
       }
-    })));
+    }))));
   }));
 }
 function LiftSheet({
@@ -12780,6 +12911,89 @@ function LiftSheet({
 // Clock-based logger: weight is optional (a weighted plank, a loaded carry), the
 // target comes from the programmed slot when there is one, and nothing here feeds
 // the one-rep-max estimator.
+/* Work with no numbers still has a shape and a state: what the plan asked for,
+   and whether you have done it. That is the whole screen. The point of it is
+   that it is one tap instead of three steppers and a log button — a movement
+   you never wanted to weigh should not cost more attention than one you did. */
+function TickLogger({
+  sel,
+  slot,
+  state,
+  hue,
+  done,
+  onToggle,
+  onPick
+}) {
+  const asks = slot ? slotSummary(slot, state) : null;
+  return /*#__PURE__*/React.createElement(Card, {
+    accent: hue,
+    glow: "none",
+    style: {
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onPick,
+    "aria-label": `${sel} — tap to change lift`,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 7,
+      maxWidth: "100%",
+      background: tint(hue, 0.14),
+      border: `1px solid ${tint(hue, 0.42)}`,
+      borderRadius: R.pill,
+      padding: "7px 12px 7px 14px",
+      cursor: "pointer",
+      color: C.text,
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 800,
+      fontSize: 18,
+      letterSpacing: "-0.025em",
+      lineHeight: 1.15,
+      minWidth: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, sel), /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 14,
+    style: {
+      color: C.muted,
+      flexShrink: 0
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label2,
+      color: C.faint,
+      marginTop: 9
+    }
+  }, asks ? `The plan asks for ${asks}` : "Not on today's plan — tick it anyway"), /*#__PURE__*/React.createElement(Btn, {
+    kind: done ? "solid" : "primary",
+    onClick: () => onToggle(!done),
+    style: {
+      width: "100%",
+      marginTop: 15,
+      minHeight: 58,
+      fontSize: 16.5
+    }
+  }, done ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Check, {
+    size: 19
+  }), " Done \u2014 tap to undo") : "Mark done"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginTop: 11
+    }
+  }, "No weight or reps are kept for this one, so nothing about it reaches your estimates. Change that under ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.muted
+    }
+  }, "How much to track"), " in Plan."));
+}
 function TimedLogger({
   state,
   sel,
@@ -13034,6 +13248,8 @@ function TrainTab({
   // freestyle day are the same machinery with a different starting point.
   const sessionSlots = slotsFor(state.program, logDate);
   const timedSel = !!sel && isTimed(sel, state);
+  const tickSel = !!sel && isTickOnly(sel, state);
+  const setTick = (name, on) => setState(st => withTick(st, logDate, name, on));
   const timedSlot = sessionSlots.find(x => x.ex === sel && slotTimed(x)) || null;
   const progWeek = state.program ? "Week " + weekNoFor(state.program, logDate) : null;
   // How many sets a slot actually asks for: a top set plus its back-offs, or just the
@@ -13043,6 +13259,19 @@ function TrainTab({
     const dk = new Date(tsFromDateStr(logDate)).toDateString();
     const out = {};
     for (const sl of sessionSlots) {
+      // Something you only tick is one thing, done or not — there are no sets to
+      // count because there were never any numbers to put in them.
+      if (isTickOnly(sl.ex, state)) {
+        const t = tickedOn(state, logDate, sl.ex);
+        out[sl.id] = {
+          n: t ? 1 : 0,
+          total: 1,
+          done: t,
+          started: t,
+          tick: true
+        };
+        continue;
+      }
       const names = [sl.ex].concat(sl.bo && sl.bo.lift && sl.bo.lift !== sl.ex ? [sl.bo.lift] : []);
       let n = 0;
       for (const nm of names) {
@@ -13058,7 +13287,7 @@ function TrainTab({
       };
     }
     return out;
-  }, [sessionSlots, state.exercises, logDate]);
+  }, [sessionSlots, state.exercises, state.ticks, logDate]);
   // Which slot the screen is currently working through, so the cards below know
   // whether they are a top set with back-offs or plain sets across.
   const [activeSlotId, setActiveSlotId] = useState(null);
@@ -14003,7 +14232,7 @@ function TrainTab({
       letterSpacing: "0.03em",
       color: dayProgress.left === 0 ? C.good : C.muted
     }
-  }, dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} SETS`), /*#__PURE__*/React.createElement(ChevronDown, {
+  }, dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} ${sessionSlots.some(sl => isTickOnly(sl.ex, state)) ? "DONE" : "SETS"}`), /*#__PURE__*/React.createElement(ChevronDown, {
     size: 11,
     style: {
       color: C.faint,
@@ -14149,6 +14378,14 @@ function TrainTab({
     setLogDate,
     unit,
     slot: timedSlot
+  }) : tickSel ? /*#__PURE__*/React.createElement(TickLogger, {
+    sel: sel,
+    slot: activeSlot,
+    state: state,
+    hue: selHue,
+    done: tickedOn(state, logDate, sel),
+    onToggle: on => setTick(sel, on),
+    onPick: () => setPickingLift(true)
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     accent: selHue,
     glow: "none",
@@ -15289,6 +15526,7 @@ function TrainTab({
     state: state,
     sel: sel,
     unit: unit,
+    onTick: (sl, on) => setTick(sl.ex, on),
     weekLabel: progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today",
     dateLabel: dayStart(logDate).toLocaleDateString(undefined, {
       weekday: "long",
@@ -15709,6 +15947,9 @@ function HistoryTab({
   const sets = [...ex.sets].sort((a, b) => b.ts - a.ts);
   const best = model.points.length ? Math.max(...model.points.map(p => p.value)) : null;
   const HS = state.settings || {};
+  const tickOnly = isTickOnly(cur, state);
+  // Every day this movement was ticked off, newest first.
+  const tickDays = Object.keys(state.ticks || {}).filter(d => (state.ticks[d] || {})[cur]).sort().reverse();
   const hWin = winDays(HS);
   const cutoff = hWin ? Date.now() - hWin * 864e5 : 0;
   const winT = hWin ? winLabel(hWin) : "All time";
@@ -15815,7 +16056,53 @@ function HistoryTab({
     todaySlots: [],
     onPick: setSel,
     onCreate: setSel
-  }), /*#__PURE__*/React.createElement(Card, {
+  }), tickOnly ? /*#__PURE__*/React.createElement(Card, {
+    accent: hueFor(cur, state),
+    glow: `radial-gradient(120% 90% at 50% -10%, ${tint(hueFor(cur, state), 0.13)}, transparent 70%)`
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label2,
+      color: C.faint
+    }
+  }, "Times ticked off"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 34,
+      fontWeight: 700,
+      letterSpacing: "-0.04em",
+      lineHeight: 1,
+      marginTop: 7,
+      color: hueFor(cur, state)
+    }
+  }, tickDays.length), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 9,
+      lineHeight: 1.55
+    }
+  }, tickDays.length ? /*#__PURE__*/React.createElement(React.Fragment, null, "You keep no numbers on this one, so there is no trend to draw \u2014 what there is is whether you are doing it. Last done ", dshort(tsFromDateStr(tickDays[0])), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "Nothing ticked off yet. It shows up in a session and takes one tap.")), tickDays.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6,
+      marginTop: 13
+    }
+  }, tickDays.slice(0, 18).map(d => /*#__PURE__*/React.createElement("span", {
+    key: d,
+    style: {
+      fontFamily: MONO,
+      fontSize: 10.5,
+      color: C.muted,
+      background: "rgba(255,255,255,0.04)",
+      border: `1px solid ${C.line}`,
+      borderRadius: R.pill,
+      padding: "4px 9px"
+    }
+  }, dayStart(d).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  }))))) : /*#__PURE__*/React.createElement(Card, {
     accent: hueFor(cur, state),
     glow: `radial-gradient(120% 90% at 50% -10%, ${tint(hueFor(cur, state), 0.13)}, transparent 70%)`
   }, /*#__PURE__*/React.createElement("div", {
@@ -18172,6 +18459,7 @@ function LinkSheet({
   // The library knows a push-up from a bench press, but not how YOU do a given
   // movement — and it cannot know about anything you named yourself.
   const bwNow = isBodyweightMove(name, state);
+  const tickNow = isTickOnly(name, state);
   const bwRow = /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
@@ -18222,7 +18510,7 @@ function LinkSheet({
       fontSize: 9.5,
       marginBottom: 8
     }
-  }, "Strength tracking"), /*#__PURE__*/React.createElement("div", {
+  }, "How much to track"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -18230,17 +18518,26 @@ function LinkSheet({
     }
   }, /*#__PURE__*/React.createElement(Chip, {
     sm: true,
-    active: tracked,
+    active: tracked && !tickNow,
     onClick: () => onSave({
-      accessory: false
+      accessory: false,
+      tick: false
     })
   }, "Track in 1RM"), /*#__PURE__*/React.createElement(Chip, {
     sm: true,
-    active: !tracked,
+    active: !tracked && !tickNow,
     onClick: () => onSave({
-      accessory: true
+      accessory: true,
+      tick: false
     })
-  }, "Don\u2019t track")), /*#__PURE__*/React.createElement("div", {
+  }, "Log, don\u2019t track"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: tickNow,
+    onClick: () => onSave({
+      accessory: true,
+      tick: true
+    })
+  }, "Just tick it off")), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11.5,
       color: C.faint,
