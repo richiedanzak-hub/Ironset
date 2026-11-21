@@ -2102,116 +2102,6 @@ function shortLift(name) {
   n = n.trim();
   return n.length > 15 ? n.slice(0, 14).trimEnd() + "…" : n;
 }
-
-// The day, as one line you can thumb along. Dots say how far into each movement
-// you are, so the session is legible without reading a word.
-function MoveStrip({
-  moves,
-  current,
-  onPick,
-  onAdd,
-  addLabel
-}) {
-  if (!moves.length && !onAdd) return null;
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 7,
-      overflowX: "auto",
-      padding: "2px 16px 10px",
-      margin: "0 -16px",
-      WebkitOverflowScrolling: "touch",
-      scrollbarWidth: "none"
-    }
-  }, moves.map(m => {
-    const on = m.ex === current;
-    return /*#__PURE__*/React.createElement("button", {
-      key: m.id,
-      onClick: () => onPick(m),
-      style: {
-        flex: "0 0 auto",
-        cursor: "pointer",
-        background: on ? tint(m.hue, 0.16) : "rgba(255,255,255,0.03)",
-        border: `1px solid ${on ? tint(m.hue, 0.5) : C.line}`,
-        /* A superset is one block of work, so its chips square up against each
-           other and round only on the outside — the pairing reads before the
-           tags do. */
-        borderRadius: m.tag ? m.tagFirst ? `${R.pill}px 6px 6px ${R.pill}px` : m.tagLast ? `6px ${R.pill}px ${R.pill}px 6px` : "6px" : R.pill,
-        marginLeft: m.tag && !m.tagFirst ? -5 : 0,
-        padding: "8px 13px 7px",
-        color: on ? C.text : C.muted,
-        textAlign: "left",
-        WebkitTapHighlightColor: "transparent",
-        opacity: m.done && !on ? 0.55 : 1
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "block",
-        fontFamily: SANS,
-        fontWeight: 700,
-        fontSize: 12.5,
-        whiteSpace: "nowrap",
-        letterSpacing: "-0.01em"
-      }
-    }, m.done ? /*#__PURE__*/React.createElement(Check, {
-      size: 11,
-      style: {
-        color: C.good,
-        marginRight: 4,
-        verticalAlign: "-1px"
-      }
-    }) : null, m.tag ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: MONO,
-        fontSize: 10.5,
-        color: on ? m.hue : C.faint,
-        marginRight: 5
-      }
-    }, m.tag) : null, m.short), /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "flex",
-        gap: 3,
-        marginTop: 5
-      }
-    }, Array.from({
-      length: Math.min(8, m.total)
-    }).map((_, i) => /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        width: 5,
-        height: 3,
-        borderRadius: 2,
-        background: i < m.n ? on ? m.hue : C.good : "rgba(255,255,255,0.14)"
-      }
-    }))));
-  }), onAdd && /*#__PURE__*/React.createElement("button", {
-    onClick: onAdd,
-    "aria-label": addLabel || "Another lift",
-    style: {
-      flex: "0 0 auto",
-      cursor: "pointer",
-      background: "none",
-      border: `1px dashed ${C.line2}`,
-      borderRadius: R.pill,
-      padding: "8px 13px 7px",
-      color: C.muted,
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, /*#__PURE__*/React.createElement(Plus, {
-    size: 13
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: SANS,
-      fontWeight: 700,
-      fontSize: 12.5,
-      whiteSpace: "nowrap",
-      letterSpacing: "-0.01em"
-    }
-  }, addLabel || "Another lift")));
-}
 function Grid2({
   children,
   style
@@ -4713,7 +4603,22 @@ const bwShareFor = name => {
 // How a logged set states its load. A bodyweight set says what it was — you,
 // plus whatever you hung on — rather than the total, which reads like a lie
 // when you never touched a 145lb anything.
-const loadLabel = (s, unit) => s && s.bwBase != null ? s.added ? `BW+${fmt(s.added)}` : "BW" : `${fmt(s.weight)}${unit}`;
+/* A pull-up is bodyweight, or bodyweight minus a band, or bodyweight plus a
+   belt — and the app only understood the third one, so an assisted set had
+   nowhere to go and the estimate that came out of it was nonsense. A dumbbell
+   press is two bells but one load, and the number a lifter says out loud is the
+   one on a single bell.
+
+   So a set records what it actually was: the share of you the movement held up,
+   what you added or were given, and whether the figure you typed was one hand
+   or both. The total still goes in `weight`, because forty other readers of a
+   set depend on it meaning one thing. */
+const perHandOf = (name, state) => {
+  const ex = ((state || {}).exercises || {})[name];
+  if (ex && ex.perHand != null) return !!ex.perHand;
+  return false;
+};
+const loadLabel = (s, unit) => s && s.bwBase != null ? s.added ? `BW${s.added > 0 ? "+" : "−"}${fmt(Math.abs(s.added))}` : "BW" : s && s.each != null ? `${fmt(s.each)}${unit}×2` : `${fmt(s.weight)}${unit}`;
 
 /* How far a movement actually gets run from what it was asked for. Every logged
    set already carries the target it was given (tRpe) beside what it cost you
@@ -12571,201 +12476,6 @@ function ProgramTab({
     onStartOver: () => setProgram(newProgram())
   }));
 }
-
-// One picker for "what am I training". A horizontal strip of chips stopped working
-// the moment a real programme put twenty movements in the app, so this searches
-// what you already train first and falls through to the full library — picking a
-// library movement creates it, wired to its main lift, exactly as a slot does.
-// The whole day laid out. The strip is right to stay compact — six movements of
-// four sets is three phone screens — but "what is left" is a real question, and
-// one tap is the right price for it.
-function DaySheet2({
-  open,
-  onClose,
-  slots,
-  doneSlots,
-  state,
-  sel,
-  onPick,
-  unit,
-  dateLabel,
-  weekLabel,
-  onTick
-}) {
-  if (!open) return null;
-  const deco = decorateSlots(slots || []);
-  const totals = (slots || []).reduce((a, sl) => {
-    const pr = doneSlots[sl.id] || {
-      n: 0,
-      total: slotSetCount(sl)
-    };
-    return {
-      done: a.done + Math.min(pr.n, pr.total),
-      all: a.all + pr.total
-    };
-  }, {
-    done: 0,
-    all: 0
-  });
-  const anyTick = (slots || []).some(sl => isTickOnly(sl.ex, state));
-  return /*#__PURE__*/React.createElement(Sheet, {
-    open: open,
-    onClose: onClose,
-    title: weekLabel || "Today"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      gap: 10,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 30,
-      fontWeight: 700,
-      letterSpacing: "-0.03em"
-    }
-  }, totals.all - totals.done), /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label2,
-      color: C.faint
-    }
-  }, anyTick ? "left" : `set${totals.all - totals.done === 1 ? "" : "s"} left`, " of ", totals.all, " \xB7 ", dateLabel)), anyTick && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11.5,
-      color: C.faint,
-      lineHeight: 1.5,
-      marginBottom: 12,
-      marginTop: -6
-    }
-  }, "Tap a circle to tick something off from here \u2014 no need to open it."), deco.map(d => {
-    const pr = doneSlots[d.sl.id] || {
-      n: 0,
-      total: slotSetCount(d.sl),
-      done: false
-    };
-    const on = d.sl.ex === sel;
-    return /*#__PURE__*/React.createElement(React.Fragment, {
-      key: d.sl.id
-    }, d.grouped && d.first && /*#__PURE__*/React.createElement("div", {
-      style: {
-        ...label,
-        fontSize: 9,
-        color: C.blue,
-        margin: "6px 0 5px 2px"
-      }
-    }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} rounds` : ""), /*#__PURE__*/React.createElement("div", {
-      role: "button",
-      tabIndex: 0,
-      onClick: () => {
-        onPick(d.sl);
-        onClose();
-      },
-      onKeyDown: e => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onPick(d.sl);
-          onClose();
-        }
-      },
-      style: {
-        width: "100%",
-        textAlign: "left",
-        boxSizing: "border-box",
-        display: "flex",
-        alignItems: "center",
-        gap: 11,
-        marginBottom: 7,
-        cursor: "pointer",
-        marginLeft: d.grouped ? 10 : 0,
-        borderLeft: d.grouped ? `2px solid ${tint(C.blue, 0.5)}` : undefined,
-        background: on ? tint(hueFor(d.sl.ex, state), 0.12) : "rgba(255,255,255,0.025)",
-        border: `1px solid ${on ? tint(hueFor(d.sl.ex, state), 0.45) : C.line}`,
-        borderRadius: R.ctrl,
-        padding: "11px 13px",
-        color: C.text,
-        opacity: pr.done && !on ? 0.6 : 1,
-        WebkitTapHighlightColor: "transparent"
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        minWidth: 0,
-        flex: 1
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "block",
-        fontWeight: 800,
-        fontSize: 13.5,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap"
-      }
-    }, d.grouped ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: MONO,
-        fontSize: 10.5,
-        color: C.blue,
-        marginRight: 6
-      }
-    }, d.tag) : null, d.sl.ex), /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "block",
-        fontFamily: MONO,
-        fontSize: 11,
-        color: C.muted,
-        marginTop: 3
-      }
-    }, slotSummary(d.sl, state), d.sl.bo ? ` + ${d.sl.bo.sets}×${d.sl.bo.reps}` : "")), pr.tick ? /*#__PURE__*/React.createElement("button", {
-      onClick: e => {
-        e.stopPropagation();
-        onTick && onTick(d.sl, !pr.done);
-      },
-      "aria-label": `${pr.done ? "Undo" : "Mark"} ${d.sl.ex} done`,
-      style: {
-        width: 28,
-        height: 28,
-        borderRadius: 99,
-        flexShrink: 0,
-        display: "grid",
-        placeItems: "center",
-        cursor: "pointer",
-        padding: 0,
-        WebkitTapHighlightColor: "transparent",
-        border: `1px solid ${pr.done ? "transparent" : C.line2}`,
-        background: pr.done ? C.good : "rgba(255,255,255,0.04)"
-      }
-    }, pr.done && /*#__PURE__*/React.createElement(Check, {
-      size: 15,
-      style: {
-        color: "#06121a"
-      }
-    })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-      style: {
-        display: "inline-flex",
-        gap: 3,
-        flexShrink: 0
-      }
-    }, Array.from({
-      length: Math.min(8, pr.total)
-    }).map((_, i) => /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        width: 5,
-        height: 5,
-        borderRadius: 3,
-        background: i < pr.n ? C.good : "rgba(255,255,255,0.16)"
-      }
-    }))), pr.done && /*#__PURE__*/React.createElement(Check, {
-      size: 14,
-      style: {
-        color: C.good,
-        flexShrink: 0
-      }
-    }))));
-  }));
-}
 function LiftSheet({
   open,
   onClose,
@@ -12915,6 +12625,142 @@ function LiftSheet({
    and whether you have done it. That is the whole screen. The point of it is
    that it is one tap instead of three steppers and a log button — a movement
    you never wanted to weigh should not cost more attention than one you did. */
+/* A movement you are not currently on: what it is, what it asks for, how far
+   through it you are, and a tap to open it. The one you ARE on is not a row at
+   all — the logger itself sits in this position in the list, which is what makes
+   the session one screen instead of a strip of pills over a single card. */
+function SessionRow({
+  d,
+  pr,
+  state,
+  onPick,
+  onTick
+}) {
+  const sl = d.sl,
+    hue = hueFor(sl.ex, state),
+    done = !!pr.done;
+  /* The thing you are trying to get stronger at and the thing you do three sets
+     of at the end are not the same kind of work, and a list that draws them
+     identically says they are. Main work keeps the lift's colour and the full
+     weight of type; everything else steps back a size. */
+  const main = sl.role === "main";
+  return /*#__PURE__*/React.createElement("div", {
+    role: "button",
+    tabIndex: 0,
+    "data-slot": sl.id,
+    onClick: onPick,
+    onKeyDown: e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onPick();
+      }
+    },
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 11,
+      cursor: "pointer",
+      boxSizing: "border-box",
+      background: G.card,
+      border: `1px solid ${C.line}`,
+      borderRadius: R.surface,
+      padding: "12px 14px",
+      opacity: done ? 0.52 : 1,
+      WebkitTapHighlightColor: "transparent",
+      marginLeft: d.grouped ? 10 : 0,
+      borderLeft: d.grouped ? `2px solid ${tint(C.blue, 0.5)}` : `1px solid ${C.line}`
+    }
+  }, !d.grouped && /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: main ? 3 : 2,
+      height: main ? 28 : 20,
+      borderRadius: 2,
+      flexShrink: 0,
+      background: main ? hue : tint(hue, 0.4),
+      boxShadow: main ? `0 0 10px ${tint(hue, 0.45)}` : "none"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontWeight: main ? 800 : 700,
+      fontSize: main ? 14.5 : 13,
+      color: main ? C.text : C.muted,
+      letterSpacing: "-0.015em",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, d.grouped ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 11,
+      color: C.blue,
+      marginRight: 6
+    }
+  }, d.tag) : null, sl.ex), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontFamily: MONO,
+      fontSize: main ? 11.5 : 10.5,
+      color: main ? C.muted : C.faint,
+      marginTop: 3,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, slotSummary(sl, state), sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : "")), pr.tick ? /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      onTick && onTick(!done);
+    },
+    "aria-label": `${done ? "Undo" : "Mark"} ${sl.ex} done`,
+    style: {
+      width: 28,
+      height: 28,
+      borderRadius: 99,
+      flexShrink: 0,
+      display: "grid",
+      placeItems: "center",
+      cursor: "pointer",
+      padding: 0,
+      WebkitTapHighlightColor: "transparent",
+      border: `1px solid ${done ? "transparent" : C.line2}`,
+      background: done ? C.good : "rgba(255,255,255,0.04)"
+    }
+  }, done && /*#__PURE__*/React.createElement(Check, {
+    size: 15,
+    style: {
+      color: "#06121a"
+    }
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      gap: 3,
+      flexShrink: 0
+    }
+  }, Array.from({
+    length: Math.min(8, pr.total)
+  }).map((_, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    style: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      background: i < pr.n ? C.good : "rgba(255,255,255,0.16)"
+    }
+  }))), done && /*#__PURE__*/React.createElement(Check, {
+    size: 15,
+    style: {
+      color: C.good,
+      flexShrink: 0
+    }
+  })));
+}
 function TickLogger({
   sel,
   slot,
@@ -13377,6 +13223,18 @@ function TrainTab({
       }
     };
   });
+
+  /* Opening a movement further down a long session should put it in front of
+     you, not leave you to find where the screen jumped to. */
+  const scrollToSlot = id => {
+    try {
+      const el = document.querySelector(`[data-slot="${id}"]`);
+      if (el) el.scrollIntoView({
+        block: "center",
+        behavior: "smooth"
+      });
+    } catch (e) {}
+  };
   const loadSlot = sl => {
     setActiveSlotId(sl.id);
     // A movement programmed but never trained yet gets created on first tap, wired
@@ -13792,43 +13650,10 @@ function TrainTab({
     const grp = groupSlots(sessionSlots).find(g => g.some(x => x.id === activeSlot.id)) || [];
     return grp.filter(x => x.id !== activeSlot.id);
   }, [activeTag, sessionSlots, activeSlot]);
-  const stripMoves = useMemo(() => {
-    const out = sessionSlots.map(sl => {
-      const pr = doneSlots[sl.id] || {
-        n: 0,
-        total: 1,
-        done: false
-      };
-      const d = slotTags[sl.id];
-      return {
-        id: sl.id,
-        ex: sl.ex,
-        short: shortLift(sl.ex),
-        hue: hueFor(sl.ex, state),
-        tag: d && d.grouped ? d.tag : null,
-        tagFirst: !!(d && d.grouped && d.first),
-        tagLast: !!(d && d.grouped && d.last),
-        n: pr.n,
-        total: pr.total,
-        done: pr.done,
-        slot: sl
-      };
-    });
-    if (sel && !out.some(m => m.ex === sel)) {
-      const n = sessionToday.filter(x => x.lift === sel).length;
-      out.unshift({
-        id: "free-" + sel,
-        ex: sel,
-        short: shortLift(sel),
-        hue: hueFor(sel, state),
-        n,
-        total: Math.max(n + 1, 1),
-        done: false,
-        slot: null
-      });
-    }
-    return out;
-  }, [sessionSlots, doneSlots, sel, sessionToday, state.exercises, slotTags]);
+
+  // The session in render order, with superset bracketing worked out once.
+  const sessionRows = useMemo(() => decorateSlots(sessionSlots), [sessionSlots]);
+  const openSlotId = activeSlot ? activeSlot.id : null;
 
   // Two handicaps multiply into one figure on the bar, so that is the figure shown.
   const trimTotal = 1 - (1 - recovery.drop) * condFactor;
@@ -13854,6 +13679,7 @@ function TrainTab({
   const stepTarget = onFirst ? sel : boTarget;
   // Bodyweight movements put the number in the box on TOP of what you carry.
   const bwMove = isBodyweightMove(stepTarget, state);
+  const perHand = perHandOf(stepTarget, state);
   const bwBaseNow = bwMove ? bwBaseFor(stepTarget, state, unit) : null;
   const bwReady = bwBaseNow != null;
   /* An AMRAP is the LAST set of the movement, not every set: the earlier ones
@@ -13963,8 +13789,25 @@ function TrainTab({
   const prescribedInt = percentMode ? inputMode === "rir" ? Math.max(0, Math.round((10 - curBaseRpe) * 2) / 2) : Math.round(curBaseRpe * 2) / 2 : curIntVal;
   const actIntVal = boDraft && boDraft.int != null ? boDraft.int : prescribedInt;
   const curRpe = clampRpe(inputMode === "rir" ? 10 - actIntVal : actIntVal);
-  const curWeight = boDraft && boDraft.weight != null ? boDraft.weight : suggested != null ? String(suggested) : "";
+  /* The suggestion is always a total — the work the movement does on you. The
+     box is not always a total: on a bodyweight movement it is what you ADD, and
+     on dumbbells it is one bell. Handing the box a total it was never going to
+     mean is how a pull-up ended up offering three hundred pounds of belt.
+      Below your own bodyweight the remainder comes out negative, which is
+     assistance, which is the honest answer for most lifters most of the time
+     and had no way of being written down before. */
+  const curWeight = boDraft && boDraft.weight != null ? boDraft.weight : suggested == null ? "" : bwMove ? bwBaseNow == null ? "" : String(roundTo(suggested - bwBaseNow, round)) : perHand ? String(roundTo(suggested / 2, round)) : String(suggested);
   const weightDirty = !!(boDraft && boDraft.weight != null);
+  const bwLoadNote = (() => {
+    const v = parseFloat(curWeight);
+    if (bwMove) {
+      if (bwBaseNow == null) return null;
+      const tot = bwBaseNow + (isFinite(v) ? v : 0);
+      return `${!isFinite(v) || v === 0 ? "Just you" : v > 0 ? `You plus ${fmt(Math.abs(v))}${unit}` : `You minus ${fmt(Math.abs(v))}${unit} of help`} — ${fmt(roundTo(tot, round))}${unit} of work, against ${Math.round(bwShareFor(stepTarget) * 100)}% of your bodyweight.`;
+    }
+    if (!isFinite(v) || v <= 0) return "One dumbbell, not both.";
+    return `${fmt(v)}${unit} in each hand — ${fmt(roundTo(v * 2, round))}${unit} total.`;
+  })();
   const actDirty = !!(boDraft && (boDraft.weight != null || boDraft.reps != null || boDraft.int != null));
   const offTarget = actReps !== curReps || Math.abs(actIntVal - prescribedInt) > 0.01 || weightDirty && suggested != null && Math.abs(parseFloat(curWeight) - suggested) > 0.01;
   const setCurWeight = v => setBoDraft({
@@ -13986,11 +13829,16 @@ function TrainTab({
     // set, not a missing number.
     const raw = String(curWeight == null ? "" : curWeight).trim();
     const typed = raw === "" ? bwMove ? 0 : NaN : parseFloat(raw);
-    if (!isFinite(typed) || typed < 0) return;
+    // Assistance is a negative addition, and it is the only case where a minus
+    // in that box means something rather than being a typo.
+    if (!isFinite(typed) || typed < 0 && !bwMove) return;
     // On a bodyweight movement the number in the box is what you ADDED, so zero
     // is a complete, loggable set rather than a missing one.
     const bwBase = bwMove ? bwBaseFor(stepTarget, state, unit) : null;
-    const w = bwBase != null ? bwBase + typed : typed;
+    // Two bells, one load: what you typed is one of them, what gets stored is
+    // the work.
+    const each = !bwMove && perHand ? typed : null;
+    const w = bwBase != null ? bwBase + typed : each != null ? each * 2 : typed;
     if (w <= 0) return;
     const cf = conditionFactor(dayCheckin, liftClass(stepTarget));
     logSet(stepTarget, {
@@ -14004,6 +13852,7 @@ function TrainTab({
       // so a later weigh-in never rewrites what this day actually was.
       bwBase: bwBase != null ? roundTo(bwBase, round) : undefined,
       added: bwBase != null ? typed : undefined,
+      each: each != null ? each : undefined,
       // The target is kept beside what happened, which is what the calibration reads.
       fromRec: !actDirty,
       tReps: curReps,
@@ -14019,358 +13868,25 @@ function TrainTab({
     setNoteOpen(false);
     setJustLogged(true);
     setTimeout(() => setJustLogged(false), 1400);
+    /* Finishing a movement should not then require you to go and find the next
+       one. The pause is long enough to read the tick on the set you just logged
+       and short enough that it feels like the screen keeping up with you. */
+    const pr = activeSlot ? doneSlots[activeSlot.id] : null;
+    if (activeSlot && pr && pr.n + 1 >= pr.total) {
+      const i = sessionSlots.findIndex(x => x.id === activeSlot.id);
+      const next = sessionSlots.slice(i + 1).find(x => !(doneSlots[x.id] || {}).done);
+      if (next) setTimeout(() => {
+        loadSlot(next);
+        scrollToSlot(next.id);
+      }, 850);
+    }
   };
 
-  // A programmed session IS a list of lifts to start from, so someone who built a
-  // block before ever logging a set should land on their session rather than on a
-  // blank "add your first lift" — tapping a movement creates it anyway.
-  if (names.length === 0 && sessionSlots.length > 0) return /*#__PURE__*/React.createElement(Card, {
-    accent: C.amber
-  }, /*#__PURE__*/React.createElement(SectionHead, {
-    accent: C.amber,
-    sub: "Tap a movement to start it \u2014 IRONSET creates the lift and calibrates from your first set."
-  }, progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 7
-    }
-  }, decorateSlots(sessionSlots).map(d => /*#__PURE__*/React.createElement(React.Fragment, {
-    key: d.sl.id
-  }, d.grouped && d.first && /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...label,
-      fontSize: 9,
-      color: C.blue,
-      margin: "4px 0 -2px 2px"
-    }
-  }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""), /*#__PURE__*/React.createElement("button", {
-    onClick: () => loadSlot(d.sl),
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      marginLeft: d.grouped ? 10 : 0,
-      borderLeft: d.grouped ? `2px solid ${C.blue}` : undefined,
-      background: "rgba(255,255,255,0.02)",
-      border: `1px solid ${C.line}`,
-      borderRadius: 12,
-      padding: "11px 13px",
-      cursor: "pointer",
-      textAlign: "left",
-      color: C.text,
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      minWidth: 0,
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "block",
-      fontWeight: 800,
-      fontSize: 13
-    }
-  }, d.grouped ? /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 10.5,
-      color: C.blue,
-      marginRight: 6
-    }
-  }, d.tag) : null, d.sl.ex), /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "block",
-      fontFamily: MONO,
-      fontSize: 11,
-      color: C.muted,
-      marginTop: 2
-    }
-  }, slotSummary(d.sl))))))));
-  if (names.length === 0) return /*#__PURE__*/React.createElement(Card, {
-    style: {
-      textAlign: "center",
-      padding: "26px 18px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 900,
-      fontSize: 18,
-      marginBottom: 6
-    }
-  }, "Add your first lift"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: C.muted,
-      fontSize: 13.5,
-      marginBottom: 18,
-      lineHeight: 1.5
-    }
-  }, "Pick one to start. Log any set \u2014 a known 1RM or a working set \u2014 and IRONSET calibrates your strength from it."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8,
-      justifyContent: "center",
-      marginBottom: 14
-    }
-  }, PRESETS.map(p => /*#__PURE__*/React.createElement(Chip, {
-    key: p,
-    onClick: () => addExercise(p)
-  }, p))), /*#__PURE__*/React.createElement(AddRow, {
-    newName,
-    setNewName,
-    addExercise,
-    mains
-  }));
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "sticky",
-      top: 0,
-      zIndex: 12,
-      paddingTop: 4,
-      background: "rgba(6,7,11,0.86)",
-      backdropFilter: "blur(16px)",
-      WebkitBackdropFilter: "blur(16px)",
-      margin: "0 -16px",
-      padding: "6px 16px 0"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 10,
-      marginBottom: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDateOpen(v => !v),
-    style: {
-      background: "none",
-      border: "none",
-      padding: 0,
-      cursor: "pointer",
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label,
-      fontSize: 9.5,
-      color: backdated ? C.gold : C.muted
-    }
-  }, backdated ? dayStart(logDate).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric"
-  }) : sessionSlots.length ? progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today" : "Training"), /*#__PURE__*/React.createElement(ChevronDown, {
-    size: 11,
-    style: {
-      color: backdated ? C.gold : C.faint,
-      transform: dateOpen ? "rotate(180deg)" : "none",
-      transition: ".2s"
-    }
-  })), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => openDayTools && openDayTools(logDate),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.faint,
-      fontWeight: 800,
-      fontSize: 11,
-      cursor: "pointer",
-      padding: 0,
-      marginLeft: "auto",
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, "Edit day")), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDayOpen(true),
-    "aria-label": "Show the whole session",
-    style: {
-      width: "100%",
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      background: "none",
-      border: "none",
-      padding: "0 0 9px",
-      cursor: "pointer",
-      WebkitTapHighlightColor: "transparent"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1,
-      minWidth: 0,
-      height: 3,
-      borderRadius: 2,
-      background: "rgba(255,255,255,0.08)",
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "block",
-      height: "100%",
-      borderRadius: 2,
-      width: `${Math.max(dayProgress.done ? 4 : 0, Math.round(dayProgress.pct * 100))}%`,
-      background: dayProgress.left === 0 ? C.good : G.red,
-      transition: "width .35s ease"
-    }
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: MONO,
-      fontSize: 10,
-      fontWeight: 800,
-      flexShrink: 0,
-      letterSpacing: "0.03em",
-      color: dayProgress.left === 0 ? C.good : C.muted
-    }
-  }, dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} ${sessionSlots.some(sl => isTickOnly(sl.ex, state)) ? "DONE" : "SETS"}`), /*#__PURE__*/React.createElement(ChevronDown, {
-    size: 11,
-    style: {
-      color: C.faint,
-      flexShrink: 0,
-      transform: "rotate(-90deg)"
-    }
-  })), dateOpen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 7,
-      alignItems: "center",
-      flexWrap: "wrap",
-      marginBottom: 9
-    }
-  }, /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: !backdated,
-    onClick: () => {
-      setLogDate(todayStr());
-      setDateOpen(false);
-    }
-  }, "Today"), /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: logDate === addDays(todayStr(), -1),
-    onClick: () => {
-      setLogDate(addDays(todayStr(), -1));
-      setDateOpen(false);
-    }
-  }, "Yesterday"), /*#__PURE__*/React.createElement("input", {
-    type: "date",
-    value: logDate,
-    max: todayStr(),
-    onChange: e => setLogDate(e.target.value || todayStr()),
-    style: {
-      flex: "1 1 140px",
-      minWidth: 0,
-      background: "rgba(0,0,0,0.35)",
-      border: `1px solid ${C.line}`,
-      borderRadius: R.input,
-      padding: "0 11px",
-      height: 38,
-      color: C.text,
-      fontFamily: MONO,
-      fontSize: 13,
-      fontWeight: 700,
-      outline: "none",
-      colorScheme: "dark"
-    }
-  })), /*#__PURE__*/React.createElement(MoveStrip, {
-    moves: stripMoves,
-    current: sel,
-    onAdd: () => setPickingLift(true),
-    addLabel: sessionSlots.length ? "Another lift" : "Switch lift",
-    onPick: m => m.slot ? loadSlot(m.slot) : setSel(m.ex)
-  })), spread && /*#__PURE__*/React.createElement(Card, {
-    accent: C.blue,
-    style: {
-      padding: "13px 15px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...label,
-      fontSize: 9,
-      color: C.blue,
-      marginBottom: 6
-    }
-  }, "Carry this forward?"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12.5,
-      color: C.text,
-      lineHeight: 1.5
-    }
-  }, spread.patch.ex ? /*#__PURE__*/React.createElement(React.Fragment, null, "Swapped to ", /*#__PURE__*/React.createElement("b", null, shortLift(spread.patch.ex)), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block still ", spread.n === 1 ? "asks" : "ask", " for ", shortLift(spread.fromEx), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spread.patch).map(k => k === "amrap" ? "AMRAP" : k).join(", ")), " on ", shortLift(spread.fromEx), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block use it too.")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      marginTop: 11,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    kind: "primary",
-    style: {
-      flex: "1 1 auto",
-      minHeight: 40,
-      fontSize: 12.5
-    },
-    onClick: () => {
-      applyAhead(spread.fromEx, spread.patch, false);
-      setSpread(null);
-    }
-  }, "Rest of the block"), /*#__PURE__*/React.createElement(Btn, {
-    kind: "ghost",
-    style: {
-      minHeight: 40,
-      fontSize: 12.5
-    },
-    onClick: () => setSpread(null)
-  }, "Just today")), Object.keys(spread.patch).some(k => WAVE_FIELDS.indexOf(k) >= 0) && /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      applyAhead(spread.fromEx, spread.patch, true);
-      setSpread(null);
-    },
-    style: {
-      background: "none",
-      border: "none",
-      color: C.faint,
-      fontWeight: 700,
-      fontSize: 11.5,
-      cursor: "pointer",
-      padding: "9px 0 0"
-    }
-  }, "\u2026and copy the numbers, flattening the wave"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.faint,
-      marginTop: 8,
-      lineHeight: 1.45
-    }
-  }, "Reps, sets and effort stay as each week has them \u2014 that is the block doing its job.")), backdated && /*#__PURE__*/React.createElement(Callout, {
-    tone: "warn"
-  }, "Logging to ", dayStart(logDate).toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric"
-  }), ", not today.", /*#__PURE__*/React.createElement("button", {
-    onClick: () => setLogDate(todayStr()),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.gold,
-      fontWeight: 800,
-      fontSize: 11.5,
-      cursor: "pointer",
-      padding: "0 0 0 8px"
-    }
-  }, "Back to today")), meetDays != null && meetDays >= 0 && meetDays <= 21 && /*#__PURE__*/React.createElement(Callout, {
-    tone: "warn"
-  }, meetDays === 0 ? "Meet day" : `${meetDays} day${meetDays === 1 ? "" : "s"} to ${meetName || "your meet"}`, meetDays > 0 ? " — openers and taper matter more than another hard session now." : ""), timedSel ? /*#__PURE__*/React.createElement(TimedLogger, {
+  /* The whole logger, built once and then placed. It used to sit at a fixed
+     point on the screen with a strip of pills above it deciding what it was
+     about; it now drops into the session list at the position of the movement
+     you are actually on, so the list IS the screen and nothing toggles. */
+  const logger = timedSel ? /*#__PURE__*/React.createElement(TimedLogger, {
     state,
     sel,
     logSet,
@@ -15021,11 +14537,11 @@ function TrainTab({
     input: true,
     value: curWeight,
     onInput: setCurWeight,
-    label: bwMove ? parseFloat(curWeight) > 0 ? "Added to BW" : "Bodyweight" : weightDirty ? "Weight" : "Weight · sugg",
+    label: bwMove ? parseFloat(curWeight) > 0 ? "Added to BW" : parseFloat(curWeight) < 0 ? "Assisted by" : "Just bodyweight" : perHand ? weightDirty ? "Per hand" : "Per hand · sugg" : weightDirty ? "Weight" : "Weight · sugg",
     tone: bwMove && !parseFloat(curWeight) ? C.muted : weightDirty ? C.text : C.muted,
-    onStep: v => setCurWeight(String(Math.max(0, v))),
+    onStep: v => setCurWeight(String(bwMove ? v : Math.max(0, v))),
     step: round,
-    min: 0
+    min: bwMove ? -9999 : 0
   }), /*#__PURE__*/React.createElement(StatChip, {
     label: "Reps",
     value: actReps,
@@ -15038,7 +14554,14 @@ function TrainTab({
     onStep: setActInt,
     rungs: effortRungs(inputMode),
     format: v => effortDigits(v, inputMode)
-  })), offTarget && /*#__PURE__*/React.createElement("div", {
+  })), (bwMove || perHand) && bwLoadNote && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      marginTop: 8,
+      lineHeight: 1.45
+    }
+  }, bwLoadNote), offTarget && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -15346,7 +14869,382 @@ function TrainTab({
       fontWeight: 700,
       color: setsIn >= setsAsked && setsAsked > 1 ? C.good : setsIn > 0 ? C.gold : C.faint
     }
-  }, setsIn >= setsAsked && setsAsked > 1 ? `All ${setsAsked} sets in — log another, or pick the next movement above.` : setsIn > 0 ? `${setsIn} of ${setsAsked} in.` : "The day's best set is the one your estimate counts."))), sessionToday.length > 0 && /*#__PURE__*/React.createElement(Card, {
+  }, setsIn >= setsAsked && setsAsked > 1 ? `All ${setsAsked} sets in — the next movement opens by itself.` : setsIn > 0 ? `${setsIn} of ${setsAsked} in.` : "The day's best set is the one your estimate counts."), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLinking(true),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: "pointer",
+      padding: "10px 0 0",
+      width: "100%",
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, childNames.length ? `Includes ${childNames.map(shortLift).join(", ")}` : "Link as a variation")));
+
+  // A programmed session IS a list of lifts to start from, so someone who built a
+  // block before ever logging a set should land on their session rather than on a
+  // blank "add your first lift" — tapping a movement creates it anyway.
+  if (names.length === 0 && sessionSlots.length > 0) return /*#__PURE__*/React.createElement(Card, {
+    accent: C.amber
+  }, /*#__PURE__*/React.createElement(SectionHead, {
+    accent: C.amber,
+    sub: "Tap a movement to start it \u2014 IRONSET creates the lift and calibrates from your first set."
+  }, progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today's session"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 7
+    }
+  }, decorateSlots(sessionSlots).map(d => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: d.sl.id
+  }, d.grouped && d.first && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.blue,
+      margin: "4px 0 -2px 2px"
+    }
+  }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""), /*#__PURE__*/React.createElement("button", {
+    onClick: () => loadSlot(d.sl),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginLeft: d.grouped ? 10 : 0,
+      borderLeft: d.grouped ? `2px solid ${C.blue}` : undefined,
+      background: "rgba(255,255,255,0.02)",
+      border: `1px solid ${C.line}`,
+      borderRadius: 12,
+      padding: "11px 13px",
+      cursor: "pointer",
+      textAlign: "left",
+      color: C.text,
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontWeight: 800,
+      fontSize: 13
+    }
+  }, d.grouped ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 10.5,
+      color: C.blue,
+      marginRight: 6
+    }
+  }, d.tag) : null, d.sl.ex), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontFamily: MONO,
+      fontSize: 11,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, slotSummary(d.sl))))))));
+  if (names.length === 0) return /*#__PURE__*/React.createElement(Card, {
+    style: {
+      textAlign: "center",
+      padding: "26px 18px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 900,
+      fontSize: 18,
+      marginBottom: 6
+    }
+  }, "Add your first lift"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13.5,
+      marginBottom: 18,
+      lineHeight: 1.5
+    }
+  }, "Pick one to start. Log any set \u2014 a known 1RM or a working set \u2014 and IRONSET calibrates your strength from it."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      justifyContent: "center",
+      marginBottom: 14
+    }
+  }, PRESETS.map(p => /*#__PURE__*/React.createElement(Chip, {
+    key: p,
+    onClick: () => addExercise(p)
+  }, p))), /*#__PURE__*/React.createElement(AddRow, {
+    newName,
+    setNewName,
+    addExercise,
+    mains
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "sticky",
+      top: 0,
+      zIndex: 12,
+      paddingTop: 4,
+      background: "rgba(6,7,11,0.86)",
+      backdropFilter: "blur(16px)",
+      WebkitBackdropFilter: "blur(16px)",
+      margin: "0 -16px",
+      padding: "6px 16px 0"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 10,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDateOpen(v => !v),
+    style: {
+      background: "none",
+      border: "none",
+      padding: 0,
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...label,
+      fontSize: 9.5,
+      color: backdated ? C.gold : C.muted
+    }
+  }, backdated ? dayStart(logDate).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }) : sessionSlots.length ? progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today" : "Training"), /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 11,
+    style: {
+      color: backdated ? C.gold : C.faint,
+      transform: dateOpen ? "rotate(180deg)" : "none",
+      transition: ".2s"
+    }
+  })), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => openDayTools && openDayTools(logDate),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 800,
+      fontSize: 11,
+      cursor: "pointer",
+      padding: 0,
+      marginLeft: "auto",
+      WebkitTapHighlightColor: "transparent"
+    }
+  }, "Edit day")), sessionSlots.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "0 0 9px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      height: 3,
+      borderRadius: 2,
+      background: "rgba(255,255,255,0.08)",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      height: "100%",
+      borderRadius: 2,
+      width: `${Math.max(dayProgress.done ? 4 : 0, Math.round(dayProgress.pct * 100))}%`,
+      background: dayProgress.left === 0 ? C.good : G.red,
+      transition: "width .35s ease"
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 10,
+      fontWeight: 800,
+      flexShrink: 0,
+      letterSpacing: "0.03em",
+      color: dayProgress.left === 0 ? C.good : C.muted
+    }
+  }, dayProgress.left === 0 ? "SESSION DONE" : `${dayProgress.done}/${dayProgress.total} ${sessionSlots.some(sl => isTickOnly(sl.ex, state)) ? "DONE" : "SETS"}`)), dateOpen && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 7,
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: !backdated,
+    onClick: () => {
+      setLogDate(todayStr());
+      setDateOpen(false);
+    }
+  }, "Today"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: logDate === addDays(todayStr(), -1),
+    onClick: () => {
+      setLogDate(addDays(todayStr(), -1));
+      setDateOpen(false);
+    }
+  }, "Yesterday"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: logDate,
+    max: todayStr(),
+    onChange: e => setLogDate(e.target.value || todayStr()),
+    style: {
+      flex: "1 1 140px",
+      minWidth: 0,
+      background: "rgba(0,0,0,0.35)",
+      border: `1px solid ${C.line}`,
+      borderRadius: R.input,
+      padding: "0 11px",
+      height: 38,
+      color: C.text,
+      fontFamily: MONO,
+      fontSize: 13,
+      fontWeight: 700,
+      outline: "none",
+      colorScheme: "dark"
+    }
+  }))), spread && /*#__PURE__*/React.createElement(Card, {
+    accent: C.blue,
+    style: {
+      padding: "13px 15px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.blue,
+      marginBottom: 6
+    }
+  }, "Carry this forward?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: C.text,
+      lineHeight: 1.5
+    }
+  }, spread.patch.ex ? /*#__PURE__*/React.createElement(React.Fragment, null, "Swapped to ", /*#__PURE__*/React.createElement("b", null, shortLift(spread.patch.ex)), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block still ", spread.n === 1 ? "asks" : "ask", " for ", shortLift(spread.fromEx), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spread.patch).map(k => k === "amrap" ? "AMRAP" : k).join(", ")), " on ", shortLift(spread.fromEx), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block use it too.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 11,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    kind: "primary",
+    style: {
+      flex: "1 1 auto",
+      minHeight: 40,
+      fontSize: 12.5
+    },
+    onClick: () => {
+      applyAhead(spread.fromEx, spread.patch, false);
+      setSpread(null);
+    }
+  }, "Rest of the block"), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    style: {
+      minHeight: 40,
+      fontSize: 12.5
+    },
+    onClick: () => setSpread(null)
+  }, "Just today")), Object.keys(spread.patch).some(k => WAVE_FIELDS.indexOf(k) >= 0) && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      applyAhead(spread.fromEx, spread.patch, true);
+      setSpread(null);
+    },
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 700,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: "9px 0 0"
+    }
+  }, "\u2026and copy the numbers, flattening the wave"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      marginTop: 8,
+      lineHeight: 1.45
+    }
+  }, "Reps, sets and effort stay as each week has them \u2014 that is the block doing its job.")), backdated && /*#__PURE__*/React.createElement(Callout, {
+    tone: "warn"
+  }, "Logging to ", dayStart(logDate).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric"
+  }), ", not today.", /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLogDate(todayStr()),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.gold,
+      fontWeight: 800,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: "0 0 0 8px"
+    }
+  }, "Back to today")), meetDays != null && meetDays >= 0 && meetDays <= 21 && /*#__PURE__*/React.createElement(Callout, {
+    tone: "warn"
+  }, meetDays === 0 ? "Meet day" : `${meetDays} day${meetDays === 1 ? "" : "s"} to ${meetName || "your meet"}`, meetDays > 0 ? " — openers and taper matter more than another hard session now." : ""), sessionRows.length === 0 ? logger : /*#__PURE__*/React.createElement(React.Fragment, null, sessionRows.map(d => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: d.sl.id
+  }, d.grouped && d.first && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.blue,
+      margin: "2px 0 -5px 3px"
+    }
+  }, "Superset ", d.tag.charAt(0), d.rounds ? ` · ${d.rounds} round${d.rounds > 1 ? "s" : ""}` : ""), openSlotId === d.sl.id ? /*#__PURE__*/React.createElement("div", {
+    "data-slot": d.sl.id
+  }, logger) : /*#__PURE__*/React.createElement(SessionRow, {
+    d: d,
+    pr: doneSlots[d.sl.id] || {
+      n: 0,
+      total: slotSetCount(d.sl)
+    },
+    state: state,
+    onPick: () => loadSlot(d.sl),
+    onTick: on => setTick(d.sl.ex, on)
+  }))), !openSlotId && sel && /*#__PURE__*/React.createElement("div", {
+    "data-slot": "off-plan"
+  }, logger), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    style: {
+      width: "100%"
+    },
+    onClick: () => setPickingLift(true)
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 15
+  }), " Another lift")), sessionToday.length > 0 && /*#__PURE__*/React.createElement(Card, {
     style: {
       padding: 0,
       overflow: "hidden"
@@ -15471,19 +15369,7 @@ function TrainTab({
     }
   }, dayDone ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Check, {
     size: 17
-  }), " Session complete \u2014 see recap") : "Done training"), sel && !timedSel && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setLinking(true),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.faint,
-      fontSize: 11.5,
-      fontWeight: 700,
-      cursor: "pointer",
-      alignSelf: "center",
-      padding: 0
-    }
-  }, childNames.length ? `Includes ${childNames.map(shortLift).join(", ")}` : "Link as a variation"), /*#__PURE__*/React.createElement(RecapSheet, {
+  }), " Session complete \u2014 see recap") : "Done training"), /*#__PURE__*/React.createElement(RecapSheet, {
     open: recapOpen,
     onClose: () => setRecapOpen(false),
     session: recapSession,
@@ -15518,23 +15404,7 @@ function TrainTab({
   }), shareImg && /*#__PURE__*/React.createElement(ShareSheet, {
     data: shareImg,
     onClose: () => setShareImg(null)
-  }), /*#__PURE__*/React.createElement(DaySheet2, {
-    open: dayOpen,
-    onClose: () => setDayOpen(false),
-    slots: sessionSlots,
-    doneSlots: doneSlots,
-    state: state,
-    sel: sel,
-    unit: unit,
-    onTick: (sl, on) => setTick(sl.ex, on),
-    weekLabel: progWeek ? progWeek + " · " + dayKeyFor(logDate) : "Today",
-    dateLabel: dayStart(logDate).toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "short",
-      day: "numeric"
-    }),
-    onPick: sl => loadSlot(sl)
-  }), editing && /*#__PURE__*/React.createElement(EditSetSheet, {
+  }), "onPick=", sl => loadSlot(sl), " />", editing && /*#__PURE__*/React.createElement(EditSetSheet, {
     set: editing,
     unit: unit,
     inputMode: inputMode,
@@ -18460,6 +18330,7 @@ function LinkSheet({
   // movement — and it cannot know about anything you named yourself.
   const bwNow = isBodyweightMove(name, state);
   const tickNow = isTickOnly(name, state);
+  const handNow = perHandOf(name, state);
   const bwRow = /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
@@ -18472,7 +18343,7 @@ function LinkSheet({
       fontSize: 9.5,
       marginBottom: 8
     }
-  }, "What you load"), /*#__PURE__*/React.createElement("div", {
+  }, "How it is loaded"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -18480,15 +18351,24 @@ function LinkSheet({
     }
   }, /*#__PURE__*/React.createElement(Chip, {
     sm: true,
-    active: !bwNow,
+    active: !bwNow && !handNow,
     onClick: () => onSave({
-      bw: false
+      bw: false,
+      perHand: false
     })
-  }, "External weight"), /*#__PURE__*/React.createElement(Chip, {
+  }, "One weight"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: !bwNow && handNow,
+    onClick: () => onSave({
+      bw: false,
+      perHand: true
+    })
+  }, "Two dumbbells"), /*#__PURE__*/React.createElement(Chip, {
     sm: true,
     active: bwNow,
     onClick: () => onSave({
-      bw: true
+      bw: true,
+      perHand: false
     })
   }, "Bodyweight")), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -18497,7 +18377,7 @@ function LinkSheet({
       marginTop: 9,
       lineHeight: 1.5
     }
-  }, bwNow ? `Logged against ${Math.round(bwShareFor(name) * 100)}% of your bodyweight — the share this movement actually holds up — plus anything you add. Leave the weight box empty for a plain set.` : "Every set is the weight you put on the bar or the stack."));
+  }, bwNow ? `Logged against ${Math.round(bwShareFor(name) * 100)}% of your bodyweight — the share this movement actually holds up. Add a belt with a positive number, take a band off with a negative one, or leave the box alone for a plain set.` : handNow ? "You type one bell and the set records the work of both. The suggestion comes to you per hand, which is the number you say out loud at the rack." : "Every set is the weight you put on the bar or the stack."));
   const trackRow = /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
