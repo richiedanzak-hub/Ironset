@@ -72,7 +72,17 @@ const nudgeMany = async (p, names, times) => {
   console.log('the rest are rows   :', ok((t.match(/@ RPE 8/g) || []).length >= 2), 'each showing what it asks for');
   console.log('tick row has a circle:', ok(await p.evaluate(() => !!document.querySelector('[aria-label="Mark Face Pull done"]'))));
   console.log('and there is no strip:', ok(!/Another lift\s*\n[\s\S]{0,40}Switch lift/.test(t)), 'nothing to thumb sideways');
-  console.log('ERRORS:', errs.length ? [...new Set(errs)].join(' | ') : 'NONE');
+  /* A deleted component left an orphaned `onPick={...} />` behind in the middle
+   of Train's JSX, which Babel compiled into a literal text node: the words
+   "onPick= />" rendered at the foot of the screen. Nothing in a rendered screen
+   should look like source. */
+for (const scr of ['Dashboard', 'Train', 'Plan', 'History']) {
+  await go(p, scr);
+  const txt = await body(p);
+  const junk = txt.match(/\bon[A-Z]\w*=|=\s*\/>|\{\s*\(\s*\w*\s*\)\s*=>/);
+  console.log('NO STRAY JSX · ' + scr.padEnd(9) + ':', ok(!junk), junk ? 'found ' + junk[0] : '');
+}
+console.log('ERRORS:', errs.length ? [...new Set(errs)].join(' | ') : 'NONE');
   await b.close();
 }
 

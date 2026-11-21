@@ -8835,8 +8835,6 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
               e1rm: l.e1rm != null ? fmt(Math.round(l.e1rm)) : null })) }); }} />
       {shareImg && <ShareSheet data={shareImg} onClose={() => setShareImg(null)} />}
 
-        onPick={(sl) => loadSlot(sl)} />
-
       {editing && (
         <EditSetSheet set={editing} unit={unit} inputMode={inputMode}
           onClose={() => setEditing(null)}

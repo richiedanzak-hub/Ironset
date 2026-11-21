@@ -16083,7 +16083,7 @@ function TrainTab({
   }), shareImg && /*#__PURE__*/React.createElement(ShareSheet, {
     data: shareImg,
     onClose: () => setShareImg(null)
-  }), "onPick=", sl => loadSlot(sl), " />", editing && /*#__PURE__*/React.createElement(EditSetSheet, {
+  }), editing && /*#__PURE__*/React.createElement(EditSetSheet, {
     set: editing,
     unit: unit,
     inputMode: inputMode,
