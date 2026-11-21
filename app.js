@@ -1029,6 +1029,41 @@ function daysUntil(dateStr) {
   n.setHours(0, 0, 0, 0);
   return Math.round((t - n) / 864e5);
 }
+// "4 days ago", "3 weeks ago" — enough to place a number in your own history
+// without making you do the arithmetic.
+function agoWords(ts) {
+  const d = Math.max(0, Math.round((Date.now() - ts) / 864e5));
+  if (d <= 0) return "today";
+  if (d === 1) return "yesterday";
+  if (d < 14) return `${d} days ago`;
+  if (d < 60) return `${Math.round(d / 7)} weeks ago`;
+  return `${Math.round(d / 30)} months ago`;
+}
+/* A set to failure is the only set that answers a question outright: how many
+   reps does this weight have in it today. That is the whole reason to take one,
+   and the app used to accept the answer and say nothing back — which is why the
+   feature never felt like part of anything. A set counts as having gone to
+   failure when it was logged at RPE 10, prescribed or not, because that is what
+   RPE 10 means; nothing new has to be stored for it. */
+function failureMark(sets, weight, reps, round, atTs) {
+  const tol = Math.max(round || 5, 2.5);
+  const prior = (sets || []).filter(x => x.ts < atTs && x.rpe != null && x.rpe >= 10 && Math.abs(x.weight - weight) <= tol);
+  if (!prior.length) return {
+    first: true,
+    reps,
+    weight
+  };
+  const best = prior.reduce((a, x) => x.reps > a.reps ? x : a, prior[0]);
+  return {
+    first: false,
+    reps,
+    weight,
+    best: best.reps,
+    bestTs: best.ts,
+    gain: reps - best.reps,
+    n: prior.length
+  };
+}
 function fmtMeetDate(dateStr) {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -5912,7 +5947,7 @@ const slotSummary = (slot, state) => slotTimed(slot) ? `${slot.sets > 1 ? slot.s
 // An AMRAP still needs a load, and the load comes from the written reps and
 // effort — you just do not stop there. So the prescription keeps both: the
 // number that picks the weight, and the fact that the set runs past it.
-: `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.amrap ? `${slot.reps}+` : slot.reps} @ ${slotLabel(slot)}${slot.amrap === "all" ? " · AMRAP every set" : slot.amrap ? " · AMRAP last" : ""}`;
+: `${slot.sets > 1 ? slot.sets + "×" : ""}${slot.amrap ? `${slot.reps}+` : slot.reps} @ ${slotLabel(slot)}${slot.amrap === "all" ? " · all to failure" : slot.amrap ? " · last to failure" : ""}`;
 function Onboarding({
   onDone,
   unit
@@ -8760,10 +8795,25 @@ function MonthCalendar({
     const isSel = ds === sel;
     const slots = (program.days || {})[ds] || [];
     const planned = slots.length;
-    // One dot per movement, in that movement's colour, capped at three. A month
-    // of this and you read your own split off the calendar without labels.
-    const hues = slots.slice(0, 3).map(sl => hueFor(sl.ex, state));
     const did = loggedDays[ds] || 0;
+    /* Behind today this calendar is a record; ahead of today it is a plan.
+       Drawing both the same way meant a session you skipped last Tuesday
+       looked exactly like one you have not reached yet, which is the one
+       distinction a training calendar exists to make. */
+    const kind = did && planned ? "done" : did ? "extra" : planned ? ds < todayS ? "missed" : "ahead" : "rest";
+    /* One mark per planned movement, in that movement's colour, capped at
+       three: a month of this and you read your own split off the calendar
+       without labels. Solid means it happened, hollow means it did not,
+       faint means not yet. */
+    const marks = kind === "extra" ? [{
+      hue: C.good,
+      fill: true
+    }] : kind === "rest" ? [] : slots.slice(0, 3).map(sl => ({
+      hue: hueFor(sl.ex, state),
+      fill: kind !== "missed",
+      dim: kind === "ahead"
+    }));
+    const said = kind === "done" ? `${planned} planned, trained` : kind === "extra" ? `trained, ${did} logged` : kind === "missed" ? `${planned} planned, not trained` : kind === "ahead" ? `${planned} planned` : "nothing planned";
     return (
       /*#__PURE__*/
       /* A calendar cell used to announce itself as the bare number "15", with no
@@ -8779,16 +8829,16 @@ function MonthCalendar({
           weekday: "long",
           month: "long",
           day: "numeric"
-        }) + (planned ? `, ${planned} planned` : "") + (did ? `, ${did} set${did === 1 ? "" : "s"} logged` : ""),
+        }) + ", " + said,
         style: {
           aspectRatio: "1",
           borderRadius: 10,
           cursor: "pointer",
           padding: 0,
           position: "relative",
-          border: isToday && !isSel ? `1px solid ${C.red}` : `1px solid ${isSel ? "transparent" : "rgba(255,255,255,0.05)"}`,
+          border: isToday && !isSel ? `1px solid ${C.red}` : isSel ? "1px solid transparent" : kind === "missed" ? "1px dashed rgba(255,255,255,0.17)" : "1px solid rgba(255,255,255,0.05)",
           background: isSel ? G.red : did ? "rgba(255,255,255,0.07)" : "transparent",
-          color: isSel ? "#fff" : did || planned ? C.text : C.faint,
+          color: isSel ? "#fff" : kind === "rest" ? C.faint : kind === "missed" ? C.muted : C.text,
           fontFamily: MONO,
           fontSize: 12.5,
           fontWeight: isSel ? 700 : 500,
@@ -8804,50 +8854,46 @@ function MonthCalendar({
         style: {
           display: "flex",
           gap: 2,
-          height: 4,
+          height: 5,
           alignItems: "center"
         }
-      }, did ? /*#__PURE__*/React.createElement("span", {
-        style: {
-          width: 4,
-          height: 4,
-          borderRadius: 99,
-          background: isSel ? "#fff" : C.good
-        }
-      }) : null, !did && hues.map((h, k) => /*#__PURE__*/React.createElement("span", {
+      }, marks.map((mk, k) => /*#__PURE__*/React.createElement("span", {
         key: k,
         style: {
-          width: 4,
-          height: 4,
+          width: 5,
+          height: 5,
           borderRadius: 99,
-          background: isSel ? "#fff" : h
+          boxSizing: "border-box",
+          background: mk.fill ? isSel ? "#fff" : mk.hue : "transparent",
+          border: mk.fill ? "none" : `1px solid ${isSel ? "rgba(255,255,255,0.8)" : tint(mk.hue, 0.7)}`,
+          opacity: mk.dim ? 0.5 : 1
         }
       }))))
     );
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 14,
+      gap: 13,
       marginTop: 13,
       justifyContent: "center",
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      fontSize: 11,
-      color: C.faint
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 5,
-      height: 5,
-      borderRadius: 99,
-      background: C.good
-    }
-  }), " trained"), /*#__PURE__*/React.createElement("span", {
+  }, [["trained", {
+    background: C.red
+  }, {
+    background: C.violet
+  }], ["missed", {
+    border: `1px solid ${tint(C.red, 0.7)}`
+  }, {
+    border: `1px solid ${tint(C.violet, 0.7)}`
+  }], ["ahead", {
+    background: C.red,
+    opacity: 0.5
+  }, {
+    background: C.violet,
+    opacity: 0.5
+  }]].map(([t, a, b]) => /*#__PURE__*/React.createElement("span", {
+    key: t,
     style: {
       display: "inline-flex",
       alignItems: "center",
@@ -8865,16 +8911,26 @@ function MonthCalendar({
       width: 5,
       height: 5,
       borderRadius: 99,
-      background: C.red
+      boxSizing: "border-box",
+      ...a
     }
   }), /*#__PURE__*/React.createElement("span", {
     style: {
       width: 5,
       height: 5,
       borderRadius: 99,
-      background: C.violet
+      boxSizing: "border-box",
+      ...b
     }
-  })), " planned, by lift")));
+  })), " ", t))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.faint,
+      textAlign: "center",
+      marginTop: 7,
+      lineHeight: 1.5
+    }
+  }, "One mark per movement, in that lift\u2019s colour."));
 }
 
 // Destructive actions live together, behind one door, so none of them is a
@@ -11518,8 +11574,12 @@ function ProgramTab({
       const k = dateStrFromTs(st.ts);
       m[k] = (m[k] || 0) + 1;
     }
+    /* Work you tick off leaves no sets behind, so a day of nothing but accessories
+       you checked off used to read on the calendar as a day you never turned up.
+       It counts the same as a day of logged sets, because it was. */
+    for (const k of Object.keys(state.ticks || {})) for (const on of Object.values(state.ticks[k] || {})) if (on) m[k] = (m[k] || 0) + 1;
     return m;
-  }, [state.exercises]);
+  }, [state.exercises, state.ticks]);
   if (!program) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -12147,7 +12207,7 @@ function ProgramTab({
       color: C.text,
       lineHeight: 1.5
     }
-  }, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spreadPlan.patch).map(k => k === "amrap" ? "AMRAP" : k === "ex" ? "the movement" : k).join(", ")), " ", "on ", shortLift(spreadPlan.fromEx), ". ", spreadPlan.n, " later session", spreadPlan.n === 1 ? "" : "s", " use it too."), /*#__PURE__*/React.createElement("div", {
+  }, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spreadPlan.patch).map(k => k === "amrap" ? "sets to failure" : k === "ex" ? "the movement" : k).join(", ")), " ", "on ", shortLift(spreadPlan.fromEx), ". ", spreadPlan.n, " later session", spreadPlan.n === 1 ? "" : "s", " use it too."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -13048,6 +13108,9 @@ function TrainTab({
   const [showPlates, setShowPlates] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
+  // What the last set to failure was worth. Stays up until the next set or the
+  // next movement, because it is a result, not a toast.
+  const [failNote, setFailNote] = useState(null);
   const [filming, setFilming] = useState(null);
   const [logDate, setLogDate] = useState(todayStr());
   const model = sel && models[sel] ? models[sel] : {
@@ -13150,7 +13213,7 @@ function TrainTab({
      slot moves; the rest of the block is untouched. */
   /* A block is the same session repeated with the numbers moving. So a change
      you make standing in the gym is usually a change to the BLOCK, not to one
-     Tuesday — "I'm making this an AMRAP" almost never means only this week.
+     Tuesday — "I'm taking this to failure" almost never means only this week.
       Which fields carry is the whole question. reps, sets and the effort are the
      wave: they are supposed to differ week to week, and copying them forward
      would flatten the block into five identical sessions. Everything else —
@@ -13237,6 +13300,8 @@ function TrainTab({
   };
   const loadSlot = sl => {
     setActiveSlotId(sl.id);
+    setFailNote(null);
+    setSlotSteps([]);
     // A movement programmed but never trained yet gets created on first tap, wired
     // to its main lift so a paused squat still feeds the squat model.
     if (!state.exercises[sl.ex]) {
@@ -13266,31 +13331,11 @@ function TrainTab({
         // by hand and wrong here: you tapped the top set, not its back-off.
         setSel(sl.ex);
       }
-      // Every back-off set carries the chosen movement, so the plan's intent survives
-      // into the session rather than being re-picked by hand each time.
-      const steps = b.lift && b.lift !== sl.ex ? Array.from({
-        length: Math.max(1, b.sets)
-      }).map(() => ({
-        lift: b.lift
-      })) : [];
-      setSetting("backoff", {
-        ...(settings.backoff || {}),
-        sets: b.sets,
-        reps: b.reps,
-        rpe: b.mode === "rir" ? clampRpe(10 - b.val) : b.mode === "rpe" ? b.val : 7,
-        pct: b.mode === "pct" ? b.val : (settings.backoff || {}).pct,
-        steps
-      });
-    } else if (!slotTimed(sl) && sl.sets > 1 && setSetting) {
-      // Sets across: the remaining sets carry the same prescription as the first.
-      setSetting("backoff", {
-        ...(settings.backoff || {}),
-        sets: sl.sets - 1,
-        reps: sl.reps,
-        rpe: sl.mode === "rir" ? clampRpe(10 - sl.val) : sl.mode === "rpe" ? sl.val : 7,
-        pct: sl.mode === "pct" ? sl.val : (settings.backoff || {}).pct,
-        steps: []
-      });
+      /* Tapping a planned movement used to COPY its prescription over your global
+         back-off default, which was the only way it reached the logger — so your
+         default silently became whatever you trained last, and the Settings row
+         you had set was gone. The logger reads the slot now, so nothing here
+         writes to settings at all. */
     }
   };
   // Train opens on the session, not on whatever lift happened to be open last: the
@@ -13305,18 +13350,6 @@ function TrainTab({
     const target = mine || sessionSlots.find(x => !(doneSlots[x.id] || {}).done) || sessionSlots[0];
     if (target) loadSlot(target);
   }, [autoKey]);
-  const loadPlanned = it => {
-    if (state.exercises[it.name]) setSel(it.name);
-    setTReps(it.reps);
-    setTInt(inputMode === "rir" ? 10 - it.rpe : it.rpe);
-    if (it.bo && setSetting) setSetting("backoff", {
-      ...(settings.backoff || {}),
-      sets: it.bo.sets,
-      reps: it.bo.reps,
-      rpe: it.bo.rpe,
-      steps: []
-    });
-  };
   const childNames = sel ? names.filter(n => state.exercises[n].parent === sel) : [];
   const parentName = selEx && selEx.parent && state.exercises[selEx.parent] ? selEx.parent : null;
   const ratioPct = Math.round((model.ratio || 1) * 100);
@@ -13409,16 +13442,85 @@ function TrainTab({
   const toughDay = !percentMode && effE1rm != null ? roundTo(weightForTarget(effE1rm, tReps, tRpe - 0.5), round) : null;
 
   // back-off sets — fatigue-aware in RPE mode; a flat % in percentage mode
-  const bo = settings.backoff || {
+  const gBo = settings.backoff || {
     sets: 1,
     reps: 5,
     rpe: 8,
     pct: 75
   };
-  const setBo = patch => setSetting && setSetting("backoff", {
-    ...bo,
-    ...patch
-  });
+  /* The back-off sets you wrote into the plan — "+ 3×8 @ RPE 7", on a different
+     lift even — were thrown away the moment you walked into the gym: this screen
+     always read one global default instead. So the Plan editor's whole back-off
+     block changed nothing you would ever see while training. A slot's own
+     prescription wins when it has one. */
+  // A tweak you make to a planned back-off standing in the gym is this session's
+  // business. It must not quietly rewrite the default every other lift inherits.
+  const [slotSteps, setSlotSteps] = useState([]);
+  const effOf = (m, v, fallback) => m === "rir" ? clampRpe(10 - v) : m === "pct" ? fallback || 8 : clampRpe(v);
+  const bo = (() => {
+    const sb = activeSlot && activeSlot.bo ? activeSlot.bo : null;
+    if (sb) {
+      const m = sb.mode || "rpe";
+      return {
+        sets: Math.max(0, Math.round(sb.sets || 0)),
+        reps: Math.max(1, Math.round(sb.reps || 5)),
+        rpe: effOf(m, sb.val, gBo.rpe),
+        pct: m === "pct" ? sb.val : gBo.pct || 75,
+        level: gBo.level,
+        lift: sb.lift || null,
+        steps: slotSteps,
+        fromSlot: true
+      };
+    }
+    /* Sets across: sets two onward carry the first set's prescription, and that
+       prescription belongs to the slot as much as the back-off version does. */
+    if (activeSlot && !slotTimed(activeSlot) && (activeSlot.sets || 1) > 1) {
+      const m = activeSlot.mode || "rpe";
+      return {
+        sets: activeSlot.sets - 1,
+        reps: Math.max(1, activeSlot.reps || 5),
+        rpe: effOf(m, activeSlot.val, gBo.rpe),
+        pct: m === "pct" ? activeSlot.val : gBo.pct || 75,
+        level: gBo.level,
+        lift: null,
+        steps: slotSteps,
+        fromSlot: true,
+        across: true
+      };
+    }
+    return gBo;
+  })();
+  const setBo = patch => {
+    if (bo.fromSlot && activeSlot) {
+      if (patch.steps) {
+        setSlotSteps(patch.steps);
+        return;
+      }
+      const next = bo.across ? {} : {
+        ...activeSlot.bo
+      };
+      // On a sets-across slot the count in the plan includes the first set; the
+      // back-off count does not. One of them has to do the arithmetic.
+      if (patch.sets != null) next.sets = bo.across ? Math.max(1, patch.sets + 1) : patch.sets;
+      if (patch.reps != null) next.reps = patch.reps;
+      if (patch.rpe != null) {
+        next.mode = "rpe";
+        next.val = patch.rpe;
+      }
+      if (patch.pct != null) {
+        next.mode = "pct";
+        next.val = patch.pct;
+      }
+      if (Object.keys(next).length || !bo.across) patchSlotSpread(activeSlot.id, bo.across ? next : {
+        bo: next
+      }, activeSlot.ex);
+      return;
+    }
+    if (setSetting) setSetting("backoff", {
+      ...gBo,
+      ...patch
+    });
+  };
   const boPct = bo.pct || 75;
   // Each back-off targets bo.reps @ bo.rpe; the load is what hits that target given how
   // much capacity the *actual* prior set spent. The first comes off your top set, each
@@ -13478,11 +13580,13 @@ function TrainTab({
   // defaults, which is also what the block planner writes.
   const boSteps = Array.isArray(bo.steps) ? bo.steps : [];
   const stepAt = i => {
+    // A back-off written against another lift in the plan starts there, rather
+    // than needing to be re-chosen on the day.
     let s = {
       reps: bo.reps,
       rpe: bo.rpe,
       pct: boPct,
-      lift: null
+      lift: bo.lift || null
     };
     for (let k = 0; k <= i; k++) if (boSteps[k]) s = {
       ...s,
@@ -13515,8 +13619,14 @@ function TrainTab({
   const boTarget = boStep.lift && state.exercises[boStep.lift] && boFamily.indexOf(boStep.lift) >= 0 ? boStep.lift : sel;
   // the driving set, always normalised into MAIN-lift terms so the chain stays comparable
   const topToday = (selEx ? selEx.sets : []).filter(x => !x.backoff && new Date(x.ts).toDateString() === boDayStr).pop();
-  // Where this movement stands against what was asked for.
-  const setsAsked = straightCount || 1 + Math.max(0, bo.sets || 0);
+  /* How many sets this movement asks for needs ONE answer. The logger used to
+     fall back to the global back-off count whenever a slot asked for a single
+     set, so a plan that said one set showed "Log set 1" of two, the session
+     list's progress dots and this ledger disagreed about the same session, and
+     a last-set-to-failure prescription could never be reached — the last set
+     never arrived. When a slot is driving, the slot decides, and it decides for
+     the dots and the ledger alike because both now ask the same function. */
+  const setsAsked = activeSlot ? slotSetCount(activeSlot) : straightCount || 1 + Math.max(0, bo.sets || 0);
   const setsIn = (topToday ? 1 : 0) + doneCount;
   const prevForBo = (() => {
     if (lastBo) return {
@@ -13863,6 +13973,14 @@ function TrainTab({
       // Work earlier in the day handicaps every set of this lift, not just the first.
       carry: recovery.carryDrop > 0.004 ? 1 - recovery.carryDrop : undefined
     });
+    /* Computed here rather than in a memo because it has to see the sets as they
+       were a moment BEFORE this one, which is the comparison that means anything. */
+    if (curRpe != null && curRpe >= 10) {
+      setFailNote({
+        ...failureMark((state.exercises[stepTarget] || {}).sets || [], roundTo(w, round), actReps, round, tsFromDateStr(logDate)),
+        lift: stepTarget
+      });
+    } else setFailNote(null);
     setBoDraft(null);
     setNote("");
     setNoteOpen(false);
@@ -14040,7 +14158,7 @@ function TrainTab({
     style: {
       color: C.red
     }
-  }, "AMRAP") : null, amrapSet ? /*#__PURE__*/React.createElement("span", {
+  }, "TO FAILURE") : null, amrapSet ? /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.muted,
       fontWeight: 600
@@ -14172,19 +14290,15 @@ function TrainTab({
     max: 12,
     onChange: v => {
       const n = Math.max(1, Math.min(12, v));
-      if (straightCount) patchSlotSpread(activeSlot.id, {
+      /* Whichever one is actually driving the count gets written: a
+         sets-across slot owns it outright, a top-set-plus-back-offs
+         slot owns it through its back-off count, and off-plan work
+         falls through to the global default. */
+      if (activeSlot && !activeSlot.bo && !slotTimed(activeSlot)) patchSlotSpread(activeSlot.id, {
         sets: n
-      }, activeSlot.ex);else {
-        setBo({
-          sets: Math.max(0, n - 1)
-        });
-        if (activeSlot && activeSlot.bo) patchSlotSpread(activeSlot.id, {
-          bo: {
-            ...activeSlot.bo,
-            sets: Math.max(0, n - 1)
-          }
-        }, activeSlot.ex);
-      }
+      }, activeSlot.ex);else setBo({
+        sets: Math.max(0, n - 1)
+      });
     }
   }))), !percentMode && isLightShown(curIntVal, inputMode) && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -14599,7 +14713,12 @@ function TrainTab({
     disabled: bwMove ? !bwReady : !parseFloat(curWeight)
   }, justLogged ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Check, {
     size: 18
-  }), " Logged") : stepTarget !== sel ? `Log ${shortLift(stepTarget)}` : amrapSet ? `Log AMRAP — ${actReps} rep${actReps === 1 ? "" : "s"}` : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"), ledger.length > 1 && /*#__PURE__*/React.createElement("div", {
+  }), " Logged") : stepTarget !== sel ? `Log ${shortLift(stepTarget)}` : amrapSet ? `Log ${actReps} rep${actReps === 1 ? "" : "s"} to failure` : setsAsked > 1 ? `Log set ${Math.min(setsIn + 1, setsAsked)}` : "Log set"), failNote && failNote.lift === stepTarget && /*#__PURE__*/React.createElement(Callout, {
+    tone: failNote.first ? "info" : failNote.gain > 0 ? "good" : failNote.gain === 0 ? "muted" : "warn",
+    style: {
+      marginTop: 10
+    }
+  }, failNote.first ? /*#__PURE__*/React.createElement(React.Fragment, null, "First time you\u2019ve taken ", /*#__PURE__*/React.createElement("b", null, fmt(failNote.weight), unit), " to failure: ", /*#__PURE__*/React.createElement("b", null, failNote.reps, " rep", failNote.reps === 1 ? "" : "s"), ". That\u2019s the number to beat.") : failNote.gain > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "+", failNote.gain, " rep", failNote.gain === 1 ? "" : "s"), " at ", fmt(failNote.weight), unit, " \u2014 ", failNote.reps, " beats your best of ", failNote.best, " from ", agoWords(failNote.bestTs), ".") : failNote.gain === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, failNote.reps, " rep", failNote.reps === 1 ? "" : "s", " at ", fmt(failNote.weight), unit, " \u2014 level with your best, set ", agoWords(failNote.bestTs), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, failNote.reps, " rep", failNote.reps === 1 ? "" : "s", " at ", fmt(failNote.weight), unit, ". Your best there is ", failNote.best, ", ", agoWords(failNote.bestTs), " \u2014 one session is not a trend.")), ledger.length > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 13,
       border: `1px solid ${C.line}`,
@@ -14641,7 +14760,7 @@ function TrainTab({
       style: {
         color: now ? C.red : C.faint
       }
-    }, "AMRAP") : `${r.tReps} reps`, " ", /*#__PURE__*/React.createElement("span", {
+    }, "to failure") : `${r.tReps} reps`, " ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.muted,
         fontWeight: 600
@@ -15149,7 +15268,7 @@ function TrainTab({
       color: C.text,
       lineHeight: 1.5
     }
-  }, spread.patch.ex ? /*#__PURE__*/React.createElement(React.Fragment, null, "Swapped to ", /*#__PURE__*/React.createElement("b", null, shortLift(spread.patch.ex)), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block still ", spread.n === 1 ? "asks" : "ask", " for ", shortLift(spread.fromEx), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spread.patch).map(k => k === "amrap" ? "AMRAP" : k).join(", ")), " on ", shortLift(spread.fromEx), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block use it too.")), /*#__PURE__*/React.createElement("div", {
+  }, spread.patch.ex ? /*#__PURE__*/React.createElement(React.Fragment, null, "Swapped to ", /*#__PURE__*/React.createElement("b", null, shortLift(spread.patch.ex)), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block still ", spread.n === 1 ? "asks" : "ask", " for ", shortLift(spread.fromEx), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "Changed ", /*#__PURE__*/React.createElement("b", null, Object.keys(spread.patch).map(k => k === "amrap" ? "sets to failure" : k).join(", ")), " on ", shortLift(spread.fromEx), ". ", spread.n, " later session", spread.n === 1 ? "" : "s", " in this block use it too.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
