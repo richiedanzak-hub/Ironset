@@ -7100,15 +7100,26 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
   const match = (n) => !query || n.toLowerCase().includes(query);
   const todays = (todaySlots || []).map((x) => x.ex).filter((n, i, a) => a.indexOf(n) === i).filter(match);
   const mine = names.filter(match).filter((n) => todays.indexOf(n) < 0);
-  const tracked = mine.filter((n) => !isAccessory(n, state));
+  /* "Your lifts" put the three lifts you are actually trying to move in the same
+     flat list as every pause, pin and deficit variation of them — so the thing
+     you are progressing read exactly like the thing that supports it. A variation
+     is a lift with a parent; that is already in the data. */
+  const parentOf = (n) => { const ex = (state.exercises || {})[n];
+    return ex && ex.parent && state.exercises[ex.parent] ? ex.parent : null; };
+  const tracked = mine.filter((n) => !isAccessory(n, state) && !parentOf(n));
+  const vars = mine.filter((n) => !isAccessory(n, state) && parentOf(n));
   const acc = mine.filter((n) => isAccessory(n, state));
   const fromLib = LIB.filter((x) => query && x.n.toLowerCase().includes(query) && names.indexOf(x.n) < 0).slice(0, 40);
   const custom = query.length > 1 && !names.some((n) => n.toLowerCase() === query) && !LIB.some((x) => x.n.toLowerCase() === query);
-  const row = (n, right, onClick) => (
+  const row = (n, right, onClick, under) => (
     <div key={n} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${C.line}`,
-      background: n === sel ? "rgba(255,255,255,0.05)" : "none" }}>
+      background: n === sel ? "rgba(255,255,255,0.05)" : "none",
+      paddingLeft: under ? 11 : 0 }}>
+      {under && <span style={{ width: 2, alignSelf: "stretch", margin: "7px 0",
+        borderRadius: 1, background: C.line2, flexShrink: 0 }} />}
       <button onClick={onClick} style={{ ...pickRow, borderBottom: "none", background: "none", flex: 1, minWidth: 0 }}>
-        <span style={{ fontWeight: 700, fontSize: 13.5, textAlign: "left", minWidth: 0,
+        <span style={{ fontWeight: under ? 600 : 700, fontSize: under ? 13 : 13.5,
+          color: under ? C.muted : C.text, textAlign: "left", minWidth: 0,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</span>
         <span style={{ fontSize: 10.5, color: C.faint, fontFamily: MONO, whiteSpace: "nowrap", marginLeft: 10 }}>{right}</span>
       </button>
@@ -7119,7 +7130,12 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
     if (isTimed(n, state)) return "time";
     if (isAccessory(n, state)) return "accessory";
     const m = models && models[n];
-    return m && m.e1rm != null ? fmt(Math.round(m.e1rm)) + unit : "—";
+    const e = m && m.e1rm != null ? fmt(Math.round(m.e1rm)) + unit : "—";
+    // On a variation, what it is worth AS A SHARE of the lift it supports is the
+    // number that says what the variation is for.
+    const par = parentOf(n), pm = par && models ? models[par] : null;
+    return (pm && pm.e1rm && m && m.e1rm != null)
+      ? `${e} · ${Math.round((m.e1rm / pm.e1rm) * 100)}% of ${shortLift(par)}` : e;
   };
   const head = (t) => <div style={{ ...label, fontSize: 9, margin: "14px 0 4px" }}>{t}</div>;
   return (
@@ -7132,7 +7148,7 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
             typing is to see the hit, not to scroll past three headings to reach it. */}
         {query ? (
           <>
-            {todays.concat(tracked, acc).map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+            {todays.concat(tracked, vars, acc).map((n) => row(n, hint(n), () => { onPick(n); onClose(); }, !!parentOf(n)))}
             {fromLib.map((x) => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find((e) => e.k === x.e) || {}).t || "",
               () => { onCreate(x.n); onClose(); }))}
           </>
@@ -7140,8 +7156,10 @@ function LiftSheet({ open, onClose, state, models, sel, onPick, onCreate, unit, 
           <>
             {todays.length > 0 && head("Today's session")}
             {todays.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
-            {tracked.length > 0 && head("Your lifts")}
+            {tracked.length > 0 && head("What you're progressing")}
             {tracked.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
+            {vars.length > 0 && head("Variations of them")}
+            {vars.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }, true))}
             {acc.length > 0 && head("Accessories")}
             {acc.map((n) => row(n, hint(n), () => { onPick(n); onClose(); }))}
           </>
@@ -9052,6 +9070,25 @@ function HistoryTab({ state, sel, setSel, models, deleteSet, updateSet, deleteEx
           <span style={{ ...label, fontSize: 9, display: "block", marginBottom: 3 }}>History for</span>
           <span style={{ display: "block", fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em",
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cur}</span>
+          {/* Every lift's history looked like every other lift's, so a pause squat
+              read as a thing you are progressing rather than a thing that supports
+              the squat. One line places it. */}
+          {(() => {
+            const ex = state.exercises[cur] || {};
+            const par = ex.parent && state.exercises[ex.parent] ? ex.parent : null;
+            if (!par) return isAccessory(cur, state)
+              ? <span style={{ display: "block", fontSize: 11, color: C.faint, marginTop: 4 }}>
+                  Accessory — kept and charted, held out of your 1RM and your total.</span>
+              : null;
+            const m = models[cur], pm = models[par];
+            const pct = (m && pm && m.e1rm != null && pm.e1rm) ? Math.round((m.e1rm / pm.e1rm) * 100) : null;
+            return (
+              <span style={{ display: "block", fontSize: 11, color: C.faint, marginTop: 4,
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                A variation of {shortLift(par)}{pct != null ? ` — worth ${pct}% of it` : ""}
+              </span>
+            );
+          })()}
         </span>
         <ChevronDown size={18} style={{ color: C.faint, flexShrink: 0 }} />
       </button>

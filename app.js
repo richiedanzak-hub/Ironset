@@ -13060,20 +13060,39 @@ function LiftSheet({
   const match = n => !query || n.toLowerCase().includes(query);
   const todays = (todaySlots || []).map(x => x.ex).filter((n, i, a) => a.indexOf(n) === i).filter(match);
   const mine = names.filter(match).filter(n => todays.indexOf(n) < 0);
-  const tracked = mine.filter(n => !isAccessory(n, state));
+  /* "Your lifts" put the three lifts you are actually trying to move in the same
+     flat list as every pause, pin and deficit variation of them — so the thing
+     you are progressing read exactly like the thing that supports it. A variation
+     is a lift with a parent; that is already in the data. */
+  const parentOf = n => {
+    const ex = (state.exercises || {})[n];
+    return ex && ex.parent && state.exercises[ex.parent] ? ex.parent : null;
+  };
+  const tracked = mine.filter(n => !isAccessory(n, state) && !parentOf(n));
+  const vars = mine.filter(n => !isAccessory(n, state) && parentOf(n));
   const acc = mine.filter(n => isAccessory(n, state));
   const fromLib = LIB.filter(x => query && x.n.toLowerCase().includes(query) && names.indexOf(x.n) < 0).slice(0, 40);
   const custom = query.length > 1 && !names.some(n => n.toLowerCase() === query) && !LIB.some(x => x.n.toLowerCase() === query);
-  const row = (n, right, onClick) => /*#__PURE__*/React.createElement("div", {
+  const row = (n, right, onClick, under) => /*#__PURE__*/React.createElement("div", {
     key: n,
     style: {
       display: "flex",
       alignItems: "center",
       gap: 8,
       borderBottom: `1px solid ${C.line}`,
-      background: n === sel ? "rgba(255,255,255,0.05)" : "none"
+      background: n === sel ? "rgba(255,255,255,0.05)" : "none",
+      paddingLeft: under ? 11 : 0
     }
-  }, /*#__PURE__*/React.createElement("button", {
+  }, under && /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 2,
+      alignSelf: "stretch",
+      margin: "7px 0",
+      borderRadius: 1,
+      background: C.line2,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: onClick,
     style: {
       ...pickRow,
@@ -13084,8 +13103,9 @@ function LiftSheet({
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      fontWeight: 700,
-      fontSize: 13.5,
+      fontWeight: under ? 600 : 700,
+      fontSize: under ? 13 : 13.5,
+      color: under ? C.muted : C.text,
       textAlign: "left",
       minWidth: 0,
       overflow: "hidden",
@@ -13107,7 +13127,12 @@ function LiftSheet({
     if (isTimed(n, state)) return "time";
     if (isAccessory(n, state)) return "accessory";
     const m = models && models[n];
-    return m && m.e1rm != null ? fmt(Math.round(m.e1rm)) + unit : "—";
+    const e = m && m.e1rm != null ? fmt(Math.round(m.e1rm)) + unit : "—";
+    // On a variation, what it is worth AS A SHARE of the lift it supports is the
+    // number that says what the variation is for.
+    const par = parentOf(n),
+      pm = par && models ? models[par] : null;
+    return pm && pm.e1rm && m && m.e1rm != null ? `${e} · ${Math.round(m.e1rm / pm.e1rm * 100)}% of ${shortLift(par)}` : e;
   };
   const head = t => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -13145,19 +13170,22 @@ function LiftSheet({
       margin: "0 -4px",
       padding: "0 4px"
     }
-  }, query ? /*#__PURE__*/React.createElement(React.Fragment, null, todays.concat(tracked, acc).map(n => row(n, hint(n), () => {
+  }, query ? /*#__PURE__*/React.createElement(React.Fragment, null, todays.concat(tracked, vars, acc).map(n => row(n, hint(n), () => {
     onPick(n);
     onClose();
-  })), fromLib.map(x => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find(e => e.k === x.e) || {}).t || "", () => {
+  }, !!parentOf(n))), fromLib.map(x => row(x.n, x.m ? "→ " + x.m : (LIB_EQUIP.find(e => e.k === x.e) || {}).t || "", () => {
     onCreate(x.n);
     onClose();
   }))) : /*#__PURE__*/React.createElement(React.Fragment, null, todays.length > 0 && head("Today's session"), todays.map(n => row(n, hint(n), () => {
     onPick(n);
     onClose();
-  })), tracked.length > 0 && head("Your lifts"), tracked.map(n => row(n, hint(n), () => {
+  })), tracked.length > 0 && head("What you're progressing"), tracked.map(n => row(n, hint(n), () => {
     onPick(n);
     onClose();
-  })), acc.length > 0 && head("Accessories"), acc.map(n => row(n, hint(n), () => {
+  })), vars.length > 0 && head("Variations of them"), vars.map(n => row(n, hint(n), () => {
+    onPick(n);
+    onClose();
+  }, true)), acc.length > 0 && head("Accessories"), acc.map(n => row(n, hint(n), () => {
     onPick(n);
     onClose();
   }))), custom && /*#__PURE__*/React.createElement(Btn, {
@@ -16561,7 +16589,32 @@ function HistoryTab({
       overflow: "hidden",
       textOverflow: "ellipsis"
     }
-  }, cur)), /*#__PURE__*/React.createElement(ChevronDown, {
+  }, cur), (() => {
+    const ex = state.exercises[cur] || {};
+    const par = ex.parent && state.exercises[ex.parent] ? ex.parent : null;
+    if (!par) return isAccessory(cur, state) ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 11,
+        color: C.faint,
+        marginTop: 4
+      }
+    }, "Accessory \u2014 kept and charted, held out of your 1RM and your total.") : null;
+    const m = models[cur],
+      pm = models[par];
+    const pct = m && pm && m.e1rm != null && pm.e1rm ? Math.round(m.e1rm / pm.e1rm * 100) : null;
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 11,
+        color: C.faint,
+        marginTop: 4,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, "A variation of ", shortLift(par), pct != null ? ` — worth ${pct}% of it` : "");
+  })()), /*#__PURE__*/React.createElement(ChevronDown, {
     size: 18,
     style: {
       color: C.faint,
