@@ -4863,7 +4863,12 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
           <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, flex: 1, background: "none", border: "none",
             padding: 0, textAlign: "left", color: C.text, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
             <span style={{ display: "block", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap",
-              overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
+              overflow: "hidden", textOverflow: "ellipsis" }}>
+              {slot.ex}
+              {slot.rx && <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 700,
+                color: C.violet, letterSpacing: "0.06em", marginLeft: 7, verticalAlign: "middle",
+                border: `1px solid ${tint(C.violet, 0.4)}`, borderRadius: 4, padding: "1px 4px" }}>RX</span>}
+            </span>
             <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
               {slotSummary(slot, state)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : ""}
               {slot.rest ? ` · ${fmtDur(slot.rest)} rest` : ""}
@@ -5762,17 +5767,22 @@ function prescribe(ans) {
   const shrink = (ans.wall === "systemic" ? 1 : 0) + (ans.bw === "cut" ? 1 : 0);
   moves = moves.slice(0, 3).map((m) => ({ ...m, sets: Math.max(2, m.sets - shrink) }));
   if (!moves.length) return null;
-  return { t: src.t, why: src.why, moves, forced, shrink,
+  return { t: src.t, why: src.why, moves, forced, shrink, k: src.k,
     lift: ans.goal === "size" ? null : ans.weak };
 }
-const rxSlot = (m) => {
+const rxSlot = (m, rx) => {
   const timed = TIME_MOVES.has(m.ex);
   const mode = m.mode || "rir";
   return { id: uid(), ex: m.ex, metric: timed ? "time" : "reps", role: "accessory",
     sets: Math.max(1, m.sets), reps: Math.max(1, m.reps), mode, val: clampVal(mode, m.val),
-    // Marked as the coach's, so a plan can always say which movements it put
-    // there and which ones you did.
-    bo: null, note: m.note || "", rx: true };
+    /* Marked as the coach's, and marked with WHAT IT WAS FOR. The flag was
+       written from the first version and never read by anything, so prescribed
+       work was indistinguishable from work you chose: you could not see what had
+       been added, why, or how to take it back out. */
+    bo: null, note: m.note || "", rx: true,
+    rxFor: rx ? (rx.lift ? `${shortLift(rx.lift)} · ${rx.t}` : rx.t) : undefined,
+    rxLift: (rx && rx.lift) || undefined, rxK: (rx && rx.k) || undefined,
+    rxAt: rx ? todayStr() : undefined };
 };
 /* Which days the prescription would land on. Once a week — enough to move a weak
    point, not enough to become the block — and only a day that already trains the
@@ -5809,9 +5819,42 @@ function applyPrescription(days, rx) {
   const hit = rxTargetDays(days, rx);
   if (!hit.length) return days;
   const out = { ...days };
-  for (const k of hit) out[k] = [...(days[k] || []), ...rxNewFor(days[k], rx).map(rxSlot)];
+  for (const k of hit) out[k] = [...(days[k] || []), ...rxNewFor(days[k], rx).map((m) => rxSlot(m, rx))];
   return out;
 }
+/* What the coach currently has standing in your block, and what has come of it.
+   A prescription used to be fire-and-forget: it went in, and from that moment
+   nothing distinguished it from anything else or ever asked whether it worked. */
+function standingRx(days, state) {
+  const today = todayStr();
+  const by = {};
+  for (const k of Object.keys(days || {})) {
+    for (const sl of (days[k] || [])) {
+      if (!sl.rx) continue;
+      const g = by[sl.rxFor || "Weak-point work"] || (by[sl.rxFor || "Weak-point work"] =
+        { t: sl.rxFor || "Weak-point work", at: sl.rxAt || null, lift: sl.rxLift || null,
+          k: sl.rxK || null, moves: {}, days: new Set(), left: 0 });
+      if (sl.rxAt && (!g.at || sl.rxAt < g.at)) g.at = sl.rxAt;
+      g.days.add(k);
+      if (k >= today) g.left++;
+      const sets = ((state.exercises[sl.ex] || {}).sets || []);
+      const ticks = Object.keys(state.ticks || {}).filter((d) => ((state.ticks[d] || {})[sl.ex]));
+      const m = g.moves[sl.ex] || (g.moves[sl.ex] = { ex: sl.ex, line: null, done: 0 });
+      m.line = m.line || slotSummary(sl, state);
+      // Sessions, not sets: one day you did it is one day it had a chance to work.
+      m.done = new Set(sets.map((x) => dateStrFromTs(x.ts)).concat(ticks)).size;
+    }
+  }
+  const out = Object.values(by).map((g) => ({ ...g, sessions: g.days.size,
+    moves: Object.values(g.moves) }));
+  return out.length ? out : null;
+}
+const dropRx = (days, label) => {
+  const out = {};
+  for (const k of Object.keys(days || {}))
+    out[k] = (days[k] || []).filter((sl) => !(sl.rx && (sl.rxFor || "Weak-point work") === label));
+  return out;
+};
 // How a prescribed movement reads on a card: 3×8 @ 2 RIR, or 3×0:40 for the
 // things measured on a clock.
 const rxLine = (m) => TIME_MOVES.has(m.ex)
@@ -5849,6 +5892,46 @@ function weakestLift(models) {
     if (!worst || gap < worst.gap) worst = { name, gap, got, share };
   }
   return worst && worst.gap < 0.95 ? worst : null;
+}
+
+/* WHERE A LIFT FAILS, READ OFF THE LIFTER'S OWN NUMBERS.
+
+   Asking "where does your squat break down?" assumes you know. Plenty of people
+   do not, and the app is holding the answer: every variation in the library
+   carries the share of the main lift it is normally worth, and the estimator has
+   already learnt the share YOURS is actually worth. A variation well under its
+   usual share is a variation exposing something, and each sticking point owns
+   one that exposes it. Pause squats far below their usual 86% of your squat
+   means the bottom. Pin squats below theirs means the mid-range. Rack pulls
+   below theirs means the lockout is not the problem — the floor is.
+
+   It only speaks when it has grounds to: a variation needs real sets behind it,
+   and being AT its usual share is evidence of nothing. */
+function diagnoseSticking(state, models, lift) {
+  const list = WEAK_POINTS[lift] || [];
+  const main = models[lift];
+  const mainL = libFind(lift);
+  if (!list.length || !main || main.e1rm == null || !mainL) return null;
+  const out = [];
+  for (const wp of list) {
+    let worst = null;
+    for (const m of wp.fix) {
+      const L = libFind(m.ex);
+      // Only a variation OF THIS LIFT says anything about where it fails. A row
+      // has no share of your squat to be behind on.
+      if (!L || L.c !== mainL.c || !L.r || L.r >= 1) continue;
+      const mm = models[m.ex];
+      const sets = ((state.exercises[m.ex] || {}).sets || []);
+      if (!mm || mm.e1rm == null || sets.length < 3) continue;
+      const got = mm.e1rm / main.e1rm, gap = got / L.r;
+      if (!worst || gap < worst.gap) worst = { ex: m.ex, gap, got, want: L.r, n: sets.length };
+    }
+    if (worst) out.push({ k: wp.k, t: wp.t, ev: worst });
+  }
+  if (!out.length) return null;
+  out.sort((a, b) => a.ev.gap - b.ev.gap);
+  // Within a couple of percent of where it should be is not a weak point.
+  return out[0].ev.gap < 0.97 ? { pick: out[0], all: out } : null;
 }
 
 function recommendBlocks(ans, state, models) {
@@ -5919,6 +6002,9 @@ function CoachSheet({ open, onClose, state, models, onGenerate, unit, rxOnly, on
   // Which sticking points there are to choose between depends entirely on which
   // lift they named, so this list is rebuilt from the answers on every render.
   const wpList = (ans.weak && WEAK_POINTS[ans.weak]) || [];
+  // What the lifter's own variation history says about where that lift fails.
+  const dx = useMemo(() => (open && ans.weak && ans.weak !== "none"
+    ? diagnoseSticking(state, models, ans.weak) : null), [open, ans.weak, state, models]);
 
   const QS = [
     { id: "goal", q: "What are you training for?", opts: [
@@ -6046,9 +6132,27 @@ function CoachSheet({ open, onClose, state, models, onGenerate, unit, rxOnly, on
               where {Math.round(weak.share * 100)}% is typical.
             </div>
           )}
+          {/* The question assumed you knew. If you have trained the variations,
+              you do not have to: they have already answered it. */}
+          {cur.id === "wp" && dx && (
+            <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 12, lineHeight: 1.45 }}>
+              Your numbers say <b style={{ color: C.violet }}>{dx.pick.t.toLowerCase()}</b> — your{" "}
+              {shortLift(dx.pick.ev.ex)} is {Math.round(dx.pick.ev.got * 100)}% of your{" "}
+              {shortLift(ans.weak)} where {Math.round(dx.pick.ev.want * 100)}% is usual, across{" "}
+              {dx.pick.ev.n} set{dx.pick.ev.n === 1 ? "" : "s"}.
+            </div>
+          )}
+          {cur.id === "wp" && !dx && (
+            <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 12, lineHeight: 1.45 }}>
+              I would tell you which it is from your own numbers, but nothing in your log
+              separates them yet — that needs a few sets of a paused or pin variation.
+              Pick what it feels like; you can change it later.
+            </div>
+          )}
           <div style={{ height: 10 }} />
           {cur.opts.map((o) => {
-            const suggested = cur.id === "weak" && weak && o.v === weak.name;
+            const suggested = (cur.id === "weak" && weak && o.v === weak.name)
+              || (cur.id === "wp" && dx && o.v === dx.pick.k);
             const on = multi ? chosen.indexOf(o.v) >= 0 : false;
             const lit = on || suggested;
             return (
@@ -6439,6 +6543,7 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
   }
 
   const days = program.days || {};
+  const rxStanding = useMemo(() => standingRx(days, state), [days, state.exercises, state.ticks]);
   const slots = days[sel] || [];
   const did = loggedOn(state, sel);
   const selDate = dayStart(sel);
@@ -6635,6 +6740,54 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
       </Card>
 
       {rxNote && <Callout tone="warn">{rxNote}</Callout>}
+
+      {/* A prescription used to be fire-and-forget: it went into the block and
+          from that moment nothing said what had been added, why, whether you had
+          actually done it, or whether it had worked. This is all four. */}
+      {rxStanding && rxStanding.map((g) => {
+        const dx = g.lift ? diagnoseSticking(state, models, g.lift) : null;
+        const still = dx && g.k && dx.pick.k === g.k;
+        return (
+        <Card key={g.t} accent={C.violet} style={{ padding: "14px 15px" }}>
+          <div style={{ ...label, fontSize: 9, color: C.violet, marginBottom: 7 }}>Weak-point work</div>
+          <div style={{ fontWeight: 800, fontSize: 14.5, letterSpacing: "-0.02em" }}>{g.t}</div>
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 5 }}>
+            {g.at ? `Added ${fmtMeetDate(g.at)} · ` : ""}
+            {g.sessions} session{g.sessions === 1 ? "" : "s"}
+            {g.left ? `, ${g.left} still ahead` : ", all behind you"}
+          </div>
+          <div style={{ marginTop: 11 }}>
+            {g.moves.map((m) => (
+              <div key={m.ex} style={{ display: "flex", justifyContent: "space-between", gap: 10,
+                alignItems: "baseline", padding: "7px 0", borderTop: `1px solid ${C.line}` }}>
+                <span style={{ minWidth: 0, flex: 1, fontSize: 12.5, fontWeight: 700, overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.ex}</span>
+                <span style={{ fontFamily: MONO, fontSize: 11, color: C.muted, flexShrink: 0 }}>{m.line}</span>
+                <span style={{ fontFamily: MONO, fontSize: 11, flexShrink: 0, width: 54, textAlign: "right",
+                  color: m.done ? C.good : C.faint }}>
+                  {m.done ? `${m.done}× done` : "not yet"}
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* The question the whole feature exists to answer, asked of the same
+              numbers that chose the work in the first place. */}
+          <div style={{ fontSize: 11.5, color: still ? C.muted : C.good, marginTop: 11, lineHeight: 1.5 }}>
+            {!g.lift ? "Size work — judge it on the scale and the mirror, not on a ratio."
+              : !dx ? (g.moves.some((m) => m.done)
+                  ? "Nothing in your log is behind its usual share any more. On these numbers it has done its job."
+                  : "Nothing in your log separates the sticking points yet — a few sets of these will give it something to read.")
+              : still ? `Your numbers still point here: ${shortLift(dx.pick.ev.ex)} is ${Math.round(dx.pick.ev.got * 100)}% of your ${shortLift(g.lift)}, where ${Math.round(dx.pick.ev.want * 100)}% is usual.`
+              : `Your numbers now point at ${dx.pick.t.toLowerCase()} instead. Worth running this again.`}
+          </div>
+          <button onClick={() => applyDays(dropRx(days, g.t), "Removed the weak-point work")}
+            style={{ background: "none", border: "none", color: C.faint, fontWeight: 700,
+              fontSize: 11.5, cursor: "pointer", padding: "11px 0 0" }}>
+            Take this work back out
+          </button>
+        </Card>
+        );
+      })}
 
       {pending && (
         <Card accent={C.blue} style={{ padding: "12px 14px" }}>

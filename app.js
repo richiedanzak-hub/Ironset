@@ -8197,7 +8197,20 @@ function SlotCard({
       overflow: "hidden",
       textOverflow: "ellipsis"
     }
-  }, slot.ex), /*#__PURE__*/React.createElement("span", {
+  }, slot.ex, slot.rx && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO,
+      fontSize: 8.5,
+      fontWeight: 700,
+      color: C.violet,
+      letterSpacing: "0.06em",
+      marginLeft: 7,
+      verticalAlign: "middle",
+      border: `1px solid ${tint(C.violet, 0.4)}`,
+      borderRadius: 4,
+      padding: "1px 4px"
+    }
+  }, "RX")), /*#__PURE__*/React.createElement("span", {
     style: {
       display: "block",
       fontFamily: MONO,
@@ -10409,10 +10422,11 @@ function prescribe(ans) {
     moves,
     forced,
     shrink,
+    k: src.k,
     lift: ans.goal === "size" ? null : ans.weak
   };
 }
-const rxSlot = m => {
+const rxSlot = (m, rx) => {
   const timed = TIME_MOVES.has(m.ex);
   const mode = m.mode || "rir";
   return {
@@ -10424,11 +10438,17 @@ const rxSlot = m => {
     reps: Math.max(1, m.reps),
     mode,
     val: clampVal(mode, m.val),
-    // Marked as the coach's, so a plan can always say which movements it put
-    // there and which ones you did.
+    /* Marked as the coach's, and marked with WHAT IT WAS FOR. The flag was
+       written from the first version and never read by anything, so prescribed
+       work was indistinguishable from work you chose: you could not see what had
+       been added, why, or how to take it back out. */
     bo: null,
     note: m.note || "",
-    rx: true
+    rx: true,
+    rxFor: rx ? rx.lift ? `${shortLift(rx.lift)} · ${rx.t}` : rx.t : undefined,
+    rxLift: rx && rx.lift || undefined,
+    rxK: rx && rx.k || undefined,
+    rxAt: rx ? todayStr() : undefined
   };
 };
 /* Which days the prescription would land on. Once a week — enough to move a weak
@@ -10469,9 +10489,54 @@ function applyPrescription(days, rx) {
   const out = {
     ...days
   };
-  for (const k of hit) out[k] = [...(days[k] || []), ...rxNewFor(days[k], rx).map(rxSlot)];
+  for (const k of hit) out[k] = [...(days[k] || []), ...rxNewFor(days[k], rx).map(m => rxSlot(m, rx))];
   return out;
 }
+/* What the coach currently has standing in your block, and what has come of it.
+   A prescription used to be fire-and-forget: it went in, and from that moment
+   nothing distinguished it from anything else or ever asked whether it worked. */
+function standingRx(days, state) {
+  const today = todayStr();
+  const by = {};
+  for (const k of Object.keys(days || {})) {
+    for (const sl of days[k] || []) {
+      if (!sl.rx) continue;
+      const g = by[sl.rxFor || "Weak-point work"] || (by[sl.rxFor || "Weak-point work"] = {
+        t: sl.rxFor || "Weak-point work",
+        at: sl.rxAt || null,
+        lift: sl.rxLift || null,
+        k: sl.rxK || null,
+        moves: {},
+        days: new Set(),
+        left: 0
+      });
+      if (sl.rxAt && (!g.at || sl.rxAt < g.at)) g.at = sl.rxAt;
+      g.days.add(k);
+      if (k >= today) g.left++;
+      const sets = (state.exercises[sl.ex] || {}).sets || [];
+      const ticks = Object.keys(state.ticks || {}).filter(d => (state.ticks[d] || {})[sl.ex]);
+      const m = g.moves[sl.ex] || (g.moves[sl.ex] = {
+        ex: sl.ex,
+        line: null,
+        done: 0
+      });
+      m.line = m.line || slotSummary(sl, state);
+      // Sessions, not sets: one day you did it is one day it had a chance to work.
+      m.done = new Set(sets.map(x => dateStrFromTs(x.ts)).concat(ticks)).size;
+    }
+  }
+  const out = Object.values(by).map(g => ({
+    ...g,
+    sessions: g.days.size,
+    moves: Object.values(g.moves)
+  }));
+  return out.length ? out : null;
+}
+const dropRx = (days, label) => {
+  const out = {};
+  for (const k of Object.keys(days || {})) out[k] = (days[k] || []).filter(sl => !(sl.rx && (sl.rxFor || "Weak-point work") === label));
+  return out;
+};
 // How a prescribed movement reads on a card: 3×8 @ 2 RIR, or 3×0:40 for the
 // things measured on a clock.
 const rxLine = m => TIME_MOVES.has(m.ex) ? `${m.sets}×${fmtDur(m.reps)}` : `${m.sets}×${m.reps} @ ${m.mode === "pct" ? fmt(m.val) + "%" : m.mode === "rir" ? fmt(m.val) + " RIR" : "RPE " + fmt(m.val)}`;
@@ -10537,6 +10602,60 @@ function weakestLift(models) {
     };
   }
   return worst && worst.gap < 0.95 ? worst : null;
+}
+
+/* WHERE A LIFT FAILS, READ OFF THE LIFTER'S OWN NUMBERS.
+
+   Asking "where does your squat break down?" assumes you know. Plenty of people
+   do not, and the app is holding the answer: every variation in the library
+   carries the share of the main lift it is normally worth, and the estimator has
+   already learnt the share YOURS is actually worth. A variation well under its
+   usual share is a variation exposing something, and each sticking point owns
+   one that exposes it. Pause squats far below their usual 86% of your squat
+   means the bottom. Pin squats below theirs means the mid-range. Rack pulls
+   below theirs means the lockout is not the problem — the floor is.
+
+   It only speaks when it has grounds to: a variation needs real sets behind it,
+   and being AT its usual share is evidence of nothing. */
+function diagnoseSticking(state, models, lift) {
+  const list = WEAK_POINTS[lift] || [];
+  const main = models[lift];
+  const mainL = libFind(lift);
+  if (!list.length || !main || main.e1rm == null || !mainL) return null;
+  const out = [];
+  for (const wp of list) {
+    let worst = null;
+    for (const m of wp.fix) {
+      const L = libFind(m.ex);
+      // Only a variation OF THIS LIFT says anything about where it fails. A row
+      // has no share of your squat to be behind on.
+      if (!L || L.c !== mainL.c || !L.r || L.r >= 1) continue;
+      const mm = models[m.ex];
+      const sets = (state.exercises[m.ex] || {}).sets || [];
+      if (!mm || mm.e1rm == null || sets.length < 3) continue;
+      const got = mm.e1rm / main.e1rm,
+        gap = got / L.r;
+      if (!worst || gap < worst.gap) worst = {
+        ex: m.ex,
+        gap,
+        got,
+        want: L.r,
+        n: sets.length
+      };
+    }
+    if (worst) out.push({
+      k: wp.k,
+      t: wp.t,
+      ev: worst
+    });
+  }
+  if (!out.length) return null;
+  out.sort((a, b) => a.ev.gap - b.ev.gap);
+  // Within a couple of percent of where it should be is not a weak point.
+  return out[0].ev.gap < 0.97 ? {
+    pick: out[0],
+    all: out
+  } : null;
 }
 function recommendBlocks(ans, state, models) {
   const gear = COACH_GEAR[ans.gear || "full"];
@@ -10659,6 +10778,8 @@ function CoachSheet({
   // Which sticking points there are to choose between depends entirely on which
   // lift they named, so this list is rebuilt from the answers on every render.
   const wpList = ans.weak && WEAK_POINTS[ans.weak] || [];
+  // What the lifter's own variation history says about where that lift fails.
+  const dx = useMemo(() => open && ans.weak && ans.weak !== "none" ? diagnoseSticking(state, models, ans.weak) : null, [open, ans.weak, state, models]);
   const QS = [{
     id: "goal",
     q: "What are you training for?",
@@ -10973,12 +11094,30 @@ function CoachSheet({
       marginBottom: 12,
       lineHeight: 1.45
     }
-  }, "Your numbers say ", shortLift(weak.name), " \u2014 it is ", Math.round(weak.got * 100), "% of your squat where ", Math.round(weak.share * 100), "% is typical."), /*#__PURE__*/React.createElement("div", {
+  }, "Your numbers say ", shortLift(weak.name), " \u2014 it is ", Math.round(weak.got * 100), "% of your squat where ", Math.round(weak.share * 100), "% is typical."), cur.id === "wp" && dx && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      marginBottom: 12,
+      lineHeight: 1.45
+    }
+  }, "Your numbers say ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.violet
+    }
+  }, dx.pick.t.toLowerCase()), " \u2014 your", " ", shortLift(dx.pick.ev.ex), " is ", Math.round(dx.pick.ev.got * 100), "% of your", " ", shortLift(ans.weak), " where ", Math.round(dx.pick.ev.want * 100), "% is usual, across", " ", dx.pick.ev.n, " set", dx.pick.ev.n === 1 ? "" : "s", "."), cur.id === "wp" && !dx && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.faint,
+      marginBottom: 12,
+      lineHeight: 1.45
+    }
+  }, "I would tell you which it is from your own numbers, but nothing in your log separates them yet \u2014 that needs a few sets of a paused or pin variation. Pick what it feels like; you can change it later."), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 10
     }
   }), cur.opts.map(o => {
-    const suggested = cur.id === "weak" && weak && o.v === weak.name;
+    const suggested = cur.id === "weak" && weak && o.v === weak.name || cur.id === "wp" && dx && o.v === dx.pick.k;
     const on = multi ? chosen.indexOf(o.v) >= 0 : false;
     const lit = on || suggested;
     return /*#__PURE__*/React.createElement("button", {
@@ -11754,6 +11893,7 @@ function ProgramTab({
     }, "Nothing here is required. Skip it and the app works exactly as it does now."));
   }
   const days = program.days || {};
+  const rxStanding = useMemo(() => standingRx(days, state), [days, state.exercises, state.ticks]);
   const slots = days[sel] || [];
   const did = loggedOn(state, sel);
   const selDate = dayStart(sel);
@@ -12180,7 +12320,94 @@ function ProgramTab({
     }
   }, "Reset\u2026"))), rxNote && /*#__PURE__*/React.createElement(Callout, {
     tone: "warn"
-  }, rxNote), pending && /*#__PURE__*/React.createElement(Card, {
+  }, rxNote), rxStanding && rxStanding.map(g => {
+    const dx = g.lift ? diagnoseSticking(state, models, g.lift) : null;
+    const still = dx && g.k && dx.pick.k === g.k;
+    return /*#__PURE__*/React.createElement(Card, {
+      key: g.t,
+      accent: C.violet,
+      style: {
+        padding: "14px 15px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...label,
+        fontSize: 9,
+        color: C.violet,
+        marginBottom: 7
+      }
+    }, "Weak-point work"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 800,
+        fontSize: 14.5,
+        letterSpacing: "-0.02em"
+      }
+    }, g.t), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: C.faint,
+        marginTop: 5
+      }
+    }, g.at ? `Added ${fmtMeetDate(g.at)} · ` : "", g.sessions, " session", g.sessions === 1 ? "" : "s", g.left ? `, ${g.left} still ahead` : ", all behind you"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 11
+      }
+    }, g.moves.map(m => /*#__PURE__*/React.createElement("div", {
+      key: m.ex,
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        alignItems: "baseline",
+        padding: "7px 0",
+        borderTop: `1px solid ${C.line}`
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        minWidth: 0,
+        flex: 1,
+        fontSize: 12.5,
+        fontWeight: 700,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, m.ex), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 11,
+        color: C.muted,
+        flexShrink: 0
+      }
+    }, m.line), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: MONO,
+        fontSize: 11,
+        flexShrink: 0,
+        width: 54,
+        textAlign: "right",
+        color: m.done ? C.good : C.faint
+      }
+    }, m.done ? `${m.done}× done` : "not yet")))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: still ? C.muted : C.good,
+        marginTop: 11,
+        lineHeight: 1.5
+      }
+    }, !g.lift ? "Size work — judge it on the scale and the mirror, not on a ratio." : !dx ? g.moves.some(m => m.done) ? "Nothing in your log is behind its usual share any more. On these numbers it has done its job." : "Nothing in your log separates the sticking points yet — a few sets of these will give it something to read." : still ? `Your numbers still point here: ${shortLift(dx.pick.ev.ex)} is ${Math.round(dx.pick.ev.got * 100)}% of your ${shortLift(g.lift)}, where ${Math.round(dx.pick.ev.want * 100)}% is usual.` : `Your numbers now point at ${dx.pick.t.toLowerCase()} instead. Worth running this again.`), /*#__PURE__*/React.createElement("button", {
+      onClick: () => applyDays(dropRx(days, g.t), "Removed the weak-point work"),
+      style: {
+        background: "none",
+        border: "none",
+        color: C.faint,
+        fontWeight: 700,
+        fontSize: 11.5,
+        cursor: "pointer",
+        padding: "11px 0 0"
+      }
+    }, "Take this work back out"));
+  }), pending && /*#__PURE__*/React.createElement(Card, {
     accent: C.blue,
     style: {
       padding: "12px 14px"
