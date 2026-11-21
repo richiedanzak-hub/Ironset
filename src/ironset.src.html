@@ -6069,6 +6069,39 @@ function CoachSheet({ open, onClose, state, models, onGenerate, unit, rxOnly, on
   // The short flow never shows a template, so it never pays for one.
   const picks = useMemo(() => (done && !rxOnly ? recommendBlocks(ans, state, models) : []), [done, rxOnly, ans, state, models]);
   const rx = useMemo(() => (done ? prescribe(ans) : null), [done, ans]);
+  /* The recommended door used to be the LESS capable of the two: Programmes
+     lets you set the length, move the start and look at the week before you
+     commit, while this one answered ten questions and then landed a block whose
+     shape you had never seen. Same controls, same preview, on whichever pick is
+     selected. */
+  const [chose, setChose] = useState(0);
+  const [plan, setPlan] = useState(null);
+  useEffect(() => { if (open) { setChose(0); setPlan(null); } }, [open, done]);
+  const picked = picks[chose] ? picks[chose].t : null;
+  useEffect(() => {
+    if (!picked) { setPlan(null); return; }
+    const d = picked.days.indexOf(ans.days || 0) >= 0 ? ans.days : picked.days[0];
+    const meetAt = (state.meet && state.meet.date) || null;
+    const wks = Math.min(picked.weeks[1], Math.max(picked.weeks[0], ans.meetin || 6));
+    setPlan({ days: d, weeks: wks, level: ans.level || 2,
+      startDate: picked.meet && meetAt ? addDays(meetAt, -(wks * 7 - 1)) : todayStr() });
+  }, [picked, ans.days, ans.meetin, ans.level]);
+  const setPlanOpt = (patch) => setPlan((o) => {
+    const next = { ...o, ...patch };
+    const meetAt = (state.meet && state.meet.date) || null;
+    // A peaking block's fixed point is the platform, so changing its length moves
+    // the start, not the end.
+    if (picked && picked.meet && meetAt && patch.weeks != null)
+      next.startDate = addDays(meetAt, -(patch.weeks * 7 - 1));
+    return next;
+  });
+  // Week one, as it would actually land — the thing you are agreeing to.
+  const wk1 = useMemo(() => {
+    if (!picked || !plan) return [];
+    let built; try { built = generateProgram(picked, plan); } catch (e) { return []; }
+    return Object.keys(built).sort().slice(0, plan.days)
+      .map((k) => ({ k, slots: built[k] }));
+  }, [picked, plan]);
   const multi = !!(cur && cur.multi);
   const chosen = multi ? (ans[cur.id] || []) : null;
   const toggle = (v) => setAns((a) => {
@@ -6254,13 +6287,65 @@ function CoachSheet({ open, onClose, state, models, onGenerate, unit, rxOnly, on
               <div style={{ fontSize: 11, color: C.faint, marginTop: 9, lineHeight: 1.45 }}>
                 {r.t.how}
               </div>
-              <Btn kind={i ? "ghost" : "primary"} style={{ width: "100%", marginTop: 12, minHeight: 44, fontSize: 13.5 }}
-                onClick={() => { const d = r.t.days.indexOf(ans.days || 0) >= 0 ? ans.days : r.t.days[0];
-                  const wks = Math.min(r.t.weeks[1], Math.max(r.t.weeks[0], ans.meetin || 6));
-                  onGenerate(r.t, { days: d, weeks: wks, level: ans.level || 2, startDate: todayStr() }, rx);
-                  onClose(); }}>
-                Start {r.t.name}
-              </Btn>
+              {i !== chose ? (
+                <Btn kind="ghost" style={{ width: "100%", marginTop: 12, minHeight: 44, fontSize: 13.5 }}
+                  onClick={() => setChose(i)}>Set this one up instead</Btn>
+              ) : plan ? (
+                <>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end",
+                    marginTop: 13, paddingTop: 13, borderTop: `1px solid ${C.line}` }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Weeks</div>
+                      <Stepper compact value={plan.weeks} min={r.t.weeks[0]} max={r.t.weeks[1]}
+                        onChange={(v) => setPlanOpt({ weeks: v })} />
+                    </div>
+                    {r.t.days.length > 1 && (
+                      <div>
+                        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Days a week</div>
+                        <Stepper compact value={plan.days} rungs={r.t.days}
+                          min={r.t.days[0]} max={r.t.days[r.t.days.length - 1]}
+                          onChange={(v) => setPlanOpt({ days: v })} />
+                      </div>
+                    )}
+                    <div style={{ flex: "1 1 130px", minWidth: 0 }}>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>
+                        {r.t.meet && (state.meet || {}).date ? "Starts (counts back)" : "Starts"}
+                      </div>
+                      <input type="date" value={plan.startDate}
+                        onChange={(e) => setPlanOpt({ startDate: e.target.value || todayStr() })}
+                        style={{ width: "100%", boxSizing: "border-box", background: "rgba(0,0,0,0.35)",
+                          border: `1px solid ${C.line}`, borderRadius: R.input, padding: "0 11px", height: 38,
+                          color: C.text, fontFamily: MONO, fontSize: 13, fontWeight: 700, outline: "none",
+                          colorScheme: "dark" }} />
+                    </div>
+                  </div>
+                  {/* What you are actually agreeing to. Committing to a block you
+                      have never seen a day of is how you end up deleting it on
+                      Tuesday. */}
+                  {wk1.length > 0 && (
+                    <div style={{ marginTop: 13 }}>
+                      <div style={{ ...label, fontSize: 9, color: C.faint, marginBottom: 7 }}>
+                        Week one · {plan.weeks} week{plan.weeks === 1 ? "" : "s"} in all
+                      </div>
+                      {wk1.map((d) => (
+                        <div key={d.k} style={{ display: "flex", gap: 9, padding: "6px 0",
+                          borderTop: `1px solid ${C.line}` }}>
+                          <span style={{ ...label2, color: C.faint, width: 30, flexShrink: 0, paddingTop: 2 }}>
+                            {dayStart(d.k).toLocaleDateString(undefined, { weekday: "short" })}
+                          </span>
+                          <span style={{ minWidth: 0, flex: 1, fontSize: 11.5, color: C.muted, lineHeight: 1.45 }}>
+                            {d.slots.map((sl) => shortLift(sl.ex)).join(" · ")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <Btn kind="primary" style={{ width: "100%", marginTop: 13, minHeight: 46, fontSize: 13.5 }}
+                    onClick={() => { onGenerate(r.t, plan, rx); onClose(); }}>
+                    Start {r.t.name}
+                  </Btn>
+                </>
+              ) : null}
             </div>
           ))}
           {/* What goes under the block. A template picks the main work; this is
@@ -6504,6 +6589,11 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
   }, [focusDay]);
   useEffect(() => { if (!undo) return; const t = setTimeout(() => setUndo(null), 7000); return () => clearTimeout(t); }, [undo]);
   useEffect(() => { if (!rxNote) return; const t = setTimeout(() => setRxNote(null), 9000); return () => clearTimeout(t); }, [rxNote]);
+  /* Hooks have to run on every render of this component, and the "no program
+     yet" screen returns before `days` exists — so this reads the program itself
+     rather than sitting below that return. */
+  const rxStanding = useMemo(() => standingRx((program && program.days) || {}, state),
+    [program, state.exercises, state.ticks]);
   const loggedDays = useMemo(() => {
     const m = {};
     for (const ex of Object.values(state.exercises || {}))
@@ -6543,7 +6633,6 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
   }
 
   const days = program.days || {};
-  const rxStanding = useMemo(() => standingRx(days, state), [days, state.exercises, state.ticks]);
   const slots = days[sel] || [];
   const did = loggedOn(state, sel);
   const selDate = dayStart(sel);
