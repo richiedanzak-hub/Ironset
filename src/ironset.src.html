@@ -2913,6 +2913,9 @@ const isAccessory = (name, state) => {
 
 /* ------------------------------- program --------------------------------- */
 const DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/* Rest is chosen off a ladder of the periods people actually use, so one thumb
+   press is one real decision rather than one second. Zero means unspecified. */
+const REST_RUNGS = [0, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300, 420, 600];
 const MODES = [{ v: "rpe", t: "RPE" }, { v: "rir", t: "RIR" }, { v: "pct", t: "%" }];
 // Sessions are stored against real dates. The earlier version kept template weeks
 // that the calendar resolved onto dates, which meant editing one Monday silently
@@ -3872,7 +3875,9 @@ function generateProgram(tpl, opts) {
           mode: sp.mode, val: clampVal(sp.mode, sp.val),
           bo: sp.bo ? { ...sp.bo, sets: Math.max(1, Math.round(sp.bo.sets)),
             reps: Math.max(1, Math.round(sp.bo.reps)), val: clampVal(sp.bo.mode, sp.bo.val) } : null,
-          note: "" };
+          // A template can prescribe rest and say a word about how to run the
+          // movement; both read out in Train rather than being dropped here.
+          rest: sp.rest || undefined, amrap: sp.amrap || undefined, note: sp.note || "" };
       });
     });
   }
@@ -4861,7 +4866,12 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
               overflow: "hidden", textOverflow: "ellipsis" }}>{slot.ex}</span>
             <span style={{ display: "block", fontFamily: MONO, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
               {slotSummary(slot, state)}{slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : ""}
+              {slot.rest ? ` · ${fmtDur(slot.rest)} rest` : ""}
             </span>
+            {slot.note ? (
+              <span style={{ display: "block", fontSize: 11, color: C.faint, marginTop: 3,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.note}</span>
+            ) : null}
           </button>
           <button aria-label="Move up" disabled={!canUp} onClick={() => canUp && onUp()} style={mvBtn(canUp)}>
             <ChevronDown size={14} style={{ transform: "rotate(180deg)" }} />
@@ -4871,30 +4881,28 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
           </button>
         </div>
         {open && (
+          /* This panel used to be eight unrelated decisions in one flat column,
+             in an order that inverted their dependencies: the control naming what
+             the numbers MEAN ("measured in") sat below the numbers, the
+             least-often-changed decision sat at the top, and the superset toggle
+             floated in the middle of it. Four sections now, each a question you
+             can finish before the next one matters: what the work is, what
+             follows it, how it is run, and what this movement is. */
           <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.line}` }}>
-            {/* How much of this movement is worth keeping. The third one is the
-                answer for most accessory work, and it is the one that was missing. */}
-            <div style={{ ...label, fontSize: 9.5, margin: "13px 0 8px" }}>How much to track</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 9 }}>
-              <Chip sm active={slot.role === "main" && !tickOnly} onClick={() => onTrack({ role: "main", tick: false })}>Track in 1RM</Chip>
-              <Chip sm active={slot.role === "accessory" && !tickOnly} onClick={() => onTrack({ role: "accessory", tick: false })}>Log, don&rsquo;t track</Chip>
-              <Chip sm active={tickOnly} onClick={() => onTrack({ role: "accessory", tick: true })}>Just tick it off</Chip>
-            </div>
-            <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, marginBottom: 14 }}>
-              {tickOnly
-                ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates."
-                : slot.role === "main"
-                  ? "Every set feeds your estimated 1RM and your total."
-                  : "Weight and reps are kept and charted, but held out of your 1RM and your total."}
-            </div>
-            {canLink && (
-              <div style={{ marginBottom: 14 }}>
-                <Chip sm active={!!slot.link} onClick={onToggleLink}>
-                  {slot.link ? "✓ Superset with the one above" : "Superset with the one above"}
-                </Chip>
-              </div>
+
+            {/* ---------------- 1. THE WORK ---------------- */}
+            {!tickOnly && (
+              <>
+                <div style={{ ...label, fontSize: 9, color: C.faint, margin: "13px 0 8px" }}>The work</div>
+                {/* First, because it decides what the steppers under it are even
+                    asking for. It used to sit below them. */}
+                <Segmented value={timed ? "time" : slot.mode}
+                  onChange={(m) => up(m === "time" ? { metric: "time", reps: 45 } : { metric: "reps", mode: m, reps: slot.metric === "time" ? 8 : slot.reps, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })}
+                  options={MODES.map((m) => ({ value: m.v, label: m.t })).concat([{ value: "time", label: "Time" }])} />
+              </>
             )}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            {tickOnly && <div style={{ ...label, fontSize: 9, color: C.faint, margin: "13px 0 8px" }}>The work</div>}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: tickOnly ? 0 : 11 }}>
               <div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{grouped ? "Rounds" : "Sets"}</div>
                 <Stepper compact value={slot.sets} min={1} max={12} onChange={(v) => up({ sets: v })} />
@@ -4932,71 +4940,136 @@ function SlotCard({ slot, onChange, onDelete, onRename, tag, grouped, groupFirst
                 </div>
               </div>
             )}
-            <div style={{ marginTop: 13, display: tickOnly ? "none" : undefined }}>
-              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, fontWeight: 700 }}>Measured in</div>
-              <Segmented value={timed ? "time" : slot.mode}
-                onChange={(m) => up(m === "time" ? { metric: "time", reps: 45 } : { metric: "reps", mode: m, reps: slot.metric === "time" ? 8 : slot.reps, val: m === "pct" ? 75 : m === "rir" ? 2 : 8 })}
-                options={MODES.map((m) => ({ value: m.v, label: m.t })).concat([{ value: "time", label: "Time" }])} />
-            </div>
-            {!timed && !tickOnly && <div style={{ height: 1, background: C.line, margin: "14px -14px" }} />}
-            <div style={{ display: timed || tickOnly ? "none" : "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ ...label, fontSize: 9.5 }}>Back-offs</span>
-              <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
-                style={{ background: "none", border: "none", color: C.red, fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
-                {slot.bo ? "Remove" : "+ Add"}
-              </button>
-            </div>
-            {slot.bo && (
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10, alignItems: "flex-end" }}>
-                <div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
-                  <Stepper compact value={slot.bo.sets} min={1} max={8} onChange={(v) => up({ bo: { ...slot.bo, sets: v } })} />
+
+            {/* ---------------- 2. AFTER THE TOP SET ---------------- */}
+            {!timed && !tickOnly && (
+              <>
+                <div style={{ ...label, fontSize: 9, color: C.faint, margin: "15px 0 0",
+                  paddingTop: 14, borderTop: `1px solid ${C.line}`, display: "flex",
+                  justifyContent: "space-between", alignItems: "center" }}>
+                  <span>After the top set</span>
+                  <button onClick={() => up({ bo: slot.bo ? null : { sets: 2, reps: 5, mode: slot.mode, val: slot.mode === "pct" ? 70 : slot.mode === "rir" ? 3 : 7 } })}
+                    style={{ background: "none", border: "none", color: C.red, fontWeight: 800,
+                      fontSize: 11, cursor: "pointer", padding: 0, letterSpacing: "0.04em" }}>
+                    {slot.bo ? "Remove back-offs" : "+ Back-offs"}
+                  </button>
                 </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
-                  <Stepper compact value={slot.bo.reps} min={1} max={30} onChange={(v) => up({ bo: { ...slot.bo, reps: v } })} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()}</div>
-                  <Stepper compact value={slot.bo.val} step={2.5} min={30} max={105}
-                    rungs={slot.bo.mode === "pct" ? null : effortRungs(slot.bo.mode)}
-                    format={slot.bo.mode === "pct" ? null : (v) => effortDigits(v, slot.bo.mode)}
-                    onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
-                </div>
-              </div>
-            )}
-            {/* Back-offs don't have to be the lift you topped out on. Dropping to a
-                paused or deficit variation after the top set is ordinary programming,
-                and Train could already do it — the planner could not. */}
-            {slot.bo && (
-              <div style={{ marginTop: 13 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 700 }}>Back-offs run on</span>
-                  {slot.bo.lift && slot.bo.lift !== slot.ex && (
-                    <button onClick={() => up({ bo: { ...slot.bo, lift: null } })}
-                      style={{ background: "none", border: "none", color: C.red, fontWeight: 800,
-                        fontSize: 11, cursor: "pointer", padding: 0 }}>Same as above</button>
-                  )}
-                </div>
-                <button onClick={() => onPickBoLift && onPickBoLift(slot.id)}
-                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
-                    background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line2}`, borderRadius: R.ctrl,
-                    padding: "10px 12px", cursor: "pointer", color: C.text, textAlign: "left",
-                    WebkitTapHighlightColor: "transparent" }}>
-                  <span style={{ width: 4, height: 16, borderRadius: 2, flexShrink: 0,
-                    background: hueFor(slot.bo.lift || slot.ex, state) }} />
-                  <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 13, overflow: "hidden",
-                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.bo.lift || slot.ex}</span>
-                  <ChevronDown size={15} style={{ color: C.faint, flexShrink: 0 }} />
-                </button>
-                {slot.bo.lift && slot.bo.lift !== slot.ex && (
-                  <div style={{ fontSize: 10.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
-                    Loads come off {slot.bo.lift}'s own share of {slot.ex}, and still chain down from
-                    how the top set actually went.
+                {!slot.bo && (
+                  <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, marginTop: 8 }}>
+                    {slot.sets > 1
+                      ? <>{slot.sets} sets across at the same prescription. Add back-offs instead to make the
+                          first set the heavy one and drop the rest.</>
+                      : <>One set. Add back-offs to follow it with lighter volume.</>}
                   </div>
                 )}
+                {slot.bo && (
+                  <>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 11, alignItems: "flex-end" }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Sets</div>
+                        <Stepper compact value={slot.bo.sets} min={1} max={8} onChange={(v) => up({ bo: { ...slot.bo, sets: v } })} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Reps</div>
+                        <Stepper compact value={slot.bo.reps} min={1} max={30} onChange={(v) => up({ bo: { ...slot.bo, reps: v } })} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>{slot.bo.mode === "pct" ? "%" : slot.bo.mode.toUpperCase()}</div>
+                        <Stepper compact value={slot.bo.val} step={2.5} min={30} max={105}
+                          rungs={slot.bo.mode === "pct" ? null : effortRungs(slot.bo.mode)}
+                          format={slot.bo.mode === "pct" ? null : (v) => effortDigits(v, slot.bo.mode)}
+                          onChange={(v) => up({ bo: { ...slot.bo, val: v } })} />
+                      </div>
+                    </div>
+                    {/* Back-offs don't have to be the lift you topped out on. Dropping to a
+                        paused or deficit variation after the top set is ordinary programming,
+                        and Train could already do it — the planner could not. */}
+                    <div style={{ marginTop: 13 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 700 }}>Back-offs run on</span>
+                        {slot.bo.lift && slot.bo.lift !== slot.ex && (
+                          <button onClick={() => up({ bo: { ...slot.bo, lift: null } })}
+                            style={{ background: "none", border: "none", color: C.red, fontWeight: 800,
+                              fontSize: 11, cursor: "pointer", padding: 0 }}>Same as above</button>
+                        )}
+                      </div>
+                      <button onClick={() => onPickBoLift && onPickBoLift(slot.id)}
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
+                          background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line2}`, borderRadius: R.ctrl,
+                          padding: "10px 12px", cursor: "pointer", color: C.text, textAlign: "left",
+                          WebkitTapHighlightColor: "transparent" }}>
+                        <span style={{ width: 4, height: 16, borderRadius: 2, flexShrink: 0,
+                          background: hueFor(slot.bo.lift || slot.ex, state) }} />
+                        <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 13, overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.bo.lift || slot.ex}</span>
+                        <ChevronDown size={15} style={{ color: C.faint, flexShrink: 0 }} />
+                      </button>
+                      {slot.bo.lift && slot.bo.lift !== slot.ex && (
+                        <div style={{ fontSize: 10.5, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
+                          Loads come off {slot.bo.lift}&rsquo;s own share of {slot.ex}, and still chain down from
+                          how the top set actually went.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ---------------- 3. HOW IT IS RUN ---------------- */}
+            <div style={{ ...label, fontSize: 9, color: C.faint, margin: "15px 0 9px",
+              paddingTop: 14, borderTop: `1px solid ${C.line}` }}>How it is run</div>
+            {canLink && (
+              <div style={{ marginBottom: 11 }}>
+                <Chip sm active={!!slot.link} onClick={onToggleLink}>
+                  {slot.link ? "✓ Superset with the one above" : "Superset with the one above"}
+                </Chip>
               </div>
             )}
+            {/* Rest is a prescription like any other — "3 minutes" and "30 seconds"
+                are different sessions at identical sets, reps and RPE — and the slot
+                had nowhere to say it. */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>Rest between sets</div>
+                <Stepper compact value={slot.rest || 0} min={0} max={600}
+                  rungs={REST_RUNGS} format={(v) => (v ? fmtDur(v) : "—")}
+                  onChange={(v) => up({ rest: v || undefined })} />
+              </div>
+            </div>
+            {/* The slot model has carried a note since the first version and nothing
+                ever showed it, which made every generated "tempo 3-1-1" and
+                "beltless" silently disappear. It is editable here and it reads out
+                in Train, under the movement, where you need it. */}
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, fontWeight: 700 }}>
+                Note <span style={{ color: C.faint, fontWeight: 600 }}>— shows in Train</span>
+              </div>
+              <input value={slot.note || ""} onChange={(e) => up({ note: e.target.value })}
+                placeholder="Tempo, cues, equipment…" maxLength={90}
+                style={{ width: "100%", boxSizing: "border-box", background: "rgba(0,0,0,0.35)",
+                  border: `1px solid ${C.line}`, borderRadius: R.input, padding: "0 11px", height: 38,
+                  color: C.text, fontFamily: SANS, fontSize: 13, fontWeight: 600, outline: "none" }} />
+            </div>
+
+            {/* ---------------- 4. THIS MOVEMENT ---------------- */}
+            <div style={{ ...label, fontSize: 9, color: C.faint, margin: "15px 0 9px",
+              paddingTop: 14, borderTop: `1px solid ${C.line}` }}>This movement</div>
+            {/* How much of this movement is worth keeping. The third one is the
+                answer for most accessory work, and it is the one that was missing. */}
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 7, fontWeight: 700 }}>How much to track</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 9 }}>
+              <Chip sm active={slot.role === "main" && !tickOnly} onClick={() => onTrack({ role: "main", tick: false })}>Track in 1RM</Chip>
+              <Chip sm active={slot.role === "accessory" && !tickOnly} onClick={() => onTrack({ role: "accessory", tick: false })}>Log, don&rsquo;t track</Chip>
+              <Chip sm active={tickOnly} onClick={() => onTrack({ role: "accessory", tick: true })}>Just tick it off</Chip>
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5 }}>
+              {tickOnly
+                ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates."
+                : slot.role === "main"
+                  ? "Every set feeds your estimated 1RM and your total."
+                  : "Weight and reps are kept and charted, but held out of your 1RM and your total."}
+            </div>
             <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
               <Btn kind="ghost" style={{ flex: 1, minHeight: 40, fontSize: 12.5 }} onClick={onRename}>Swap movement</Btn>
               {onMoveDay && (
@@ -6534,24 +6607,30 @@ function ProgramTab({ state, setState, setTab, setSel, models, focusDay, onFocus
         <div style={{ fontSize: 11.5, color: C.faint, marginTop: 13 }}>
           {blockStats.span || "Nothing scheduled yet"}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 9, flexWrap: "wrap" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <button onClick={() => setCoachOpen(true)} style={{ background: "none", border: "none", color: C.red,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Build me a block</button>
-            {/* A block you are already running is not a block you want rebuilt. This
-                door asks the four questions the prescription actually reads and
-                writes the answer into the plan that is already there. */}
-            <button onClick={() => setRxOpen(true)} style={{ background: "none", border: "none", color: C.violet,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Weak point</button>
-            <button onClick={() => setLibOpen(true)} style={{ background: "none", border: "none", color: C.muted,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
-              Library{library.length ? ` · ${library.length}` : ""}
-            </button>
-            <button onClick={() => setPicking2(true)} style={{ background: "none", border: "none", color: C.muted,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Programmes</button>
-            <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.red,
-              fontWeight: 800, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Reset</button>
-          </span>
+        {/* Five identical text links in a row, in which "Reset" — which throws your
+            block away — carried exactly the same weight and colour as "Library".
+            Three ranks instead: the two doors that WRITE a plan read as actions,
+            the two that only browse read as links, and the one that destroys sits
+            apart at the end and looks like the exit it is. */}
+        <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
+          <Btn kind="solid" style={{ flex: "1 1 auto", minHeight: 40, fontSize: 12.5 }}
+            onClick={() => setCoachOpen(true)}>Build me a block</Btn>
+          {/* A block you are already running is not a block you want rebuilt. This
+              door asks the questions the prescription actually reads and writes the
+              answer into the plan that is already there. */}
+          <Btn kind="ghost" style={{ flex: "1 1 auto", minHeight: 40, fontSize: 12.5,
+            color: C.violet, borderColor: tint(C.violet, 0.32) }}
+            onClick={() => setRxOpen(true)}>Fix a weak point</Btn>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 11 }}>
+          <button onClick={() => setPicking2(true)} style={{ background: "none", border: "none", color: C.muted,
+            fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}>Programmes</button>
+          <button onClick={() => setLibOpen(true)} style={{ background: "none", border: "none", color: C.muted,
+            fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}>
+            Library{library.length ? ` · ${library.length}` : ""}
+          </button>
+          <button onClick={() => setResetting(true)} style={{ background: "none", border: "none", color: C.faint,
+            fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}>Reset…</button>
         </div>
       </Card>
 
@@ -6879,6 +6958,7 @@ function SessionRow({ d, pr, state, onPick, onTick }) {
           color: main ? C.muted : C.faint, marginTop: 3,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {slotSummary(sl, state)}{sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : ""}
+          {sl.note ? ` · ${sl.note}` : ""}
         </span>
       </span>
       {pr.tick ? (
@@ -7729,6 +7809,7 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
                 {setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set"}
                 {stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : ""}
                 {stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : ""}
+                {activeSlot && activeSlot.rest ? ` · ${fmtDur(activeSlot.rest)} rest` : ""}
               </div>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -7742,6 +7823,21 @@ function TrainTab({ state, setState, sel, setSel, models, addExercise, updateExe
             </div>
           </div>
   
+          {/* What the plan wanted to tell you. The slot has carried a note since
+              the first version and no screen ever printed it, so every "tempo
+              3-1-1" and "beltless" written into a block vanished on the way to
+              the gym — which is the one place it was for. */}
+          {activeSlot && activeSlot.note ? (
+            <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 11,
+              padding: "8px 11px", borderRadius: R.ctrl, background: tint(selHue, 0.08),
+              border: `1px solid ${tint(selHue, 0.2)}` }}>
+              <span style={{ width: 5, height: 5, borderRadius: 3, background: selHue, flexShrink: 0,
+                marginTop: 5 }} />
+              <span style={{ fontSize: 12, color: C.text, lineHeight: 1.45, fontWeight: 600,
+                minWidth: 0 }}>{activeSlot.note}</span>
+            </div>
+          ) : null}
+
           {/* THE NUMBER. It is what you came to the screen for, so it gets its own
               band with air on both sides rather than being wedged under the title.
               Tight tracking on a 68px glyph eats into whatever follows it, which is

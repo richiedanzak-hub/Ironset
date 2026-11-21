@@ -4746,6 +4746,9 @@ const isAccessory = (name, state) => {
 
 /* ------------------------------- program --------------------------------- */
 const DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/* Rest is chosen off a ladder of the periods people actually use, so one thumb
+   press is one real decision rather than one second. Zero means unspecified. */
+const REST_RUNGS = [0, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300, 420, 600];
 const MODES = [{
   v: "rpe",
   t: "RPE"
@@ -5920,7 +5923,11 @@ function generateProgram(tpl, opts) {
             reps: Math.max(1, Math.round(sp.bo.reps)),
             val: clampVal(sp.bo.mode, sp.bo.val)
           } : null,
-          note: ""
+          // A template can prescribe rest and say a word about how to run the
+          // movement; both read out in Train rather than being dropped here.
+          rest: sp.rest || undefined,
+          amrap: sp.amrap || undefined,
+          note: sp.note || ""
         };
       });
     });
@@ -8198,7 +8205,17 @@ function SlotCard({
       color: C.muted,
       marginTop: 3
     }
-  }, slotSummary(slot, state), slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : "")), /*#__PURE__*/React.createElement("button", {
+  }, slotSummary(slot, state), slot.bo ? ` + ${slot.bo.sets}×${slot.bo.reps} @ ${slot.bo.mode === "pct" ? fmt(slot.bo.val) + "%" : slot.bo.mode === "rir" ? fmt(slot.bo.val) + " RIR" : "RPE " + fmt(slot.bo.val)}${slot.bo.lift && slot.bo.lift !== slot.ex ? " · " + slot.bo.lift : ""}` : "", slot.rest ? ` · ${fmtDur(slot.rest)} rest` : ""), slot.note ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: C.faint,
+      marginTop: 3,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, slot.note) : null), /*#__PURE__*/React.createElement("button", {
     "aria-label": "Move up",
     disabled: !canUp,
     onClick: () => canUp && onUp(),
@@ -8215,66 +8232,59 @@ function SlotCard({
     style: mvBtn(canDown)
   }, /*#__PURE__*/React.createElement(ChevronDown, {
     size: 14
-  }))), open && /*#__PURE__*/React.createElement("div", {
+  }))), open &&
+  /*#__PURE__*/
+  /* This panel used to be eight unrelated decisions in one flat column,
+     in an order that inverted their dependencies: the control naming what
+     the numbers MEAN ("measured in") sat below the numbers, the
+     least-often-changed decision sat at the top, and the superset toggle
+     floated in the middle of it. Four sections now, each a question you
+     can finish before the next one matters: what the work is, what
+     follows it, how it is run, and what this movement is. */
+  React.createElement("div", {
     style: {
       padding: "0 14px 14px",
       borderTop: `1px solid ${C.line}`
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !tickOnly && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       ...label,
-      fontSize: 9.5,
+      fontSize: 9,
+      color: C.faint,
       margin: "13px 0 8px"
     }
-  }, "How much to track"), /*#__PURE__*/React.createElement("div", {
+  }, "The work"), /*#__PURE__*/React.createElement(Segmented, {
+    value: timed ? "time" : slot.mode,
+    onChange: m => up(m === "time" ? {
+      metric: "time",
+      reps: 45
+    } : {
+      metric: "reps",
+      mode: m,
+      reps: slot.metric === "time" ? 8 : slot.reps,
+      val: m === "pct" ? 75 : m === "rir" ? 2 : 8
+    }),
+    options: MODES.map(m => ({
+      value: m.v,
+      label: m.t
+    })).concat([{
+      value: "time",
+      label: "Time"
+    }])
+  })), tickOnly && /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      gap: 6,
-      flexWrap: "wrap",
-      marginBottom: 9
-    }
-  }, /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: slot.role === "main" && !tickOnly,
-    onClick: () => onTrack({
-      role: "main",
-      tick: false
-    })
-  }, "Track in 1RM"), /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: slot.role === "accessory" && !tickOnly,
-    onClick: () => onTrack({
-      role: "accessory",
-      tick: false
-    })
-  }, "Log, don\u2019t track"), /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: tickOnly,
-    onClick: () => onTrack({
-      role: "accessory",
-      tick: true
-    })
-  }, "Just tick it off")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
+      ...label,
+      fontSize: 9,
       color: C.faint,
-      lineHeight: 1.5,
-      marginBottom: 14
+      margin: "13px 0 8px"
     }
-  }, tickOnly ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates." : slot.role === "main" ? "Every set feeds your estimated 1RM and your total." : "Weight and reps are kept and charted, but held out of your 1RM and your total."), canLink && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement(Chip, {
-    sm: true,
-    active: !!slot.link,
-    onClick: onToggleLink
-  }, slot.link ? "✓ Superset with the one above" : "Superset with the one above")), /*#__PURE__*/React.createElement("div", {
+  }, "The work"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
       flexWrap: "wrap",
-      alignItems: "flex-end"
+      alignItems: "flex-end",
+      marginTop: tickOnly ? 0 : 11
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -8366,54 +8376,19 @@ function SlotCard({
     style: {
       color: C.muted
     }
-  }, slot.reps, " @ ", slotLabel(slot)), ". Switch this on and that stays the load; you just keep going past the reps."))), /*#__PURE__*/React.createElement("div", {
+  }, slot.reps, " @ ", slotLabel(slot)), ". Switch this on and that stays the load; you just keep going past the reps."))), !timed && !tickOnly && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 13,
-      display: tickOnly ? "none" : undefined
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10.5,
-      color: C.muted,
-      marginBottom: 6,
-      fontWeight: 700
-    }
-  }, "Measured in"), /*#__PURE__*/React.createElement(Segmented, {
-    value: timed ? "time" : slot.mode,
-    onChange: m => up(m === "time" ? {
-      metric: "time",
-      reps: 45
-    } : {
-      metric: "reps",
-      mode: m,
-      reps: slot.metric === "time" ? 8 : slot.reps,
-      val: m === "pct" ? 75 : m === "rir" ? 2 : 8
-    }),
-    options: MODES.map(m => ({
-      value: m.v,
-      label: m.t
-    })).concat([{
-      value: "time",
-      label: "Time"
-    }])
-  })), !timed && !tickOnly && /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 1,
-      background: C.line,
-      margin: "14px -14px"
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: timed || tickOnly ? "none" : "flex",
+      ...label,
+      fontSize: 9,
+      color: C.faint,
+      margin: "15px 0 0",
+      paddingTop: 14,
+      borderTop: `1px solid ${C.line}`,
+      display: "flex",
       justifyContent: "space-between",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      ...label,
-      fontSize: 9.5
-    }
-  }, "Back-offs"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, "After the top set"), /*#__PURE__*/React.createElement("button", {
     onClick: () => up({
       bo: slot.bo ? null : {
         sets: 2,
@@ -8427,16 +8402,24 @@ function SlotCard({
       border: "none",
       color: C.red,
       fontWeight: 800,
-      fontSize: 11.5,
+      fontSize: 11,
       cursor: "pointer",
-      padding: 0
+      padding: 0,
+      letterSpacing: "0.04em"
     }
-  }, slot.bo ? "Remove" : "+ Add")), slot.bo && /*#__PURE__*/React.createElement("div", {
+  }, slot.bo ? "Remove back-offs" : "+ Back-offs")), !slot.bo && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      lineHeight: 1.5,
+      marginTop: 8
+    }
+  }, slot.sets > 1 ? /*#__PURE__*/React.createElement(React.Fragment, null, slot.sets, " sets across at the same prescription. Add back-offs instead to make the first set the heavy one and drop the rest.") : /*#__PURE__*/React.createElement(React.Fragment, null, "One set. Add back-offs to follow it with lighter volume.")), slot.bo && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
       flexWrap: "wrap",
-      marginTop: 10,
+      marginTop: 11,
       alignItems: "flex-end"
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -8496,7 +8479,7 @@ function SlotCard({
         val: v
       }
     })
-  }))), slot.bo && /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 13
     }
@@ -8576,7 +8559,135 @@ function SlotCard({
       marginTop: 6,
       lineHeight: 1.5
     }
-  }, "Loads come off ", slot.bo.lift, "'s own share of ", slot.ex, ", and still chain down from how the top set actually went.")), /*#__PURE__*/React.createElement("div", {
+  }, "Loads come off ", slot.bo.lift, "\u2019s own share of ", slot.ex, ", and still chain down from how the top set actually went.")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.faint,
+      margin: "15px 0 9px",
+      paddingTop: 14,
+      borderTop: `1px solid ${C.line}`
+    }
+  }, "How it is run"), canLink && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 11
+    }
+  }, /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: !!slot.link,
+    onClick: onToggleLink
+  }, slot.link ? "✓ Superset with the one above" : "Superset with the one above")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 5,
+      fontWeight: 700
+    }
+  }, "Rest between sets"), /*#__PURE__*/React.createElement(Stepper, {
+    compact: true,
+    value: slot.rest || 0,
+    min: 0,
+    max: 600,
+    rungs: REST_RUNGS,
+    format: v => v ? fmtDur(v) : "—",
+    onChange: v => up({
+      rest: v || undefined
+    })
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 13
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 5,
+      fontWeight: 700
+    }
+  }, "Note ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.faint,
+      fontWeight: 600
+    }
+  }, "\u2014 shows in Train")), /*#__PURE__*/React.createElement("input", {
+    value: slot.note || "",
+    onChange: e => up({
+      note: e.target.value
+    }),
+    placeholder: "Tempo, cues, equipment\u2026",
+    maxLength: 90,
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      background: "rgba(0,0,0,0.35)",
+      border: `1px solid ${C.line}`,
+      borderRadius: R.input,
+      padding: "0 11px",
+      height: 38,
+      color: C.text,
+      fontFamily: SANS,
+      fontSize: 13,
+      fontWeight: 600,
+      outline: "none"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...label,
+      fontSize: 9,
+      color: C.faint,
+      margin: "15px 0 9px",
+      paddingTop: 14,
+      borderTop: `1px solid ${C.line}`
+    }
+  }, "This movement"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: C.muted,
+      marginBottom: 7,
+      fontWeight: 700
+    }
+  }, "How much to track"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      marginBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: slot.role === "main" && !tickOnly,
+    onClick: () => onTrack({
+      role: "main",
+      tick: false
+    })
+  }, "Track in 1RM"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: slot.role === "accessory" && !tickOnly,
+    onClick: () => onTrack({
+      role: "accessory",
+      tick: false
+    })
+  }, "Log, don\u2019t track"), /*#__PURE__*/React.createElement(Chip, {
+    sm: true,
+    active: tickOnly,
+    onClick: () => onTrack({
+      role: "accessory",
+      tick: true
+    })
+  }, "Just tick it off")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.faint,
+      lineHeight: 1.5
+    }
+  }, tickOnly ? "No weight, no reps to record — it shows up in the session and you tap it done. Nothing about it reaches your estimates." : slot.role === "main" ? "Every set feeds your estimated 1RM and your total." : "Weight and reps are kept and charted, but held out of your 1RM and your total."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -12004,74 +12115,70 @@ function ProgramTab({
   }, blockStats.span || "Nothing scheduled yet"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      alignItems: "center",
-      gap: 14,
-      marginTop: 9,
+      gap: 8,
+      marginTop: 11,
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(Btn, {
+    kind: "solid",
     style: {
-      display: "inline-flex",
+      flex: "1 1 auto",
+      minHeight: 40,
+      fontSize: 12.5
+    },
+    onClick: () => setCoachOpen(true)
+  }, "Build me a block"), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    style: {
+      flex: "1 1 auto",
+      minHeight: 40,
+      fontSize: 12.5,
+      color: C.violet,
+      borderColor: tint(C.violet, 0.32)
+    },
+    onClick: () => setRxOpen(true)
+  }, "Fix a weak point")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
       alignItems: "center",
       gap: 14,
-      flexWrap: "wrap"
+      marginTop: 11
     }
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setCoachOpen(true),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.red,
-      fontWeight: 800,
-      fontSize: 11.5,
-      cursor: "pointer",
-      padding: 0
-    }
-  }, "Build me a block"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setRxOpen(true),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.violet,
-      fontWeight: 800,
-      fontSize: 11.5,
-      cursor: "pointer",
-      padding: 0
-    }
-  }, "Weak point"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setLibOpen(true),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.muted,
-      fontWeight: 800,
-      fontSize: 11.5,
-      cursor: "pointer",
-      padding: 0
-    }
-  }, "Library", library.length ? ` · ${library.length}` : ""), /*#__PURE__*/React.createElement("button", {
     onClick: () => setPicking2(true),
     style: {
       background: "none",
       border: "none",
       color: C.muted,
-      fontWeight: 800,
+      fontWeight: 700,
       fontSize: 11.5,
       cursor: "pointer",
       padding: 0
     }
   }, "Programmes"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setResetting(true),
+    onClick: () => setLibOpen(true),
     style: {
       background: "none",
       border: "none",
-      color: C.red,
-      fontWeight: 800,
+      color: C.muted,
+      fontWeight: 700,
       fontSize: 11.5,
       cursor: "pointer",
       padding: 0
     }
-  }, "Reset")))), rxNote && /*#__PURE__*/React.createElement(Callout, {
+  }, "Library", library.length ? ` · ${library.length}` : ""), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setResetting(true),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.faint,
+      fontWeight: 700,
+      fontSize: 11.5,
+      cursor: "pointer",
+      padding: 0,
+      marginLeft: "auto"
+    }
+  }, "Reset\u2026"))), rxNote && /*#__PURE__*/React.createElement(Callout, {
     tone: "warn"
   }, rxNote), pending && /*#__PURE__*/React.createElement(Card, {
     accent: C.blue,
@@ -12773,7 +12880,7 @@ function SessionRow({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, slotSummary(sl, state), sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : "")), pr.tick ? /*#__PURE__*/React.createElement("button", {
+  }, slotSummary(sl, state), sl.bo ? ` + ${sl.bo.sets}×${sl.bo.reps}` : "", sl.note ? ` · ${sl.note}` : "")), pr.tick ? /*#__PURE__*/React.createElement("button", {
     onClick: e => {
       e.stopPropagation();
       onTick && onTick(!done);
@@ -14081,7 +14188,7 @@ function TrainTab({
       fontFamily: MONO,
       color: selHue
     }
-  }, activeTag.tag, " \xB7 ") : null, setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set", stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : "", stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : "")), /*#__PURE__*/React.createElement("div", {
+  }, activeTag.tag, " \xB7 ") : null, setsAsked > 1 ? `Set ${Math.min(setsIn + 1, setsAsked)} of ${setsAsked}` : "Your set", stepsDiffer ? ` · ${onFirst ? "Top set" : `Back-off ${doneCount + 1}`}` : "", stepTarget !== sel ? ` · ${shortLift(stepTarget)}` : "", activeSlot && activeSlot.rest ? ` · ${fmtDur(activeSlot.rest)} rest` : "")), /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "right",
       flexShrink: 0
@@ -14101,7 +14208,35 @@ function TrainTab({
       marginTop: 3,
       fontVariantNumeric: "tabular-nums"
     }
-  }, accMode ? accWork != null ? fmt(roundTo(accWork, round)) : "—" : e1rm != null ? fmt(roundTo(e1rm, round)) : "—"))), /*#__PURE__*/React.createElement("div", {
+  }, accMode ? accWork != null ? fmt(roundTo(accWork, round)) : "—" : e1rm != null ? fmt(roundTo(e1rm, round)) : "—"))), activeSlot && activeSlot.note ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 7,
+      alignItems: "flex-start",
+      marginTop: 11,
+      padding: "8px 11px",
+      borderRadius: R.ctrl,
+      background: tint(selHue, 0.08),
+      border: `1px solid ${tint(selHue, 0.2)}`
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      background: selHue,
+      flexShrink: 0,
+      marginTop: 5
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: C.text,
+      lineHeight: 1.45,
+      fontWeight: 600,
+      minWidth: 0
+    }
+  }, activeSlot.note)) : null, /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       margin: "13px -16px 0",
