@@ -14343,14 +14343,20 @@ function TrainTab({
       const got = logged[i] || null;
       let tR,
         tI,
+        tP,
         lift = sel;
+      // The percentage each row is prescribed at, carried alongside the RPE. On a
+      // percent-mode day this is the target; the RPE beside it is a fallback the
+      // row must not print as if it were one.
       if (i === 0 || straightCount) {
         tR = tReps;
         tI = tRpe;
+        tP = topPct;
       } else {
         const st = stepAt(i - 1);
         tR = st.reps;
         tI = st.rpe;
+        tP = st.pct != null ? st.pct : boPct;
         lift = st.lift || sel;
       }
       rows.push({
@@ -14358,13 +14364,14 @@ function TrainTab({
         got,
         tReps: tR,
         tRpe: tI,
+        tPct: tP,
         lift,
         amrap: !!(activeSlot && activeSlot.amrap && (activeSlot.amrap === "all" || i + 1 >= setsAsked)),
         extra: i >= setsAsked
       });
     }
     return rows;
-  }, [topToday, todayBos, setsAsked, straightCount, tReps, tRpe, boSteps, bo, sel, activeSlot]);
+  }, [topToday, todayBos, setsAsked, straightCount, tReps, tRpe, topPct, boPct, boSteps, bo, sel, activeSlot]);
   const drift = useMemo(() => sel ? rpeDrift(state, sel, 28) : null, [state.exercises, sel]);
   const dayProgress = useMemo(() => {
     let done = 0,
@@ -15287,7 +15294,18 @@ function TrainTab({
     }
   }, ledger.map(r => {
     const now = !r.got && r.i === setsIn;
-    const eff = v => percentMode ? `${fmt(v)}%` : effortLabel(v, inputMode);
+    /* A row's effort has to be printed in the language it was measured
+       in. This put a "%" after whatever number it was handed, and the
+       numbers it was handed were always RPEs — so on a speed day
+       programmed at 67.5%, a set rated RPE 3 came out as "@ 3%" and
+       every set still to come read "@ 8.5%". Both were inventions.
+        In percent mode a target reads as the percentage it was written
+       at, and a logged set reads as the percentage the bar actually
+       was — off the same reference max the suggestion came from, so
+       the two columns compare. The RPE you rated it is still on the
+       set, and still there when you tap the row to edit it. */
+    const effAsk = r => percentMode && r.tPct != null ? `${fmt(r.tPct)}%` : effortLabel(r.tRpe, inputMode);
+    const effGot = st => percentMode && ref && st.weight ? `${fmt(roundTo(st.weight / ref * 100, 0.5))}%` : effortLabel(st.rpe, inputMode);
     const inner = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       style: {
         ...label2,
@@ -15313,7 +15331,7 @@ function TrainTab({
         color: C.muted,
         fontWeight: 600
       }
-    }, "@ ", eff(r.got.rpe)))
+    }, "@ ", effGot(r.got)))
     /* No "×" on a set not yet done: the glyph promises a weight,
        and the weight for set 4 depends on fatigue sets 1-3 have
        not generated yet. Reps and effort only. */ : /*#__PURE__*/React.createElement(React.Fragment, null, r.amrap ? /*#__PURE__*/React.createElement("span", {
@@ -15325,7 +15343,7 @@ function TrainTab({
         color: C.muted,
         fontWeight: 600
       }
-    }, "@ ", eff(r.tRpe)))), r.lift !== sel && /*#__PURE__*/React.createElement("span", {
+    }, "@ ", effAsk(r)))), r.lift !== sel && /*#__PURE__*/React.createElement("span", {
       style: {
         ...label2,
         color: C.faint,

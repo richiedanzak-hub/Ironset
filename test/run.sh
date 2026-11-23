@@ -12,7 +12,7 @@
 cd "$(dirname "$0")/.." || exit 1
 : "${SP:?set SP to a directory holding vendor/node_modules — see the comment above}"
 bad=0
-for f in err custom ready tick train cal fail plan weak build rank; do
+for f in err custom ready tick train cal fail plan weak build rank pct; do
   out=$(node "test/$f.mjs" 2>&1); rc=$?
   n=$(echo "$out" | grep -cE "^(FAIL|  FAIL)|^FAILS |FAIL:")
   if [ $rc -ne 0 ] || [ "$n" != "0" ]; then
